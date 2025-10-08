@@ -1,0 +1,1261 @@
+[2025-09-20 22:11:34] 🚀 Start train_regime.py
+[2025-09-20 22:11:34] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:11:34] 📁 features_dir: data/features
+[2025-09-20 22:11:34] ❌ FEHLER:
+[2025-09-20 22:11:34] Traceback (most recent call last):
+[2025-09-20 22:11:34]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 286, in <module>
+[2025-09-20 22:11:34]     main()
+[2025-09-20 22:11:34]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 235, in main
+[2025-09-20 22:11:34]     df = load_feature_frames(cfg["features_dir"], cfg["assets"], cfg["timeframes"], cfg.get("mode_filter", "BACKTEST"))
+[2025-09-20 22:11:34]          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:11:34]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 31, in load_feature_frames
+[2025-09-20 22:11:34]     raise FileNotFoundError(f"features_dir existiert nicht: {features_dir}")
+[2025-09-20 22:11:34] FileNotFoundError: features_dir existiert nicht: data\features
+[2025-09-20 22:11:49] 🚀 Start train_regime.py
+[2025-09-20 22:11:49] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:11:49] 📁 features_dir: data/features
+[2025-09-20 22:11:49] ❌ FEHLER:
+[2025-09-20 22:11:49] Traceback (most recent call last):
+[2025-09-20 22:11:49]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 286, in <module>
+[2025-09-20 22:11:49]     main()
+[2025-09-20 22:11:49]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 235, in main
+[2025-09-20 22:11:49]     df = load_feature_frames(cfg["features_dir"], cfg["assets"], cfg["timeframes"], cfg.get("mode_filter", "BACKTEST"))
+[2025-09-20 22:11:49]          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:11:49]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 31, in load_feature_frames
+[2025-09-20 22:11:49]     raise FileNotFoundError(f"features_dir existiert nicht: {features_dir}")
+[2025-09-20 22:11:49] FileNotFoundError: features_dir existiert nicht: data\features
+[2025-09-20 22:13:31] 🚀 Start train_regime.py
+[2025-09-20 22:13:31] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:13:31] 📁 features_dir: F:/TradingBot/FTMOEA/data/features
+[2025-09-20 22:13:31] ❌ FEHLER:
+[2025-09-20 22:13:31] Traceback (most recent call last):
+[2025-09-20 22:13:31]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 286, in <module>
+[2025-09-20 22:13:31]     main()
+[2025-09-20 22:13:31]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 235, in main
+[2025-09-20 22:13:31]     df = load_feature_frames(cfg["features_dir"], cfg["assets"], cfg["timeframes"], cfg.get("mode_filter", "BACKTEST"))
+[2025-09-20 22:13:31]          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:13:31]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 31, in load_feature_frames
+[2025-09-20 22:13:31]     raise FileNotFoundError(f"features_dir existiert nicht: {features_dir}")
+[2025-09-20 22:13:31] FileNotFoundError: features_dir existiert nicht: F:\TradingBot\FTMOEA\data\features
+[2025-09-20 22:13:36] 🚀 Start train_regime.py
+[2025-09-20 22:13:36] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:13:36] 📁 features_dir: F:/TradingBot/FTMOEA/data/features
+[2025-09-20 22:13:36] ❌ FEHLER:
+[2025-09-20 22:13:36] Traceback (most recent call last):
+[2025-09-20 22:13:36]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 286, in <module>
+[2025-09-20 22:13:36]     main()
+[2025-09-20 22:13:36]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 235, in main
+[2025-09-20 22:13:36]     df = load_feature_frames(cfg["features_dir"], cfg["assets"], cfg["timeframes"], cfg.get("mode_filter", "BACKTEST"))
+[2025-09-20 22:13:36]          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:13:36]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 31, in load_feature_frames
+[2025-09-20 22:13:36]     raise FileNotFoundError(f"features_dir existiert nicht: {features_dir}")
+[2025-09-20 22:13:36] FileNotFoundError: features_dir existiert nicht: F:\TradingBot\FTMOEA\data\features
+[2025-09-20 22:13:49] 🚀 Start train_regime.py
+[2025-09-20 22:13:49] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:13:49] 📁 features_dir: F:/TradingBot/FTMOEA/data/features
+[2025-09-20 22:13:49] ❌ FEHLER:
+[2025-09-20 22:13:49] Traceback (most recent call last):
+[2025-09-20 22:13:49]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 286, in <module>
+[2025-09-20 22:13:49]     main()
+[2025-09-20 22:13:49]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 235, in main
+[2025-09-20 22:13:49]     df = load_feature_frames(cfg["features_dir"], cfg["assets"], cfg["timeframes"], cfg.get("mode_filter", "BACKTEST"))
+[2025-09-20 22:13:49]          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:13:49]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 31, in load_feature_frames
+[2025-09-20 22:13:49]     raise FileNotFoundError(f"features_dir existiert nicht: {features_dir}")
+[2025-09-20 22:13:49] FileNotFoundError: features_dir existiert nicht: F:\TradingBot\FTMOEA\data\features
+[2025-09-20 22:20:08] 🚀 Start train_regime.py
+[2025-09-20 22:20:08] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:20:08] 📁 features_dir: F:/TradingBot/FTMOEA/data/features
+[2025-09-20 22:20:08] ❌ FEHLER:
+[2025-09-20 22:20:08] Traceback (most recent call last):
+[2025-09-20 22:20:08]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 286, in <module>
+[2025-09-20 22:20:08]     main()
+[2025-09-20 22:20:08]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 235, in main
+[2025-09-20 22:20:08]     df = load_feature_frames(cfg["features_dir"], cfg["assets"], cfg["timeframes"], cfg.get("mode_filter", "BACKTEST"))
+[2025-09-20 22:20:08]          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:20:08]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 31, in load_feature_frames
+[2025-09-20 22:20:08]     raise FileNotFoundError(f"features_dir existiert nicht: {features_dir}")
+[2025-09-20 22:20:08] FileNotFoundError: features_dir existiert nicht: F:\TradingBot\FTMOEA\data\features
+[2025-09-20 22:20:18] 🚀 Start train_regime.py
+[2025-09-20 22:20:18] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:20:18] 📁 features_dir: F:/TradingBot/FTMOEA/data/features
+[2025-09-20 22:20:18] ❌ FEHLER:
+[2025-09-20 22:20:18] Traceback (most recent call last):
+[2025-09-20 22:20:18]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 286, in <module>
+[2025-09-20 22:20:18]     main()
+[2025-09-20 22:20:18]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 235, in main
+[2025-09-20 22:20:18]     df = load_feature_frames(cfg["features_dir"], cfg["assets"], cfg["timeframes"], cfg.get("mode_filter", "BACKTEST"))
+[2025-09-20 22:20:18]          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:20:18]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 31, in load_feature_frames
+[2025-09-20 22:20:18]     raise FileNotFoundError(f"features_dir existiert nicht: {features_dir}")
+[2025-09-20 22:20:18] FileNotFoundError: features_dir existiert nicht: F:\TradingBot\FTMOEA\data\features
+[2025-09-20 22:21:19] 🚀 Start train_regime.py
+[2025-09-20 22:21:19] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:21:19] 📁 features_dir: F:/TradingBot/FTMOEA/data/features
+[2025-09-20 22:21:19] ❌ FEHLER:
+[2025-09-20 22:21:19] Traceback (most recent call last):
+[2025-09-20 22:21:19]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 286, in <module>
+[2025-09-20 22:21:19]     main()
+[2025-09-20 22:21:19]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 235, in main
+[2025-09-20 22:21:19]     df = load_feature_frames(cfg["features_dir"], cfg["assets"], cfg["timeframes"], cfg.get("mode_filter", "BACKTEST"))
+[2025-09-20 22:21:19]          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:21:19]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 31, in load_feature_frames
+[2025-09-20 22:21:19]     raise FileNotFoundError(f"features_dir existiert nicht: {features_dir}")
+[2025-09-20 22:21:19] FileNotFoundError: features_dir existiert nicht: F:\TradingBot\FTMOEA\data\features
+[2025-09-20 22:21:54] 🚀 Start train_regime.py
+[2025-09-20 22:21:54] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:21:54] 📁 features_dir: F:/TradingBot/FTMOEA/data/features
+[2025-09-20 22:21:54] ❌ FEHLER:
+[2025-09-20 22:21:54] Traceback (most recent call last):
+[2025-09-20 22:21:54]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 286, in <module>
+[2025-09-20 22:21:54]     main()
+[2025-09-20 22:21:54]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 235, in main
+[2025-09-20 22:21:54]     df = load_feature_frames(cfg["features_dir"], cfg["assets"], cfg["timeframes"], cfg.get("mode_filter", "BACKTEST"))
+[2025-09-20 22:21:54]          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:21:54]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 31, in load_feature_frames
+[2025-09-20 22:21:54]     raise FileNotFoundError(f"features_dir existiert nicht: {features_dir}")
+[2025-09-20 22:21:54] FileNotFoundError: features_dir existiert nicht: F:\TradingBot\FTMOEA\data\features
+[2025-09-20 22:22:09] 🚀 Start train_regime.py
+[2025-09-20 22:22:09] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:22:09] 📁 features_dir: F:/TradingBot/FTMOEA/data/features
+[2025-09-20 22:22:09] ❌ FEHLER:
+[2025-09-20 22:22:09] Traceback (most recent call last):
+[2025-09-20 22:22:09]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 286, in <module>
+[2025-09-20 22:22:09]     main()
+[2025-09-20 22:22:09]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 235, in main
+[2025-09-20 22:22:09]     df = load_feature_frames(cfg["features_dir"], cfg["assets"], cfg["timeframes"], cfg.get("mode_filter", "BACKTEST"))
+[2025-09-20 22:22:09]          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:22:09]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 31, in load_feature_frames
+[2025-09-20 22:22:09]     raise FileNotFoundError(f"features_dir existiert nicht: {features_dir}")
+[2025-09-20 22:22:09] FileNotFoundError: features_dir existiert nicht: F:\TradingBot\FTMOEA\data\features
+[2025-09-20 22:25:23] 🚀 Start train_regime.py
+[2025-09-20 22:25:23] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:25:23] 📁 features_dir: F:/TradingBot/FTMOEA/data/features
+[2025-09-20 22:25:23] ❌ FEHLER:
+[2025-09-20 22:25:23] Traceback (most recent call last):
+[2025-09-20 22:25:23]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 290, in <module>
+[2025-09-20 22:25:23]     main()
+[2025-09-20 22:25:23]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 239, in main
+[2025-09-20 22:25:23]     df = load_feature_frames(cfg["features_dir"], cfg["assets"], cfg["timeframes"], cfg.get("mode_filter", "BACKTEST"))
+[2025-09-20 22:25:23]          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:25:23]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 29, in load_feature_frames
+[2025-09-20 22:25:23]     features_dir = Path(features_dir)
+[2025-09-20 22:25:23]                    ^^^^
+[2025-09-20 22:25:23] UnboundLocalError: cannot access local variable 'Path' where it is not associated with a value
+[2025-09-20 22:28:45] 🚀 Start train_regime.py
+[2025-09-20 22:28:45] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:28:45] Resolved features_dir: F:\TradingBot\FTMOEA\data\features
+[2025-09-20 22:28:45] Resolved artifacts_dir: F:\TradingBot\FTMOEA\models\regime\v1
+[2025-09-20 22:28:45] features_dir exists? False
+[2025-09-20 22:28:45] features_dir content sample: []
+[2025-09-20 22:28:45] 📁 features_dir: F:\TradingBot\FTMOEA\data\features
+[2025-09-20 22:28:46] ❌ FEHLER:
+[2025-09-20 22:28:46] Traceback (most recent call last):
+[2025-09-20 22:28:46]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 300, in <module>
+[2025-09-20 22:28:46]     main()
+[2025-09-20 22:28:46]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 249, in main
+[2025-09-20 22:28:46]     df = load_feature_frames(cfg["features_dir"], cfg["assets"], cfg["timeframes"], cfg.get("mode_filter", "BACKTEST"))
+[2025-09-20 22:28:46]          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:28:46]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 32, in load_feature_frames
+[2025-09-20 22:28:46]     raise FileNotFoundError(f"features_dir existiert nicht: {features_dir}")
+[2025-09-20 22:28:46] FileNotFoundError: features_dir existiert nicht: F:\TradingBot\FTMOEA\data\features
+[2025-09-20 22:29:53] 🚀 Start train_regime.py
+[2025-09-20 22:29:53] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:29:53] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:29:53] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 22:29:53] features_dir exists? True
+[2025-09-20 22:29:53] features_dir content sample: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 22:29:53] 📁 features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:29:53] 📦 Dateien geladen (9):
+[2025-09-20 22:29:53]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_5m_BACKTEST.parquet
+[2025-09-20 22:29:53]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_15m_BACKTEST.parquet
+[2025-09-20 22:29:53]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_1h_BACKTEST.parquet
+[2025-09-20 22:29:53]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_5m_BACKTEST.parquet
+[2025-09-20 22:29:53]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_15m_BACKTEST.parquet
+[2025-09-20 22:29:53]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_1h_BACKTEST.parquet
+[2025-09-20 22:29:53]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_5m_BACKTEST.parquet
+[2025-09-20 22:29:53]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_15m_BACKTEST.parquet
+[2025-09-20 22:29:53]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_1h_BACKTEST.parquet
+[2025-09-20 22:29:53] ✅ Gesamtzeilen geladen: 25,036
+[2025-09-20 22:29:53] Columns vorhanden: ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50'] ...
+[2025-09-20 22:29:53] Zeitspanne: 2025-06-02 00:00:00+00:00 → 2025-06-30 21:55:00+00:00
+[2025-09-20 22:29:53] Features genutzt (15): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-20 22:29:53] ✅ Features skaliert
+[2025-09-20 22:29:58] 🔎 HDBSCAN: clusters (unique) = 3 (inkl. noise)
+[2025-09-20 22:29:58] 🗺️  Cluster → Regime Mapping Beispiel (bis zu 10): [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-20 22:29:58] ❌ FEHLER:
+[2025-09-20 22:29:58] Traceback (most recent call last):
+[2025-09-20 22:29:58]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 300, in <module>
+[2025-09-20 22:29:58]     main()
+[2025-09-20 22:29:58]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 269, in main
+[2025-09-20 22:29:58]     raise RuntimeError("Zu wenige Monate für Walk-forward. Passe min_train_months/test_months an.")
+[2025-09-20 22:29:58] RuntimeError: Zu wenige Monate für Walk-forward. Passe min_train_months/test_months an.
+[2025-09-20 22:30:30] 🚀 Start train_regime.py
+[2025-09-20 22:30:30] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:30:30] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:30:30] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 22:30:30] features_dir exists? True
+[2025-09-20 22:30:30] features_dir content sample: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 22:30:30] 📁 features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:30:30] 📦 Dateien geladen (9):
+[2025-09-20 22:30:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_5m_BACKTEST.parquet
+[2025-09-20 22:30:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_15m_BACKTEST.parquet
+[2025-09-20 22:30:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_1h_BACKTEST.parquet
+[2025-09-20 22:30:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_5m_BACKTEST.parquet
+[2025-09-20 22:30:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_15m_BACKTEST.parquet
+[2025-09-20 22:30:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_1h_BACKTEST.parquet
+[2025-09-20 22:30:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_5m_BACKTEST.parquet
+[2025-09-20 22:30:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_15m_BACKTEST.parquet
+[2025-09-20 22:30:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_1h_BACKTEST.parquet
+[2025-09-20 22:30:30] ✅ Gesamtzeilen geladen: 25,036
+[2025-09-20 22:30:30] Columns vorhanden: ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50'] ...
+[2025-09-20 22:30:30] Zeitspanne: 2025-06-02 00:00:00+00:00 → 2025-06-30 21:55:00+00:00
+[2025-09-20 22:30:30] Features genutzt (15): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-20 22:30:30] ✅ Features skaliert
+[2025-09-20 22:30:35] 🔎 HDBSCAN: clusters (unique) = 3 (inkl. noise)
+[2025-09-20 22:30:35] 🗺️  Cluster → Regime Mapping Beispiel (bis zu 10): [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-20 22:30:35] ❌ FEHLER:
+[2025-09-20 22:30:35] Traceback (most recent call last):
+[2025-09-20 22:30:35]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 300, in <module>
+[2025-09-20 22:30:35]     main()
+[2025-09-20 22:30:35]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 269, in main
+[2025-09-20 22:30:35]     raise RuntimeError("Zu wenige Monate für Walk-forward. Passe min_train_months/test_months an.")
+[2025-09-20 22:30:35] RuntimeError: Zu wenige Monate für Walk-forward. Passe min_train_months/test_months an.
+[2025-09-20 22:33:05] 🚀 Start train_regime.py
+[2025-09-20 22:33:05] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:33:05] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:33:05] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 22:33:05] features_dir exists? True
+[2025-09-20 22:33:05] features_dir content sample: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 22:33:05] 📁 features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:33:05] 📦 Dateien geladen (9):
+[2025-09-20 22:33:05]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_5m_BACKTEST.parquet
+[2025-09-20 22:33:05]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_15m_BACKTEST.parquet
+[2025-09-20 22:33:05]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_1h_BACKTEST.parquet
+[2025-09-20 22:33:05]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_5m_BACKTEST.parquet
+[2025-09-20 22:33:05]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_15m_BACKTEST.parquet
+[2025-09-20 22:33:05]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_1h_BACKTEST.parquet
+[2025-09-20 22:33:05]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_5m_BACKTEST.parquet
+[2025-09-20 22:33:05]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_15m_BACKTEST.parquet
+[2025-09-20 22:33:05]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_1h_BACKTEST.parquet
+[2025-09-20 22:33:05] ✅ Gesamtzeilen geladen: 282,149
+[2025-09-20 22:33:05] Columns vorhanden: ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50'] ...
+[2025-09-20 22:33:05] Zeitspanne: 2024-07-31 22:00:00+00:00 → 2025-06-30 21:55:00+00:00
+[2025-09-20 22:33:05] Features genutzt (15): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-20 22:33:05] ✅ Features skaliert
+[2025-09-20 22:34:37] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-20 22:34:37] 🗺️  Cluster → Regime Mapping Beispiel (bis zu 10): [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bear_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-20 22:34:38] ❌ FEHLER:
+[2025-09-20 22:34:38] Traceback (most recent call last):
+[2025-09-20 22:34:38]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 300, in <module>
+[2025-09-20 22:34:38]     main()
+[2025-09-20 22:34:38]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 267, in main
+[2025-09-20 22:34:38]     splits = month_walkforward_splits(df, cfg["walkforward"]["min_train_months"], cfg["walkforward"]["test_months"])
+[2025-09-20 22:34:38]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:34:38]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 138, in month_walkforward_splits
+[2025-09-20 22:34:38]     test_months  = months[i:i+test_months]
+[2025-09-20 22:34:38]                             ~^~~~~~~~~~~~
+[2025-09-20 22:34:38] TypeError: unsupported operand type(s) for +: 'int' and 'list'
+[2025-09-20 22:37:52] 🚀 Start train_regime.py
+[2025-09-20 22:37:52] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:37:52] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:37:52] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 22:37:52] features_dir exists? True
+[2025-09-20 22:37:52] features_dir content sample: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 22:37:52] 📁 features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:37:52] 📦 Dateien geladen (9):
+[2025-09-20 22:37:52]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_5m_BACKTEST.parquet
+[2025-09-20 22:37:52]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_15m_BACKTEST.parquet
+[2025-09-20 22:37:52]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_1h_BACKTEST.parquet
+[2025-09-20 22:37:52]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_5m_BACKTEST.parquet
+[2025-09-20 22:37:52]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_15m_BACKTEST.parquet
+[2025-09-20 22:37:52]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_1h_BACKTEST.parquet
+[2025-09-20 22:37:52]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_5m_BACKTEST.parquet
+[2025-09-20 22:37:52]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_15m_BACKTEST.parquet
+[2025-09-20 22:37:52]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_1h_BACKTEST.parquet
+[2025-09-20 22:37:52] ✅ Gesamtzeilen geladen: 152,764
+[2025-09-20 22:37:52] Columns vorhanden: ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50'] ...
+[2025-09-20 22:37:52] Zeitspanne: 2024-12-31 23:00:00+00:00 → 2025-06-30 21:55:00+00:00
+[2025-09-20 22:37:52] Features genutzt (15): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-20 22:37:52] ✅ Features skaliert
+[2025-09-20 22:38:40] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-20 22:38:40] 🗺️  Cluster → Regime Mapping Beispiel (bis zu 10): [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-20 22:38:40] ❌ FEHLER:
+[2025-09-20 22:38:40] Traceback (most recent call last):
+[2025-09-20 22:38:40]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 322, in <module>
+[2025-09-20 22:38:40]     main()
+[2025-09-20 22:38:40]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 289, in main
+[2025-09-20 22:38:40]     splits = month_walkforward_splits(df, cfg["walkforward"]["min_train_months"], cfg["walkforward"]["test_months"])
+[2025-09-20 22:38:41]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:38:41]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 139, in month_walkforward_splits
+[2025-09-20 22:38:41]     if not np.issubdtype(df["timestamp"].dtype, np.datetime64):
+[2025-09-20 22:38:41]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:38:41]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\site-packages\numpy\core\numerictypes.py", line 417, in issubdtype
+[2025-09-20 22:38:41]     arg1 = dtype(arg1).type
+[2025-09-20 22:38:41]            ^^^^^^^^^^^
+[2025-09-20 22:38:41] TypeError: Cannot interpret 'datetime64[ns, UTC]' as a data type
+[2025-09-20 22:44:39] 🚀 Start train_regime.py
+[2025-09-20 22:44:39] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:44:39] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:44:39] Sample feature files: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 22:44:39] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:44:39] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 22:44:39] features_dir exists? True
+[2025-09-20 22:44:39] features_dir content sample: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 22:44:39] 📁 features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:44:39] 📦 Dateien geladen (9):
+[2025-09-20 22:44:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_5m_BACKTEST.parquet
+[2025-09-20 22:44:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_15m_BACKTEST.parquet
+[2025-09-20 22:44:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_1h_BACKTEST.parquet
+[2025-09-20 22:44:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_5m_BACKTEST.parquet
+[2025-09-20 22:44:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_15m_BACKTEST.parquet
+[2025-09-20 22:44:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_1h_BACKTEST.parquet
+[2025-09-20 22:44:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_5m_BACKTEST.parquet
+[2025-09-20 22:44:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_15m_BACKTEST.parquet
+[2025-09-20 22:44:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_1h_BACKTEST.parquet
+[2025-09-20 22:44:40] ✅ Gesamtzeilen geladen: 152,764
+[2025-09-20 22:44:40] Columns vorhanden: ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50'] ...
+[2025-09-20 22:44:40] Zeitspanne: 2024-12-31 23:00:00+00:00 → 2025-06-30 21:55:00+00:00
+[2025-09-20 22:44:40] Features genutzt (15): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-20 22:44:40] ✅ Features skaliert
+[2025-09-20 22:45:29] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-20 22:45:29] 🗺️  Cluster → Regime Mapping Beispiel (bis zu 10): [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-20 22:45:29] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-20 22:45:29] ❌ FEHLER:
+[2025-09-20 22:45:29] Traceback (most recent call last):
+[2025-09-20 22:45:29]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 348, in <module>
+[2025-09-20 22:45:29]     main()
+[2025-09-20 22:45:29]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 324, in main
+[2025-09-20 22:45:29]     clf, f1, y_hat, proba = fit_classifier(X_tr, y_tr, X_te, y_te, cfg)
+[2025-09-20 22:45:29]                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:45:29]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 244, in fit_classifier
+[2025-09-20 22:45:29]     clf.fit(X_tr, y_tr)
+[2025-09-20 22:45:29]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\core.py", line 729, in inner_f
+[2025-09-20 22:45:29]     return func(**kwargs)
+[2025-09-20 22:45:29]            ^^^^^^^^^^^^^^
+[2025-09-20 22:45:29]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\sklearn.py", line 1640, in fit
+[2025-09-20 22:45:29]     raise ValueError(
+[2025-09-20 22:45:29] ValueError: Invalid classes inferred from unique values of `y`.  Expected: [0 1 2], got ['Bull_Quiet' 'Bull_Volatile' 'Range_Quiet']
+[2025-09-20 22:50:39] 🚀 Start train_regime.py
+[2025-09-20 22:50:39] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:50:39] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:50:39] Sample feature files: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 22:50:39] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:50:39] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 22:50:39] features_dir exists? True
+[2025-09-20 22:50:39] features_dir content sample: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 22:50:39] 📁 features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:50:39] 📦 Dateien geladen (9):
+[2025-09-20 22:50:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_5m_BACKTEST.parquet
+[2025-09-20 22:50:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_15m_BACKTEST.parquet
+[2025-09-20 22:50:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_1h_BACKTEST.parquet
+[2025-09-20 22:50:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_5m_BACKTEST.parquet
+[2025-09-20 22:50:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_15m_BACKTEST.parquet
+[2025-09-20 22:50:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_1h_BACKTEST.parquet
+[2025-09-20 22:50:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_5m_BACKTEST.parquet
+[2025-09-20 22:50:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_15m_BACKTEST.parquet
+[2025-09-20 22:50:39]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_1h_BACKTEST.parquet
+[2025-09-20 22:50:39] ✅ Gesamtzeilen geladen: 152,764
+[2025-09-20 22:50:39] Columns vorhanden: ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50'] ...
+[2025-09-20 22:50:39] Zeitspanne: 2024-12-31 23:00:00+00:00 → 2025-06-30 21:55:00+00:00
+[2025-09-20 22:50:39] Features genutzt (15): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-20 22:50:39] ✅ Features skaliert
+[2025-09-20 22:51:28] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-20 22:51:29] 🗺️  Cluster → Regime Mapping Beispiel (bis zu 10): [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-20 22:51:29] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-20 22:51:29] ❌ FEHLER:
+[2025-09-20 22:51:29] Traceback (most recent call last):
+[2025-09-20 22:51:29]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 371, in <module>
+[2025-09-20 22:51:29]     main()
+[2025-09-20 22:51:29]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 343, in main
+[2025-09-20 22:51:29]     clf, f1, y_hat, proba = fit_classifier(X_tr, y_tr, X_te, y_te, cfg, le=le)
+[2025-09-20 22:51:29]                                            ^^^^
+[2025-09-20 22:51:29] NameError: name 'X_tr' is not defined. Did you mean: 'y_tr'?
+[2025-09-20 22:53:30] 🚀 Start train_regime.py
+[2025-09-20 22:53:30] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:53:30] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:53:30] Sample feature files: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 22:53:30] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:53:30] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 22:53:30] features_dir exists? True
+[2025-09-20 22:53:30] features_dir content sample: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 22:53:30] 📁 features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:53:31] 📦 Dateien geladen (9):
+[2025-09-20 22:53:31]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_5m_BACKTEST.parquet
+[2025-09-20 22:53:31]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_15m_BACKTEST.parquet
+[2025-09-20 22:53:31]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_1h_BACKTEST.parquet
+[2025-09-20 22:53:31]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_5m_BACKTEST.parquet
+[2025-09-20 22:53:31]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_15m_BACKTEST.parquet
+[2025-09-20 22:53:31]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_1h_BACKTEST.parquet
+[2025-09-20 22:53:31]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_5m_BACKTEST.parquet
+[2025-09-20 22:53:31]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_15m_BACKTEST.parquet
+[2025-09-20 22:53:31]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_1h_BACKTEST.parquet
+[2025-09-20 22:53:31] ✅ Gesamtzeilen geladen: 152,764
+[2025-09-20 22:53:31] Columns vorhanden: ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50'] ...
+[2025-09-20 22:53:31] Zeitspanne: 2024-12-31 23:00:00+00:00 → 2025-06-30 21:55:00+00:00
+[2025-09-20 22:53:31] Features genutzt (15): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-20 22:53:31] ✅ Features skaliert
+[2025-09-20 22:54:18] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-20 22:54:18] 🗺️  Cluster → Regime Mapping Beispiel (bis zu 10): [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-20 22:54:19] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-20 22:54:19] ❌ FEHLER:
+[2025-09-20 22:54:19] Traceback (most recent call last):
+[2025-09-20 22:54:19]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 378, in <module>
+[2025-09-20 22:54:19]     main()
+[2025-09-20 22:54:19]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 353, in main
+[2025-09-20 22:54:19]     clf, f1, y_hat, proba = fit_classifier(X_tr, y_tr, X_te, y_te, cfg, le=le)
+[2025-09-20 22:54:19]                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:54:19]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 246, in fit_classifier
+[2025-09-20 22:54:19]     clf.fit(X_tr, y_tr)
+[2025-09-20 22:54:19]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\core.py", line 729, in inner_f
+[2025-09-20 22:54:19]     return func(**kwargs)
+[2025-09-20 22:54:19]            ^^^^^^^^^^^^^^
+[2025-09-20 22:54:19]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\site-packages\xgboost\sklearn.py", line 1640, in fit
+[2025-09-20 22:54:19]     raise ValueError(
+[2025-09-20 22:54:19] ValueError: Invalid classes inferred from unique values of `y`.  Expected: [0 1 2], got [2 3 4]
+[2025-09-20 22:56:14] 🚀 Start train_regime.py
+[2025-09-20 22:56:14] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 22:56:14] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:56:14] Sample feature files: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 22:56:14] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:56:14] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 22:56:14] features_dir exists? True
+[2025-09-20 22:56:14] features_dir content sample: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 22:56:14] 📁 features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 22:56:14] 📦 Dateien geladen (9):
+[2025-09-20 22:56:14]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_5m_BACKTEST.parquet
+[2025-09-20 22:56:14]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_15m_BACKTEST.parquet
+[2025-09-20 22:56:14]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_1h_BACKTEST.parquet
+[2025-09-20 22:56:14]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_5m_BACKTEST.parquet
+[2025-09-20 22:56:14]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_15m_BACKTEST.parquet
+[2025-09-20 22:56:14]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_1h_BACKTEST.parquet
+[2025-09-20 22:56:14]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_5m_BACKTEST.parquet
+[2025-09-20 22:56:14]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_15m_BACKTEST.parquet
+[2025-09-20 22:56:14]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_1h_BACKTEST.parquet
+[2025-09-20 22:56:14] ✅ Gesamtzeilen geladen: 152,764
+[2025-09-20 22:56:14] Columns vorhanden: ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50'] ...
+[2025-09-20 22:56:14] Zeitspanne: 2024-12-31 23:00:00+00:00 → 2025-06-30 21:55:00+00:00
+[2025-09-20 22:56:14] Features genutzt (15): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-20 22:56:14] ✅ Features skaliert
+[2025-09-20 22:57:02] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-20 22:57:03] 🗺️  Cluster → Regime Mapping Beispiel (bis zu 10): [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-20 22:57:03] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-20 22:57:05]    → Macro-F1 2025-02→2025-02: 0.943
+[2025-09-20 22:57:05] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-20 22:57:09]    → Macro-F1 2025-03→2025-03: 0.94
+[2025-09-20 22:57:09] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-20 22:57:12]    → Macro-F1 2025-04→2025-04: 0.868
+[2025-09-20 22:57:12] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-20 22:57:15]    → Macro-F1 2025-05→2025-05: 0.949
+[2025-09-20 22:57:15] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-20 22:57:19]    → Macro-F1 2025-06→2025-06: 0.946
+[2025-09-20 22:57:19] 🏁 Walk-forward Macro-F1 (avg): 0.929
+[2025-09-20 22:57:28] ❌ FEHLER:
+[2025-09-20 22:57:28] Traceback (most recent call last):
+[2025-09-20 22:57:28]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 404, in <module>
+[2025-09-20 22:57:28]     main()
+[2025-09-20 22:57:28]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 397, in main
+[2025-09-20 22:57:28]     save_artifacts(cfg["artifacts_dir"], scaler, feat_cols, mapping, clf_final, meta)
+[2025-09-20 22:57:28]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 192, in save_artifacts
+[2025-09-20 22:57:28]     (artifacts_dir / "cluster_mapping.json").write_text(json.dumps(mapping))
+[2025-09-20 22:57:28]                                                         ^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:57:28]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\json\__init__.py", line 231, in dumps
+[2025-09-20 22:57:28]     return _default_encoder.encode(obj)
+[2025-09-20 22:57:28]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:57:28]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\json\encoder.py", line 200, in encode
+[2025-09-20 22:57:28]     chunks = self.iterencode(o, _one_shot=True)
+[2025-09-20 22:57:28]              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 22:57:28]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\json\encoder.py", line 258, in iterencode
+[2025-09-20 22:57:28]     return _iterencode(o, 0)
+[2025-09-20 22:57:28]            ^^^^^^^^^^^^^^^^^
+[2025-09-20 22:57:28] TypeError: keys must be str, int, float, bool or None, not numpy.int64
+[2025-09-20 23:00:07] 🚀 Start train_regime.py
+[2025-09-20 23:00:07] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 23:00:07] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 23:00:07] Sample feature files: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 23:00:07] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 23:00:07] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 23:00:07] features_dir exists? True
+[2025-09-20 23:00:07] features_dir content sample: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 23:00:07] 📁 features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 23:00:07] 📦 Dateien geladen (9):
+[2025-09-20 23:00:07]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_5m_BACKTEST.parquet
+[2025-09-20 23:00:07]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_15m_BACKTEST.parquet
+[2025-09-20 23:00:07]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_1h_BACKTEST.parquet
+[2025-09-20 23:00:07]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_5m_BACKTEST.parquet
+[2025-09-20 23:00:07]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_15m_BACKTEST.parquet
+[2025-09-20 23:00:07]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_1h_BACKTEST.parquet
+[2025-09-20 23:00:07]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_5m_BACKTEST.parquet
+[2025-09-20 23:00:07]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_15m_BACKTEST.parquet
+[2025-09-20 23:00:07]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_1h_BACKTEST.parquet
+[2025-09-20 23:00:07] ✅ Gesamtzeilen geladen: 152,764
+[2025-09-20 23:00:07] Columns vorhanden: ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50'] ...
+[2025-09-20 23:00:07] Zeitspanne: 2024-12-31 23:00:00+00:00 → 2025-06-30 21:55:00+00:00
+[2025-09-20 23:00:07] Features genutzt (15): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-20 23:00:07] ✅ Features skaliert
+[2025-09-20 23:00:54] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-20 23:00:54] 🗺️  Cluster → Regime Mapping Beispiel (bis zu 10): [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-20 23:00:54] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-20 23:00:56]    → Macro-F1 2025-02→2025-02: 0.943
+[2025-09-20 23:00:56] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-20 23:01:00]    → Macro-F1 2025-03→2025-03: 0.94
+[2025-09-20 23:01:00] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-20 23:01:03]    → Macro-F1 2025-04→2025-04: 0.868
+[2025-09-20 23:01:03] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-20 23:01:06]    → Macro-F1 2025-05→2025-05: 0.949
+[2025-09-20 23:01:06] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-20 23:01:10]    → Macro-F1 2025-06→2025-06: 0.946
+[2025-09-20 23:01:10] 🏁 Walk-forward Macro-F1 (avg): 0.929
+[2025-09-20 23:01:19] ❌ FEHLER:
+[2025-09-20 23:01:19] Traceback (most recent call last):
+[2025-09-20 23:01:19]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 414, in <module>
+[2025-09-20 23:01:19]     main()
+[2025-09-20 23:01:19]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 407, in main
+[2025-09-20 23:01:19]     save_artifacts(cfg["artifacts_dir"], scaler, feat_cols, mapping, clf_final, meta)
+[2025-09-20 23:01:19]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 201, in save_artifacts
+[2025-09-20 23:01:19]     (artifacts_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+[2025-09-20 23:01:19]                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-20 23:01:19]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\json\__init__.py", line 238, in dumps
+[2025-09-20 23:01:19]     **kw).encode(obj)
+[2025-09-20 23:01:19]           ^^^^^^^^^^^
+[2025-09-20 23:01:19]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\json\encoder.py", line 202, in encode
+[2025-09-20 23:01:19]     chunks = list(chunks)
+[2025-09-20 23:01:19]              ^^^^^^^^^^^^
+[2025-09-20 23:01:19]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\json\encoder.py", line 432, in _iterencode
+[2025-09-20 23:01:19]     yield from _iterencode_dict(o, _current_indent_level)
+[2025-09-20 23:01:19]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\json\encoder.py", line 406, in _iterencode_dict
+[2025-09-20 23:01:19]     yield from chunks
+[2025-09-20 23:01:19]   File "C:\Users\bernh\AppData\Local\Programs\Python\Python312\Lib\json\encoder.py", line 377, in _iterencode_dict
+[2025-09-20 23:01:19]     raise TypeError(f'keys must be str, int, float, bool or None, '
+[2025-09-20 23:01:19] TypeError: keys must be str, int, float, bool or None, not int64
+[2025-09-20 23:14:15] 🚀 Start train_regime.py
+[2025-09-20 23:14:15] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 23:14:15] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 23:14:15] Sample feature files: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 23:14:15] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 23:14:15] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 23:14:15] features_dir exists? True
+[2025-09-20 23:14:15] features_dir content sample: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 23:14:15] 📁 features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 23:14:15] 📦 Dateien geladen (9):
+[2025-09-20 23:14:15]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_5m_BACKTEST.parquet
+[2025-09-20 23:14:15]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_15m_BACKTEST.parquet
+[2025-09-20 23:14:15]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_1h_BACKTEST.parquet
+[2025-09-20 23:14:15]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_5m_BACKTEST.parquet
+[2025-09-20 23:14:15]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_15m_BACKTEST.parquet
+[2025-09-20 23:14:15]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_1h_BACKTEST.parquet
+[2025-09-20 23:14:15]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_5m_BACKTEST.parquet
+[2025-09-20 23:14:15]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_15m_BACKTEST.parquet
+[2025-09-20 23:14:15]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_1h_BACKTEST.parquet
+[2025-09-20 23:14:15] ✅ Gesamtzeilen geladen: 152,764
+[2025-09-20 23:14:15] Columns vorhanden: ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50'] ...
+[2025-09-20 23:14:15] Zeitspanne: 2024-12-31 23:00:00+00:00 → 2025-06-30 21:55:00+00:00
+[2025-09-20 23:14:15] Features genutzt (15): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-20 23:14:15] ✅ Features skaliert
+[2025-09-20 23:15:05] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-20 23:15:05] 🗺️  Cluster → Regime Mapping Beispiel (bis zu 10): [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-20 23:15:06] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-20 23:15:08]    → Macro-F1 2025-02→2025-02: 0.943
+[2025-09-20 23:15:08] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-20 23:15:11]    → Macro-F1 2025-03→2025-03: 0.94
+[2025-09-20 23:15:11] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-20 23:15:15]    → Macro-F1 2025-04→2025-04: 0.868
+[2025-09-20 23:15:15] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-20 23:15:18]    → Macro-F1 2025-05→2025-05: 0.949
+[2025-09-20 23:15:18] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-20 23:15:22]    → Macro-F1 2025-06→2025-06: 0.946
+[2025-09-20 23:15:22] 🏁 Walk-forward Macro-F1 (avg): 0.929
+[2025-09-20 23:15:32] 💾 Artefakte gespeichert: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 23:15:32] ✅ Training fertig
+[2025-09-20 23:45:20] 🚀 Start train_regime.py
+[2025-09-20 23:45:20] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-20 23:45:20] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 23:45:20] Sample feature files: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 23:45:20] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 23:45:20] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 23:45:20] features_dir exists? True
+[2025-09-20 23:45:20] features_dir content sample: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-20 23:45:20] 📁 features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-20 23:45:20] 📦 Dateien geladen (9):
+[2025-09-20 23:45:20]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_5m_BACKTEST.parquet
+[2025-09-20 23:45:20]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_15m_BACKTEST.parquet
+[2025-09-20 23:45:20]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_1h_BACKTEST.parquet
+[2025-09-20 23:45:20]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_5m_BACKTEST.parquet
+[2025-09-20 23:45:20]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_15m_BACKTEST.parquet
+[2025-09-20 23:45:21]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_1h_BACKTEST.parquet
+[2025-09-20 23:45:21]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_5m_BACKTEST.parquet
+[2025-09-20 23:45:21]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_15m_BACKTEST.parquet
+[2025-09-20 23:45:21]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_1h_BACKTEST.parquet
+[2025-09-20 23:45:21] ✅ Gesamtzeilen geladen: 152,764
+[2025-09-20 23:45:21] Columns vorhanden: ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50'] ...
+[2025-09-20 23:45:21] Zeitspanne: 2024-12-31 23:00:00+00:00 → 2025-06-30 21:55:00+00:00
+[2025-09-20 23:45:21] Features genutzt (15): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-20 23:45:21] ✅ Features skaliert
+[2025-09-20 23:46:09] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-20 23:46:09] 🗺️  Cluster → Regime Mapping Beispiel (bis zu 10): [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-20 23:46:09] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-20 23:46:12]    → Macro-F1 2025-02→2025-02: 0.943
+[2025-09-20 23:46:12] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-20 23:46:15]    → Macro-F1 2025-03→2025-03: 0.94
+[2025-09-20 23:46:15] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-20 23:46:18]    → Macro-F1 2025-04→2025-04: 0.868
+[2025-09-20 23:46:18] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-20 23:46:22]    → Macro-F1 2025-05→2025-05: 0.949
+[2025-09-20 23:46:22] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-20 23:46:26]    → Macro-F1 2025-06→2025-06: 0.946
+[2025-09-20 23:46:26] 🏁 Walk-forward Macro-F1 (avg): 0.929
+[2025-09-20 23:46:35] 💾 Artefakte gespeichert: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-20 23:46:35] ✅ Training fertig
+[2025-09-22 21:12:34] ❌ FEHLER:
+[2025-09-22 21:12:34] Traceback (most recent call last):
+[2025-09-22 21:12:34]   File "f:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 434, in <module>
+[2025-09-22 21:12:34]     main()
+[2025-09-22 21:12:34]   File "f:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 299, in main
+[2025-09-22 21:12:34]     script_dir = Path(__file__).resolve().parent
+[2025-09-22 21:12:34]                  ^^^^
+[2025-09-22 21:12:34] UnboundLocalError: cannot access local variable 'Path' where it is not associated with a value
+[2025-09-22 21:12:51] ❌ FEHLER:
+[2025-09-22 21:12:51] Traceback (most recent call last):
+[2025-09-22 21:12:51]   File "f:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 434, in <module>
+[2025-09-22 21:12:51]     main()
+[2025-09-22 21:12:51]   File "f:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 299, in main
+[2025-09-22 21:12:51]     script_dir = Path(__file__).resolve().parent
+[2025-09-22 21:12:51]                  ^^^^
+[2025-09-22 21:12:51] UnboundLocalError: cannot access local variable 'Path' where it is not associated with a value
+[2025-09-22 21:13:20] ❌ FEHLER:
+[2025-09-22 21:13:20] Traceback (most recent call last):
+[2025-09-22 21:13:20]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 434, in <module>
+[2025-09-22 21:13:20]     main()
+[2025-09-22 21:13:20]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 299, in main
+[2025-09-22 21:13:20]     script_dir = Path(__file__).resolve().parent
+[2025-09-22 21:13:20]                  ^^^^
+[2025-09-22 21:13:20] UnboundLocalError: cannot access local variable 'Path' where it is not associated with a value
+[2025-09-22 21:16:30] 🚀 Start train_regime.py
+[2025-09-22 21:16:30] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-22 21:16:30] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-22 21:16:30] Sample feature files: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-22 21:16:30] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-22 21:16:30] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-22 21:16:30] features_dir exists? True
+[2025-09-22 21:16:30] features_dir content sample: [WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_15m_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_1h_BACKTEST.parquet'), WindowsPath('F:/TradingBot/FTMOEA/data_pipeline/data/features/EURUSD_5m_BACKTEST.parquet')]
+[2025-09-22 21:16:30] 📁 features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-22 21:16:30] 📦 Dateien geladen (9):
+[2025-09-22 21:16:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_5m_BACKTEST.parquet
+[2025-09-22 21:16:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_15m_BACKTEST.parquet
+[2025-09-22 21:16:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\EURUSD_1h_BACKTEST.parquet
+[2025-09-22 21:16:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_5m_BACKTEST.parquet
+[2025-09-22 21:16:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_15m_BACKTEST.parquet
+[2025-09-22 21:16:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\GBPUSD_1h_BACKTEST.parquet
+[2025-09-22 21:16:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_5m_BACKTEST.parquet
+[2025-09-22 21:16:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_15m_BACKTEST.parquet
+[2025-09-22 21:16:30]    - F:\TradingBot\FTMOEA\data_pipeline\data\features\US500.cash_1h_BACKTEST.parquet
+[2025-09-22 21:16:30] ✅ Gesamtzeilen geladen: 152,764
+[2025-09-22 21:16:30] Columns vorhanden: ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14', 'ema21', 'ema50'] ...
+[2025-09-22 21:16:30] Zeitspanne: 2024-12-31 23:00:00+00:00 → 2025-06-30 21:55:00+00:00
+[2025-09-22 21:16:30] Features genutzt (17): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'adx14', 'chop14', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-22 21:16:30] ✅ Features skaliert
+[2025-09-22 21:17:56] 🔎 HDBSCAN: clusters (unique) = 3 (inkl. noise)
+[2025-09-22 21:17:56] ❌ FEHLER:
+[2025-09-22 21:17:56] Traceback (most recent call last):
+[2025-09-22 21:17:56]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 434, in <module>
+[2025-09-22 21:17:56]     main()
+[2025-09-22 21:17:56]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 357, in main
+[2025-09-22 21:17:56]     df_labels, mapping = map_clusters_to_target(df.assign(**{c: X_raw[c] for c in feat_cols}), labels, cfg)
+[2025-09-22 21:17:56]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-22 21:17:56]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 98, in map_clusters_to_target
+[2025-09-22 21:17:56]     vol_flag = compute_volatility_flags(df, cfg["mapping_rules"]["vol_threshold_pips"])
+[2025-09-22 21:17:56]                                             ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+[2025-09-22 21:17:56] KeyError: 'vol_threshold_pips'
+[2025-09-22 21:36:55] 🚀 Start train_regime.py
+[2025-09-22 21:36:55] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-22 21:36:55] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-22 21:36:55] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-22 21:36:56] Columns (head): ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14'] ...
+[2025-09-22 21:36:56] Zeitspanne: 2024-12-31 23:00:00 → 2025-06-30 21:55:00
+[2025-09-22 21:36:56] Features genutzt (17): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'adx14', 'chop14', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-22 21:36:56] ✅ Features skaliert
+[2025-09-22 21:38:16] 🔎 HDBSCAN: clusters (unique) = 3 (inkl. noise)
+[2025-09-22 21:38:16] 🗺️  Cluster → Regime: Beispiele [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-22 21:38:16] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-22 21:38:18]    → Macro-F1 2025-02→2025-02: 0.666
+[2025-09-22 21:38:18] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-22 21:38:20]    → Macro-F1 2025-03→2025-03: 0.771
+[2025-09-22 21:38:20] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-22 21:38:22]    → Macro-F1 2025-04→2025-04: 0.671
+[2025-09-22 21:38:22] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-22 21:38:25]    → Macro-F1 2025-05→2025-05: 0.778
+[2025-09-22 21:38:25] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-22 21:38:27]    → Macro-F1 2025-06→2025-06: 0.889
+[2025-09-22 21:38:27] 🏁 Walk-forward Macro-F1 (avg): 0.755
+[2025-09-22 21:38:35] ✅ Training fertig
+[2025-09-28 21:20:53] 🚀 Start train_regime.py
+[2025-09-28 21:20:53] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-28 21:20:53] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-28 21:20:53] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-28 21:20:53] Columns (head): ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14'] ...
+[2025-09-28 21:20:53] Zeitspanne: 2024-12-31 23:00:00 → 2025-06-30 21:55:00
+[2025-09-28 21:20:53] Features genutzt (17): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'adx14', 'chop14', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-28 21:20:53] ✅ Features skaliert
+[2025-09-28 21:20:53] 🧭 PCA für Clustering: components=8, explained_var=0.918
+[2025-09-28 21:21:18] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-28 21:21:18] 🗺️  Cluster → Regime (QC) Beispiele [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-28 21:21:19] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-28 21:21:20]    → 6-Class Macro-F1 2025-02→2025-02: 0.035
+[2025-09-28 21:21:21]    → BULL Head: F1=0.596, AUC=0.500
+[2025-09-28 21:21:21]    → RANGE Head: F1=0.736, AUC=0.500
+[2025-09-28 21:21:21]    → VOL Head: F1=0.388, AUC=0.500
+[2025-09-28 21:21:21] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-28 21:21:25]    → 6-Class Macro-F1 2025-03→2025-03: 0.037
+[2025-09-28 21:21:25]    → BULL Head: F1=0.603, AUC=0.500
+[2025-09-28 21:21:26]    → RANGE Head: F1=0.764, AUC=0.500
+[2025-09-28 21:21:26]    → VOL Head: F1=0.568, AUC=0.500
+[2025-09-28 21:21:26] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-28 21:21:30]    → 6-Class Macro-F1 2025-04→2025-04: 0.045
+[2025-09-28 21:21:30]    → BULL Head: F1=0.649, AUC=0.500
+[2025-09-28 21:21:31]    → RANGE Head: F1=0.733, AUC=0.500
+[2025-09-28 21:21:31]    → VOL Head: F1=0.805, AUC=0.500
+[2025-09-28 21:21:31] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-28 21:21:34]    → 6-Class Macro-F1 2025-05→2025-05: 0.03
+[2025-09-28 21:21:34]    → BULL Head: F1=0.629, AUC=0.500
+[2025-09-28 21:21:35]    → RANGE Head: F1=0.766, AUC=0.500
+[2025-09-28 21:21:35]    → VOL Head: F1=0.582, AUC=0.500
+[2025-09-28 21:21:35] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-28 21:21:38]    → 6-Class Macro-F1 2025-06→2025-06: 0.099
+[2025-09-28 21:21:38]    → BULL Head: F1=0.639, AUC=0.500
+[2025-09-28 21:21:39]    → RANGE Head: F1=0.749, AUC=0.500
+[2025-09-28 21:21:39]    → VOL Head: F1=0.000, AUC=0.500
+[2025-09-28 21:21:39] 🏁 Walk-forward Macro-F1 (6-Class avg): 0.049
+[2025-09-28 21:21:52] ✅ Training fertig
+[2025-09-28 21:46:39] 🚀 Start train_regime.py
+[2025-09-28 21:46:39] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-28 21:46:39] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-28 21:46:39] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-28 21:46:39] Columns (head): ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14'] ...
+[2025-09-28 21:46:39] Zeitspanne: 2024-12-31 23:00:00 → 2025-06-30 21:55:00
+[2025-09-28 21:46:39] Features genutzt (17): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'adx14', 'chop14', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-28 21:46:39] ✅ Features skaliert
+[2025-09-28 21:46:39] 🧭 PCA für Clustering: components=8, explained_var=0.918
+[2025-09-28 21:47:04] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-28 21:47:04] 🗺️  Cluster → Regime (QC) Beispiele [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-28 21:47:04] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-28 21:47:04]    · BULL  Train cls={0: 14865, 1: 11385}  Test cls={0: 13770, 1: 10162}
+[2025-09-28 21:47:04]    · RANGE Train cls={0: 10911, 1: 15339}  Test cls={1: 13935, 0: 9997}
+[2025-09-28 21:47:04]    · VOL   Train cls={0: 17191, 1: 9059}  Test cls={1: 5762, 0: 18170}
+[2025-09-28 21:47:06]    → 6-Class Macro-F1 2025-02→2025-02: 0.035
+[2025-09-28 21:47:06]    → BULL Head: F1=0.596, AUC=0.500
+[2025-09-28 21:47:07]    → RANGE Head: F1=0.000, AUC=0.500
+[2025-09-28 21:47:07]    → VOL Head: F1=0.388, AUC=0.500
+[2025-09-28 21:47:07] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-28 21:47:07]    · BULL  Train cls={0: 28597, 1: 21538}  Test cls={0: 14328, 1: 10872}
+[2025-09-28 21:47:07]    · RANGE Train cls={0: 20861, 1: 29274}  Test cls={0: 9627, 1: 15573}
+[2025-09-28 21:47:07]    · VOL   Train cls={0: 35314, 1: 14821}  Test cls={0: 15216, 1: 9984}
+[2025-09-28 21:47:10]    → 6-Class Macro-F1 2025-03→2025-03: 0.037
+[2025-09-28 21:47:10]    → BULL Head: F1=0.603, AUC=0.500
+[2025-09-28 21:47:11]    → RANGE Head: F1=0.000, AUC=0.500
+[2025-09-28 21:47:11]    → VOL Head: F1=0.568, AUC=0.500
+[2025-09-28 21:47:11] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-28 21:47:11]    · BULL  Train cls={0: 28098, 1: 21034}  Test cls={0: 13518, 1: 12494}
+[2025-09-28 21:47:11]    · RANGE Train cls={1: 29508, 0: 19624}  Test cls={0: 10970, 1: 15042}
+[2025-09-28 21:47:11]    · VOL   Train cls={1: 15746, 0: 33386}  Test cls={1: 17508, 0: 8504}
+[2025-09-28 21:47:14]    → 6-Class Macro-F1 2025-04→2025-04: 0.045
+[2025-09-28 21:47:14]    → BULL Head: F1=0.649, AUC=0.500
+[2025-09-28 21:47:14]    → RANGE Head: F1=0.000, AUC=0.500
+[2025-09-28 21:47:15]    → VOL Head: F1=0.805, AUC=0.500
+[2025-09-28 21:47:15] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-28 21:47:15]    · BULL  Train cls={0: 27846, 1: 23366}  Test cls={0: 14264, 1: 12070}
+[2025-09-28 21:47:15]    · RANGE Train cls={0: 20597, 1: 30615}  Test cls={1: 16363, 0: 9971}
+[2025-09-28 21:47:15]    · VOL   Train cls={0: 23720, 1: 27492}  Test cls={1: 10804, 0: 15530}
+[2025-09-28 21:47:18]    → 6-Class Macro-F1 2025-05→2025-05: 0.03
+[2025-09-28 21:47:18]    → BULL Head: F1=0.629, AUC=0.500
+[2025-09-28 21:47:18]    → RANGE Head: F1=0.000, AUC=0.500
+[2025-09-28 21:47:19]    → VOL Head: F1=0.000, AUC=0.500
+[2025-09-28 21:47:19] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-28 21:47:19]    · BULL  Train cls={0: 27782, 1: 24564}  Test cls={0: 13279, 1: 11757}
+[2025-09-28 21:47:19]    · RANGE Train cls={0: 20941, 1: 31405}  Test cls={1: 14989, 0: 10047}
+[2025-09-28 21:47:19]    · VOL   Train cls={1: 28312, 0: 24034}  Test cls={1: 7947, 0: 17089}
+[2025-09-28 21:47:22]    → 6-Class Macro-F1 2025-06→2025-06: 0.099
+[2025-09-28 21:47:23]    → BULL Head: F1=0.639, AUC=0.500
+[2025-09-28 21:47:23]    → RANGE Head: F1=0.000, AUC=0.500
+[2025-09-28 21:47:23]    → VOL Head: F1=0.000, AUC=0.500
+[2025-09-28 21:47:23] 🏁 Walk-forward Macro-F1 (6-Class avg): 0.049
+[2025-09-28 21:47:36] ✅ Training fertig
+[2025-09-28 21:56:49] 🚀 Start train_regime.py
+[2025-09-28 21:56:49] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-28 21:56:49] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-28 21:56:49] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-28 21:56:49] Columns (head): ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14'] ...
+[2025-09-28 21:56:49] Zeitspanne: 2024-12-31 23:00:00 → 2025-06-30 21:55:00
+[2025-09-28 21:56:49] Features genutzt (17): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'adx14', 'chop14', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-28 21:56:49] ✅ Features skaliert
+[2025-09-28 21:56:49] 🧭 PCA für Clustering: components=8, explained_var=0.918
+[2025-09-28 21:57:17] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-28 21:57:17] 🗺️  Cluster → Regime (QC) Beispiele [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-28 21:57:17] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-28 21:57:17]    · BULL  Train cls={0: 14865, 1: 11385}  Test cls={0: 13770, 1: 10162}
+[2025-09-28 21:57:17]    · RANGE Train cls={0: 10911, 1: 15339}  Test cls={1: 13935, 0: 9997}
+[2025-09-28 21:57:17]    · VOL   Train cls={0: 17191, 1: 9059}  Test cls={1: 5762, 0: 18170}
+[2025-09-28 21:57:19]    → 6-Class Macro-F1 2025-02→2025-02: 0.035
+[2025-09-28 21:57:20]       score-quantiles: [0.566, 0.566, 0.566, 0.566, 0.566]
+[2025-09-28 21:57:20]    → BULL Head: F1=0.596, AUC=0.500
+[2025-09-28 21:57:20]       score-quantiles: [0.416, 0.416, 0.416, 0.416, 0.416]
+[2025-09-28 21:57:20]    → RANGE Head: F1=0.000, AUC=0.500
+[2025-09-28 21:57:20]       score-quantiles: [0.65, 0.65, 0.65, 0.65, 0.65]
+[2025-09-28 21:57:20]    → VOL Head: F1=0.388, AUC=0.500
+[2025-09-28 21:57:20] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-28 21:57:20]    · BULL  Train cls={0: 28597, 1: 21538}  Test cls={0: 14328, 1: 10872}
+[2025-09-28 21:57:20]    · RANGE Train cls={0: 20861, 1: 29274}  Test cls={0: 9627, 1: 15573}
+[2025-09-28 21:57:20]    · VOL   Train cls={0: 35314, 1: 14821}  Test cls={0: 15216, 1: 9984}
+[2025-09-28 21:57:24]    → 6-Class Macro-F1 2025-03→2025-03: 0.037
+[2025-09-28 21:57:24]       score-quantiles: [0.57, 0.57, 0.57, 0.57, 0.57]
+[2025-09-28 21:57:24]    → BULL Head: F1=0.603, AUC=0.500
+[2025-09-28 21:57:25]       score-quantiles: [0.417, 0.417, 0.417, 0.417, 0.417]
+[2025-09-28 21:57:25]    → RANGE Head: F1=0.000, AUC=0.500
+[2025-09-28 21:57:25]       score-quantiles: [0.694, 0.694, 0.694, 0.694, 0.694]
+[2025-09-28 21:57:25]    → VOL Head: F1=0.568, AUC=0.500
+[2025-09-28 21:57:25] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-28 21:57:25]    · BULL  Train cls={0: 28098, 1: 21034}  Test cls={0: 13518, 1: 12494}
+[2025-09-28 21:57:25]    · RANGE Train cls={1: 29508, 0: 19624}  Test cls={0: 10970, 1: 15042}
+[2025-09-28 21:57:25]    · VOL   Train cls={1: 15746, 0: 33386}  Test cls={1: 17508, 0: 8504}
+[2025-09-28 21:57:28]    → 6-Class Macro-F1 2025-04→2025-04: 0.045
+[2025-09-28 21:57:28]       score-quantiles: [0.571, 0.571, 0.571, 0.571, 0.571]
+[2025-09-28 21:57:28]    → BULL Head: F1=0.649, AUC=0.500
+[2025-09-28 21:57:29]       score-quantiles: [0.401, 0.401, 0.401, 0.401, 0.401]
+[2025-09-28 21:57:29]    → RANGE Head: F1=0.000, AUC=0.500
+[2025-09-28 21:57:29]       score-quantiles: [0.672, 0.672, 0.672, 0.672, 0.672]
+[2025-09-28 21:57:29]    → VOL Head: F1=0.805, AUC=0.500
+[2025-09-28 21:57:29] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-28 21:57:29]    · BULL  Train cls={0: 27846, 1: 23366}  Test cls={0: 14264, 1: 12070}
+[2025-09-28 21:57:29]    · RANGE Train cls={0: 20597, 1: 30615}  Test cls={1: 16363, 0: 9971}
+[2025-09-28 21:57:29]    · VOL   Train cls={0: 23720, 1: 27492}  Test cls={1: 10804, 0: 15530}
+[2025-09-28 21:57:32]    → 6-Class Macro-F1 2025-05→2025-05: 0.03
+[2025-09-28 21:57:32]       score-quantiles: [0.544, 0.544, 0.544, 0.544, 0.544]
+[2025-09-28 21:57:32]    → BULL Head: F1=0.629, AUC=0.500
+[2025-09-28 21:57:33]       score-quantiles: [0.403, 0.403, 0.403, 0.403, 0.403]
+[2025-09-28 21:57:33]    → RANGE Head: F1=0.000, AUC=0.500
+[2025-09-28 21:57:33]       score-quantiles: [0.463, 0.463, 0.463, 0.463, 0.463]
+[2025-09-28 21:57:33]    → VOL Head: F1=0.000, AUC=0.500
+[2025-09-28 21:57:33] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-28 21:57:33]    · BULL  Train cls={0: 27782, 1: 24564}  Test cls={0: 13279, 1: 11757}
+[2025-09-28 21:57:33]    · RANGE Train cls={0: 20941, 1: 31405}  Test cls={1: 14989, 0: 10047}
+[2025-09-28 21:57:33]    · VOL   Train cls={1: 28312, 0: 24034}  Test cls={1: 7947, 0: 17089}
+[2025-09-28 21:57:37]    → 6-Class Macro-F1 2025-06→2025-06: 0.099
+[2025-09-28 21:57:37]       score-quantiles: [0.531, 0.531, 0.531, 0.531, 0.531]
+[2025-09-28 21:57:37]    → BULL Head: F1=0.639, AUC=0.500
+[2025-09-28 21:57:38]       score-quantiles: [0.401, 0.401, 0.401, 0.401, 0.401]
+[2025-09-28 21:57:38]    → RANGE Head: F1=0.000, AUC=0.500
+[2025-09-28 21:57:38]       score-quantiles: [0.459, 0.459, 0.459, 0.459, 0.459]
+[2025-09-28 21:57:38]    → VOL Head: F1=0.000, AUC=0.500
+[2025-09-28 21:57:38] 🏁 Walk-forward Macro-F1 (6-Class avg): 0.049
+[2025-09-28 21:57:49]       score-quantiles: [0.55, 0.55, 0.55, 0.55, 0.55]
+[2025-09-28 21:57:50]       score-quantiles: [0.404, 0.404, 0.404, 0.404, 0.404]
+[2025-09-28 21:57:51]       score-quantiles: [0.599, 0.599, 0.599, 0.599, 0.599]
+[2025-09-28 21:57:52] ✅ Training fertig
+[2025-09-28 22:32:25] 🚀 Start train_regime.py
+[2025-09-28 22:32:25] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-28 22:32:25] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-28 22:32:25] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-28 22:32:25] Columns (head): ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14'] ...
+[2025-09-28 22:32:25] Zeitspanne: 2024-12-31 23:00:00 → 2025-06-30 21:55:00
+[2025-09-28 22:32:25] Features genutzt (17): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'adx14', 'chop14', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-28 22:32:25] ✅ Features skaliert
+[2025-09-28 22:32:25] 🧭 PCA für Clustering: components=8, explained_var=0.918
+[2025-09-28 22:32:50] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-28 22:32:50] 🗺️  Cluster → Regime (QC) Beispiele [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-28 22:32:50] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-28 22:32:50]    · BULL  Train cls={0: 14865, 1: 11385}  Test cls={0: 13770, 1: 10162}
+[2025-09-28 22:32:50]    · RANGE Train cls={0: 10911, 1: 15339}  Test cls={1: 13935, 0: 9997}
+[2025-09-28 22:32:50]    · VOL   Train cls={0: 17191, 1: 9059}  Test cls={1: 5762, 0: 18170}
+[2025-09-28 22:32:52]    → 6-Class Macro-F1 2025-02→2025-02: 0.035
+[2025-09-28 22:32:54]       score-quantiles: [0.0, 0.0, 0.324, 0.998, 1.0]
+[2025-09-28 22:32:54]    → BULL Head: F1=0.880, AUC=0.967
+[2025-09-28 22:32:55]       score-quantiles: [0.0, 0.008, 0.637, 0.993, 1.0]
+[2025-09-28 22:32:55]    → RANGE Head: F1=0.883, AUC=0.949
+[2025-09-28 22:32:56]       score-quantiles: [0.0, 0.006, 0.373, 0.876, 1.0]
+[2025-09-28 22:32:56]    → VOL Head: F1=0.637, AUC=0.868
+[2025-09-28 22:32:56] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-28 22:32:56]    · BULL  Train cls={0: 28597, 1: 21538}  Test cls={0: 14328, 1: 10872}
+[2025-09-28 22:32:56]    · RANGE Train cls={0: 20861, 1: 29274}  Test cls={0: 9627, 1: 15573}
+[2025-09-28 22:32:56]    · VOL   Train cls={0: 35314, 1: 14821}  Test cls={0: 15216, 1: 9984}
+[2025-09-28 22:32:59]    → 6-Class Macro-F1 2025-03→2025-03: 0.037
+[2025-09-28 22:33:00]       score-quantiles: [0.0, 0.0, 0.324, 1.0, 1.0]
+[2025-09-28 22:33:00]    → BULL Head: F1=0.897, AUC=0.974
+[2025-09-28 22:33:02]       score-quantiles: [0.0, 0.01, 0.725, 0.994, 1.0]
+[2025-09-28 22:33:02]    → RANGE Head: F1=0.897, AUC=0.955
+[2025-09-28 22:33:03]       score-quantiles: [0.0, 0.012, 0.495, 0.935, 1.0]
+[2025-09-28 22:33:03]    → VOL Head: F1=0.778, AUC=0.899
+[2025-09-28 22:33:03] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-28 22:33:03]    · BULL  Train cls={0: 28098, 1: 21034}  Test cls={0: 13518, 1: 12494}
+[2025-09-28 22:33:03]    · RANGE Train cls={1: 29508, 0: 19624}  Test cls={0: 10970, 1: 15042}
+[2025-09-28 22:33:03]    · VOL   Train cls={1: 15746, 0: 33386}  Test cls={1: 17508, 0: 8504}
+[2025-09-28 22:33:06]    → 6-Class Macro-F1 2025-04→2025-04: 0.045
+[2025-09-28 22:33:07]       score-quantiles: [0.0, 0.0, 0.41, 1.0, 1.0]
+[2025-09-28 22:33:07]    → BULL Head: F1=0.905, AUC=0.971
+[2025-09-28 22:33:08]       score-quantiles: [0.0, 0.005, 0.636, 0.995, 1.0]
+[2025-09-28 22:33:08]    → RANGE Head: F1=0.881, AUC=0.948
+[2025-09-28 22:33:09]       score-quantiles: [0.0, 0.069, 0.68, 0.984, 1.0]
+[2025-09-28 22:33:09]    → VOL Head: F1=0.873, AUC=0.902
+[2025-09-28 22:33:09] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-28 22:33:09]    · BULL  Train cls={0: 27846, 1: 23366}  Test cls={0: 14264, 1: 12070}
+[2025-09-28 22:33:09]    · RANGE Train cls={0: 20597, 1: 30615}  Test cls={1: 16363, 0: 9971}
+[2025-09-28 22:33:09]    · VOL   Train cls={0: 23720, 1: 27492}  Test cls={1: 10804, 0: 15530}
+[2025-09-28 22:33:12]    → 6-Class Macro-F1 2025-05→2025-05: 0.03
+[2025-09-28 22:33:13]       score-quantiles: [0.0, 0.0, 0.414, 1.0, 1.0]
+[2025-09-28 22:33:13]    → BULL Head: F1=0.898, AUC=0.971
+[2025-09-28 22:33:14]       score-quantiles: [0.0, 0.008, 0.74, 0.996, 1.0]
+[2025-09-28 22:33:14]    → RANGE Head: F1=0.890, AUC=0.947
+[2025-09-28 22:33:15]       score-quantiles: [0.0, 0.01, 0.444, 0.844, 1.0]
+[2025-09-28 22:33:15]    → VOL Head: F1=0.755, AUC=0.862
+[2025-09-28 22:33:15] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-28 22:33:15]    · BULL  Train cls={0: 27782, 1: 24564}  Test cls={0: 13279, 1: 11757}
+[2025-09-28 22:33:15]    · RANGE Train cls={0: 20941, 1: 31405}  Test cls={1: 14989, 0: 10047}
+[2025-09-28 22:33:15]    · VOL   Train cls={1: 28312, 0: 24034}  Test cls={1: 7947, 0: 17089}
+[2025-09-28 22:33:19]    → 6-Class Macro-F1 2025-06→2025-06: 0.099
+[2025-09-28 22:33:20]       score-quantiles: [0.0, 0.0, 0.43, 1.0, 1.0]
+[2025-09-28 22:33:20]    → BULL Head: F1=0.901, AUC=0.970
+[2025-09-28 22:33:21]       score-quantiles: [0.0, 0.009, 0.683, 0.993, 1.0]
+[2025-09-28 22:33:21]    → RANGE Head: F1=0.886, AUC=0.948
+[2025-09-28 22:33:22]       score-quantiles: [0.0, 0.008, 0.362, 0.788, 0.999]
+[2025-09-28 22:33:22]    → VOL Head: F1=0.644, AUC=0.826
+[2025-09-28 22:33:22] 🏁 Walk-forward Macro-F1 (6-Class avg): 0.049
+[2025-09-28 22:33:34]       score-quantiles: [0.0, 0.0, 0.374, 1.0, 1.0]
+[2025-09-28 22:33:35]       score-quantiles: [0.0, 0.008, 0.678, 0.994, 1.0]
+[2025-09-28 22:33:37]       score-quantiles: [0.0, 0.018, 0.468, 0.879, 1.0]
+[2025-09-28 22:33:37] ✅ Training fertig
+[2025-09-28 22:51:13] 🚀 Start train_regime.py
+[2025-09-28 22:51:13] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-28 22:51:13] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-28 22:51:13] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-28 22:51:13] Columns (head): ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14'] ...
+[2025-09-28 22:51:13] Zeitspanne: 2024-12-31 23:00:00 → 2025-06-30 21:55:00
+[2025-09-28 22:51:13] Features genutzt (17): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'adx14', 'chop14', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-28 22:51:13] ✅ Features skaliert
+[2025-09-28 22:51:13] 🧭 PCA für Clustering: components=8, explained_var=0.918
+[2025-09-28 22:51:38] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-28 22:51:38] 🗺️  Cluster → Regime (QC) Beispiele [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-28 22:51:38] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-28 22:51:38]    · BULL  Train cls={0: 14865, 1: 11385}  Test cls={0: 13770, 1: 10162}
+[2025-09-28 22:51:38]    · RANGE Train cls={0: 10911, 1: 15339}  Test cls={1: 13935, 0: 9997}
+[2025-09-28 22:51:38]    · VOL   Train cls={0: 17191, 1: 9059}  Test cls={1: 5762, 0: 18170}
+[2025-09-28 22:51:40]    → 6-Class Macro-F1 2025-02→2025-02: 0.035
+[2025-09-28 22:51:42]       score-quantiles: [0.0, 0.0, 0.324, 0.998, 1.0]
+[2025-09-28 22:51:42]    → BULL Head: F1=0.880, AUC=0.967
+[2025-09-28 22:51:43]       score-quantiles: [0.0, 0.008, 0.637, 0.993, 1.0]
+[2025-09-28 22:51:43]    → RANGE Head: F1=0.883, AUC=0.949
+[2025-09-28 22:51:44]       score-quantiles: [0.0, 0.006, 0.373, 0.876, 1.0]
+[2025-09-28 22:51:44]    → VOL Head: F1=0.637, AUC=0.868
+[2025-09-28 22:51:44]    → Heads→6-Class Macro-F1 2025-02→2025-02: 0.605
+[2025-09-28 22:51:44] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-28 22:51:44]    · BULL  Train cls={0: 28597, 1: 21538}  Test cls={0: 14328, 1: 10872}
+[2025-09-28 22:51:44]    · RANGE Train cls={0: 20861, 1: 29274}  Test cls={0: 9627, 1: 15573}
+[2025-09-28 22:51:44]    · VOL   Train cls={0: 35314, 1: 14821}  Test cls={0: 15216, 1: 9984}
+[2025-09-28 22:51:47]    → 6-Class Macro-F1 2025-03→2025-03: 0.037
+[2025-09-28 22:51:48]       score-quantiles: [0.0, 0.0, 0.324, 1.0, 1.0]
+[2025-09-28 22:51:48]    → BULL Head: F1=0.897, AUC=0.974
+[2025-09-28 22:51:49]       score-quantiles: [0.0, 0.01, 0.725, 0.994, 1.0]
+[2025-09-28 22:51:49]    → RANGE Head: F1=0.897, AUC=0.955
+[2025-09-28 22:51:50]       score-quantiles: [0.0, 0.012, 0.495, 0.935, 1.0]
+[2025-09-28 22:51:50]    → VOL Head: F1=0.778, AUC=0.899
+[2025-09-28 22:51:50]    → Heads→6-Class Macro-F1 2025-03→2025-03: 0.666
+[2025-09-28 22:51:50] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-28 22:51:50]    · BULL  Train cls={0: 28098, 1: 21034}  Test cls={0: 13518, 1: 12494}
+[2025-09-28 22:51:50]    · RANGE Train cls={1: 29508, 0: 19624}  Test cls={0: 10970, 1: 15042}
+[2025-09-28 22:51:50]    · VOL   Train cls={1: 15746, 0: 33386}  Test cls={1: 17508, 0: 8504}
+[2025-09-28 22:51:53]    → 6-Class Macro-F1 2025-04→2025-04: 0.045
+[2025-09-28 22:51:54]       score-quantiles: [0.0, 0.0, 0.41, 1.0, 1.0]
+[2025-09-28 22:51:54]    → BULL Head: F1=0.905, AUC=0.971
+[2025-09-28 22:51:55]       score-quantiles: [0.0, 0.005, 0.636, 0.995, 1.0]
+[2025-09-28 22:51:55]    → RANGE Head: F1=0.881, AUC=0.948
+[2025-09-28 22:51:56]       score-quantiles: [0.0, 0.069, 0.68, 0.984, 1.0]
+[2025-09-28 22:51:56]    → VOL Head: F1=0.873, AUC=0.902
+[2025-09-28 22:51:56]    → Heads→6-Class Macro-F1 2025-04→2025-04: 0.677
+[2025-09-28 22:51:56] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-28 22:51:56]    · BULL  Train cls={0: 27846, 1: 23366}  Test cls={0: 14264, 1: 12070}
+[2025-09-28 22:51:56]    · RANGE Train cls={0: 20597, 1: 30615}  Test cls={1: 16363, 0: 9971}
+[2025-09-28 22:51:56]    · VOL   Train cls={0: 23720, 1: 27492}  Test cls={1: 10804, 0: 15530}
+[2025-09-28 22:51:59]    → 6-Class Macro-F1 2025-05→2025-05: 0.03
+[2025-09-28 22:52:00]       score-quantiles: [0.0, 0.0, 0.414, 1.0, 1.0]
+[2025-09-28 22:52:00]    → BULL Head: F1=0.898, AUC=0.971
+[2025-09-28 22:52:01]       score-quantiles: [0.0, 0.008, 0.74, 0.996, 1.0]
+[2025-09-28 22:52:01]    → RANGE Head: F1=0.890, AUC=0.947
+[2025-09-28 22:52:02]       score-quantiles: [0.0, 0.01, 0.444, 0.844, 1.0]
+[2025-09-28 22:52:02]    → VOL Head: F1=0.755, AUC=0.862
+[2025-09-28 22:52:02]    → Heads→6-Class Macro-F1 2025-05→2025-05: 0.646
+[2025-09-28 22:52:02] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-28 22:52:02]    · BULL  Train cls={0: 27782, 1: 24564}  Test cls={0: 13279, 1: 11757}
+[2025-09-28 22:52:02]    · RANGE Train cls={0: 20941, 1: 31405}  Test cls={1: 14989, 0: 10047}
+[2025-09-28 22:52:02]    · VOL   Train cls={1: 28312, 0: 24034}  Test cls={1: 7947, 0: 17089}
+[2025-09-28 22:52:05]    → 6-Class Macro-F1 2025-06→2025-06: 0.099
+[2025-09-28 22:52:06]       score-quantiles: [0.0, 0.0, 0.43, 1.0, 1.0]
+[2025-09-28 22:52:06]    → BULL Head: F1=0.901, AUC=0.970
+[2025-09-28 22:52:07]       score-quantiles: [0.0, 0.009, 0.683, 0.993, 1.0]
+[2025-09-28 22:52:07]    → RANGE Head: F1=0.886, AUC=0.948
+[2025-09-28 22:52:09]       score-quantiles: [0.0, 0.008, 0.362, 0.788, 0.999]
+[2025-09-28 22:52:09]    → VOL Head: F1=0.644, AUC=0.826
+[2025-09-28 22:52:09]    → Heads→6-Class Macro-F1 2025-06→2025-06: 0.606
+[2025-09-28 22:52:09] 🏁 Walk-forward Macro-F1 (6-Class avg): 0.049
+[2025-09-28 22:52:18]       score-quantiles: [0.0, 0.0, 0.374, 1.0, 1.0]
+[2025-09-28 22:52:20]       score-quantiles: [0.0, 0.008, 0.678, 0.994, 1.0]
+[2025-09-28 22:52:22]       score-quantiles: [0.0, 0.018, 0.468, 0.879, 1.0]
+[2025-09-28 22:52:22] ✅ Training fertig
+[2025-09-28 23:01:17] 🚀 Start train_regime.py
+[2025-09-28 23:01:17] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-28 23:01:17] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-28 23:01:17] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-28 23:01:18] Columns (head): ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14'] ...
+[2025-09-28 23:01:18] Zeitspanne: 2024-12-31 23:00:00 → 2025-06-30 21:55:00
+[2025-09-28 23:01:18] Features genutzt (17): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'adx14', 'chop14', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-28 23:01:18] ✅ Features skaliert
+[2025-09-28 23:01:18] 🧭 PCA für Clustering: components=8, explained_var=0.918
+[2025-09-28 23:01:42] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-28 23:01:42] 🗺️  Cluster → Regime (QC) Beispiele [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-28 23:01:43] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-28 23:01:43]    · BULL  Train cls={0: 14865, 1: 11385}  Test cls={0: 13770, 1: 10162}
+[2025-09-28 23:01:43]    · RANGE Train cls={0: 10911, 1: 15339}  Test cls={1: 13935, 0: 9997}
+[2025-09-28 23:01:43]    · VOL   Train cls={0: 17191, 1: 9059}  Test cls={1: 5762, 0: 18170}
+[2025-09-28 23:01:45]    → 6-Class Macro-F1 2025-02→2025-02: 0.035
+[2025-09-28 23:01:46]       score-quantiles: [0.0, 0.0, 0.324, 0.998, 1.0]
+[2025-09-28 23:01:46]    → BULL Head: F1=0.880, AUC=0.967
+[2025-09-28 23:01:47]       score-quantiles: [0.0, 0.008, 0.637, 0.993, 1.0]
+[2025-09-28 23:01:47]    → RANGE Head: F1=0.883, AUC=0.949
+[2025-09-28 23:01:48]       score-quantiles: [0.0, 0.006, 0.373, 0.876, 1.0]
+[2025-09-28 23:01:48]    → VOL Head: F1=0.637, AUC=0.868
+[2025-09-28 23:01:48]    → Heads→6-Class Macro-F1 2025-02→2025-02: 0.620
+[2025-09-28 23:01:48] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-28 23:01:49]    · BULL  Train cls={0: 28597, 1: 21538}  Test cls={0: 14328, 1: 10872}
+[2025-09-28 23:01:49]    · RANGE Train cls={0: 20861, 1: 29274}  Test cls={0: 9627, 1: 15573}
+[2025-09-28 23:01:49]    · VOL   Train cls={0: 35314, 1: 14821}  Test cls={0: 15216, 1: 9984}
+[2025-09-28 23:01:51]    → 6-Class Macro-F1 2025-03→2025-03: 0.037
+[2025-09-28 23:01:52]       score-quantiles: [0.0, 0.0, 0.324, 1.0, 1.0]
+[2025-09-28 23:01:52]    → BULL Head: F1=0.897, AUC=0.974
+[2025-09-28 23:01:53]       score-quantiles: [0.0, 0.01, 0.725, 0.994, 1.0]
+[2025-09-28 23:01:53]    → RANGE Head: F1=0.897, AUC=0.955
+[2025-09-28 23:01:54]       score-quantiles: [0.0, 0.012, 0.495, 0.935, 1.0]
+[2025-09-28 23:01:54]    → VOL Head: F1=0.778, AUC=0.899
+[2025-09-28 23:01:55]    → Heads→6-Class Macro-F1 2025-03→2025-03: 0.674
+[2025-09-28 23:01:55] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-28 23:01:55]    · BULL  Train cls={0: 28098, 1: 21034}  Test cls={0: 13518, 1: 12494}
+[2025-09-28 23:01:55]    · RANGE Train cls={1: 29508, 0: 19624}  Test cls={0: 10970, 1: 15042}
+[2025-09-28 23:01:55]    · VOL   Train cls={1: 15746, 0: 33386}  Test cls={1: 17508, 0: 8504}
+[2025-09-28 23:01:57]    → 6-Class Macro-F1 2025-04→2025-04: 0.045
+[2025-09-28 23:01:58]       score-quantiles: [0.0, 0.0, 0.41, 1.0, 1.0]
+[2025-09-28 23:01:58]    → BULL Head: F1=0.905, AUC=0.971
+[2025-09-28 23:01:59]       score-quantiles: [0.0, 0.005, 0.636, 0.995, 1.0]
+[2025-09-28 23:01:59]    → RANGE Head: F1=0.881, AUC=0.948
+[2025-09-28 23:02:00]       score-quantiles: [0.0, 0.069, 0.68, 0.984, 1.0]
+[2025-09-28 23:02:00]    → VOL Head: F1=0.873, AUC=0.902
+[2025-09-28 23:02:00]    → Heads→6-Class Macro-F1 2025-04→2025-04: 0.657
+[2025-09-28 23:02:00] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-28 23:02:00]    · BULL  Train cls={0: 27846, 1: 23366}  Test cls={0: 14264, 1: 12070}
+[2025-09-28 23:02:00]    · RANGE Train cls={0: 20597, 1: 30615}  Test cls={1: 16363, 0: 9971}
+[2025-09-28 23:02:00]    · VOL   Train cls={0: 23720, 1: 27492}  Test cls={1: 10804, 0: 15530}
+[2025-09-28 23:02:03]    → 6-Class Macro-F1 2025-05→2025-05: 0.03
+[2025-09-28 23:02:04]       score-quantiles: [0.0, 0.0, 0.414, 1.0, 1.0]
+[2025-09-28 23:02:04]    → BULL Head: F1=0.898, AUC=0.971
+[2025-09-28 23:02:05]       score-quantiles: [0.0, 0.008, 0.74, 0.996, 1.0]
+[2025-09-28 23:02:05]    → RANGE Head: F1=0.890, AUC=0.947
+[2025-09-28 23:02:06]       score-quantiles: [0.0, 0.01, 0.444, 0.844, 1.0]
+[2025-09-28 23:02:06]    → VOL Head: F1=0.755, AUC=0.862
+[2025-09-28 23:02:07]    → Heads→6-Class Macro-F1 2025-05→2025-05: 0.630
+[2025-09-28 23:02:07] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-28 23:02:07]    · BULL  Train cls={0: 27782, 1: 24564}  Test cls={0: 13279, 1: 11757}
+[2025-09-28 23:02:07]    · RANGE Train cls={0: 20941, 1: 31405}  Test cls={1: 14989, 0: 10047}
+[2025-09-28 23:02:07]    · VOL   Train cls={1: 28312, 0: 24034}  Test cls={1: 7947, 0: 17089}
+[2025-09-28 23:02:10]    → 6-Class Macro-F1 2025-06→2025-06: 0.099
+[2025-09-28 23:02:11]       score-quantiles: [0.0, 0.0, 0.43, 1.0, 1.0]
+[2025-09-28 23:02:11]    → BULL Head: F1=0.901, AUC=0.970
+[2025-09-28 23:02:12]       score-quantiles: [0.0, 0.009, 0.683, 0.993, 1.0]
+[2025-09-28 23:02:12]    → RANGE Head: F1=0.886, AUC=0.948
+[2025-09-28 23:02:13]       score-quantiles: [0.0, 0.008, 0.362, 0.788, 0.999]
+[2025-09-28 23:02:13]    → VOL Head: F1=0.644, AUC=0.826
+[2025-09-28 23:02:13]    → Heads→6-Class Macro-F1 2025-06→2025-06: 0.604
+[2025-09-28 23:02:13] 🏁 Walk-forward Macro-F1 (6-Class avg): 0.049
+[2025-09-28 23:02:23]       score-quantiles: [0.0, 0.0, 0.374, 1.0, 1.0]
+[2025-09-28 23:02:24]       score-quantiles: [0.0, 0.008, 0.678, 0.994, 1.0]
+[2025-09-28 23:02:26]       score-quantiles: [0.0, 0.018, 0.468, 0.879, 1.0]
+[2025-09-28 23:02:26] ✅ Training fertig
+[2025-09-28 23:14:32] 🚀 Start train_regime.py
+[2025-09-28 23:14:32] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-28 23:14:32] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-28 23:14:32] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-28 23:14:32] Columns (head): ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14'] ...
+[2025-09-28 23:14:32] Zeitspanne: 2024-12-31 23:00:00 → 2025-06-30 21:55:00
+[2025-09-28 23:14:32] Features genutzt (17): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'adx14', 'chop14', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-28 23:14:32] ✅ Features skaliert
+[2025-09-28 23:14:32] 🧭 PCA für Clustering: components=8, explained_var=0.918
+[2025-09-28 23:14:57] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-28 23:14:57] 🗺️  Cluster → Regime (QC) Beispiele [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-28 23:14:57] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-28 23:14:57]    · BULL  Train cls={0: 14865, 1: 11385}  Test cls={0: 13770, 1: 10162}
+[2025-09-28 23:14:57]    · RANGE Train cls={0: 10911, 1: 15339}  Test cls={1: 13935, 0: 9997}
+[2025-09-28 23:14:57]    · VOL   Train cls={0: 17191, 1: 9059}  Test cls={1: 5762, 0: 18170}
+[2025-09-28 23:14:59]    → 6-Class Macro-F1 2025-02→2025-02: 0.035
+[2025-09-28 23:15:01]       score-quantiles: [0.0, 0.0, 0.324, 0.998, 1.0]
+[2025-09-28 23:15:01]    → BULL Head: F1=0.880, AUC=0.967
+[2025-09-28 23:15:02]       score-quantiles: [0.0, 0.008, 0.637, 0.993, 1.0]
+[2025-09-28 23:15:02]    → RANGE Head: F1=0.883, AUC=0.949
+[2025-09-28 23:15:03]       score-quantiles: [0.0, 0.006, 0.373, 0.876, 1.0]
+[2025-09-28 23:15:03]    → VOL Head: F1=0.637, AUC=0.868
+[2025-09-28 23:15:03] ❌ FEHLER:
+[2025-09-28 23:15:03] Traceback (most recent call last):
+[2025-09-28 23:15:03]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 518, in <module>
+[2025-09-28 23:15:03]     main()
+[2025-09-28 23:15:03]   File "F:\TradingBot\FTMOEA\ml\regime\train_regime.py", line 449, in main
+[2025-09-28 23:15:03]     f1_heads2six = f1_score(y_true_str, y_pred_str, average="macro")
+[2025-09-28 23:15:03]                    ^^^^^^^^
+[2025-09-28 23:15:03] UnboundLocalError: cannot access local variable 'f1_score' where it is not associated with a value
+[2025-09-28 23:23:38] 🚀 Start train_regime.py
+[2025-09-28 23:23:38] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-28 23:23:38] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-28 23:23:38] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-28 23:23:38] Columns (head): ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14'] ...
+[2025-09-28 23:23:38] Zeitspanne: 2024-12-31 23:00:00 → 2025-06-30 21:55:00
+[2025-09-28 23:23:38] Features genutzt (17): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'adx14', 'chop14', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-28 23:23:38] ✅ Features skaliert
+[2025-09-28 23:23:38] 🧭 PCA für Clustering: components=8, explained_var=0.918
+[2025-09-28 23:24:03] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-28 23:24:03] 🗺️  Cluster → Regime (QC) Beispiele [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-28 23:24:03] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-28 23:24:03]    · BULL  Train cls={0: 14865, 1: 11385}  Test cls={0: 13770, 1: 10162}
+[2025-09-28 23:24:03]    · RANGE Train cls={0: 10911, 1: 15339}  Test cls={1: 13935, 0: 9997}
+[2025-09-28 23:24:03]    · VOL   Train cls={0: 17191, 1: 9059}  Test cls={1: 5762, 0: 18170}
+[2025-09-28 23:24:05]    → 6-Class Macro-F1 2025-02→2025-02: 0.035
+[2025-09-28 23:24:07]       score-quantiles: [0.0, 0.0, 0.324, 0.998, 1.0]
+[2025-09-28 23:24:07]    → BULL Head: F1=0.880, AUC=0.967
+[2025-09-28 23:24:08]       score-quantiles: [0.0, 0.008, 0.637, 0.993, 1.0]
+[2025-09-28 23:24:08]    → RANGE Head: F1=0.883, AUC=0.949
+[2025-09-28 23:24:09]       score-quantiles: [0.0, 0.006, 0.373, 0.876, 1.0]
+[2025-09-28 23:24:09]    → VOL Head: F1=0.637, AUC=0.868
+[2025-09-28 23:24:09]    → Heads→6-Class Macro-F1 2025-02→2025-02: 0.620
+[2025-09-28 23:24:09] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-28 23:24:09]    · BULL  Train cls={0: 28597, 1: 21538}  Test cls={0: 14328, 1: 10872}
+[2025-09-28 23:24:09]    · RANGE Train cls={0: 20861, 1: 29274}  Test cls={0: 9627, 1: 15573}
+[2025-09-28 23:24:09]    · VOL   Train cls={0: 35314, 1: 14821}  Test cls={0: 15216, 1: 9984}
+[2025-09-28 23:24:12]    → 6-Class Macro-F1 2025-03→2025-03: 0.037
+[2025-09-28 23:24:13]       score-quantiles: [0.0, 0.0, 0.324, 1.0, 1.0]
+[2025-09-28 23:24:13]    → BULL Head: F1=0.897, AUC=0.974
+[2025-09-28 23:24:14]       score-quantiles: [0.0, 0.01, 0.725, 0.994, 1.0]
+[2025-09-28 23:24:14]    → RANGE Head: F1=0.897, AUC=0.955
+[2025-09-28 23:24:15]       score-quantiles: [0.0, 0.012, 0.495, 0.935, 1.0]
+[2025-09-28 23:24:15]    → VOL Head: F1=0.778, AUC=0.899
+[2025-09-28 23:24:15]    → Heads→6-Class Macro-F1 2025-03→2025-03: 0.674
+[2025-09-28 23:24:15] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-28 23:24:15]    · BULL  Train cls={0: 28098, 1: 21034}  Test cls={0: 13518, 1: 12494}
+[2025-09-28 23:24:15]    · RANGE Train cls={1: 29508, 0: 19624}  Test cls={0: 10970, 1: 15042}
+[2025-09-28 23:24:15]    · VOL   Train cls={1: 15746, 0: 33386}  Test cls={1: 17508, 0: 8504}
+[2025-09-28 23:24:17]    → 6-Class Macro-F1 2025-04→2025-04: 0.045
+[2025-09-28 23:24:19]       score-quantiles: [0.0, 0.0, 0.41, 1.0, 1.0]
+[2025-09-28 23:24:19]    → BULL Head: F1=0.905, AUC=0.971
+[2025-09-28 23:24:20]       score-quantiles: [0.0, 0.005, 0.636, 0.995, 1.0]
+[2025-09-28 23:24:20]    → RANGE Head: F1=0.881, AUC=0.948
+[2025-09-28 23:24:21]       score-quantiles: [0.0, 0.069, 0.68, 0.984, 1.0]
+[2025-09-28 23:24:21]    → VOL Head: F1=0.873, AUC=0.902
+[2025-09-28 23:24:21]    → Heads→6-Class Macro-F1 2025-04→2025-04: 0.657
+[2025-09-28 23:24:21] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-28 23:24:21]    · BULL  Train cls={0: 27846, 1: 23366}  Test cls={0: 14264, 1: 12070}
+[2025-09-28 23:24:21]    · RANGE Train cls={0: 20597, 1: 30615}  Test cls={1: 16363, 0: 9971}
+[2025-09-28 23:24:21]    · VOL   Train cls={0: 23720, 1: 27492}  Test cls={1: 10804, 0: 15530}
+[2025-09-28 23:24:23]    → 6-Class Macro-F1 2025-05→2025-05: 0.03
+[2025-09-28 23:24:24]       score-quantiles: [0.0, 0.0, 0.414, 1.0, 1.0]
+[2025-09-28 23:24:24]    → BULL Head: F1=0.898, AUC=0.971
+[2025-09-28 23:24:26]       score-quantiles: [0.0, 0.008, 0.74, 0.996, 1.0]
+[2025-09-28 23:24:26]    → RANGE Head: F1=0.890, AUC=0.947
+[2025-09-28 23:24:27]       score-quantiles: [0.0, 0.01, 0.444, 0.844, 1.0]
+[2025-09-28 23:24:27]    → VOL Head: F1=0.755, AUC=0.862
+[2025-09-28 23:24:27]    → Heads→6-Class Macro-F1 2025-05→2025-05: 0.630
+[2025-09-28 23:24:27] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-28 23:24:27]    · BULL  Train cls={0: 27782, 1: 24564}  Test cls={0: 13279, 1: 11757}
+[2025-09-28 23:24:27]    · RANGE Train cls={0: 20941, 1: 31405}  Test cls={1: 14989, 0: 10047}
+[2025-09-28 23:24:27]    · VOL   Train cls={1: 28312, 0: 24034}  Test cls={1: 7947, 0: 17089}
+[2025-09-28 23:24:29]    → 6-Class Macro-F1 2025-06→2025-06: 0.099
+[2025-09-28 23:24:31]       score-quantiles: [0.0, 0.0, 0.43, 1.0, 1.0]
+[2025-09-28 23:24:31]    → BULL Head: F1=0.901, AUC=0.970
+[2025-09-28 23:24:32]       score-quantiles: [0.0, 0.009, 0.683, 0.993, 1.0]
+[2025-09-28 23:24:32]    → RANGE Head: F1=0.886, AUC=0.948
+[2025-09-28 23:24:33]       score-quantiles: [0.0, 0.008, 0.362, 0.788, 0.999]
+[2025-09-28 23:24:33]    → VOL Head: F1=0.644, AUC=0.826
+[2025-09-28 23:24:33]    → Heads→6-Class Macro-F1 2025-06→2025-06: 0.604
+[2025-09-28 23:24:33] 🏁 Walk-forward Macro-F1 (6-Class avg): 0.049
+[2025-09-28 23:24:43]       score-quantiles: [0.0, 0.0, 0.374, 1.0, 1.0]
+[2025-09-28 23:24:44]       score-quantiles: [0.0, 0.008, 0.678, 0.994, 1.0]
+[2025-09-28 23:24:46]       score-quantiles: [0.0, 0.018, 0.468, 0.879, 1.0]
+[2025-09-28 23:25:17] 🎯 Auto-Thresholds (global): {'score': 0.6186218389683528, 'bull': 0.6000000000000001, 'range': 0.5, 'vol': 0.55}
+[2025-09-28 23:25:18]    → Heads→6-Class Macro-F1 (global tuned, QA): 0.666
+[2025-09-28 23:25:18] ✅ Training fertig
+[2025-09-29 00:12:18] 🚀 Start train_regime.py
+[2025-09-29 00:12:18] 📝 Using config: F:\TradingBot\FTMOEA\ml\regime\configs\regime.yaml
+[2025-09-29 00:12:18] Resolved features_dir: F:\TradingBot\FTMOEA\data_pipeline\data\features
+[2025-09-29 00:12:18] Resolved artifacts_dir: F:\TradingBot\FTMOEA\ml\models\regime\v1
+[2025-09-29 00:12:18] Columns (head): ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'bid', 'ask', 'spread_points', 'spread_pips', 'mt5_point', 'mt5_points_per_pip', 'mt5_pip_value_per_lot_usd', 'session', 'atr_pips_14', 'atr_pips_28', 'roc5_pct', 'rsi14'] ...
+[2025-09-29 00:12:18] Zeitspanne: 2024-12-31 23:00:00 → 2025-06-30 21:55:00
+[2025-09-29 00:12:18] Features genutzt (17): ['atr_pips_14', 'atr_pips_28', 'roc5_pct', 'adx14', 'chop14', 'rsi14', 'ema21', 'ema50', 'ema100', 'ema21_slope', 'ema50_slope', 'spread_pips_eff', 'commission_pips', 'cost_pips_roundtrip', 'fee_burden_ratio', 'dow', 'hour']
+[2025-09-29 00:12:18] ✅ Features skaliert
+[2025-09-29 00:12:18] 🧭 PCA für Clustering: components=8, explained_var=0.918
+[2025-09-29 00:12:42] 🔎 HDBSCAN: clusters (unique) = 7 (inkl. noise)
+[2025-09-29 00:12:42] 🗺️  Cluster → Regime (QC) Beispiele [(0, 'Bull_Volatile'), (1, 'Bull_Quiet'), (2, 'Bull_Quiet'), (3, 'Bull_Quiet'), (4, 'Bull_Quiet'), (5, 'Bull_Quiet'), (-1, 'Range_Quiet')]
+[2025-09-29 00:12:43] 📆 Split Train 2024-12→2025-01 | Test 2025-02→2025-02 | Größen: tr=26,250, te=23,932
+[2025-09-29 00:12:43]    · BULL  Train cls={0: 14865, 1: 11385}  Test cls={0: 13770, 1: 10162}
+[2025-09-29 00:12:43]    · RANGE Train cls={0: 10911, 1: 15339}  Test cls={1: 13935, 0: 9997}
+[2025-09-29 00:12:43]    · VOL   Train cls={0: 17191, 1: 9059}  Test cls={1: 5762, 0: 18170}
+[2025-09-29 00:12:44]    → 6-Class Macro-F1 2025-02→2025-02: 0.035
+[2025-09-29 00:12:46]       score-quantiles: [0.0, 0.0, 0.324, 0.998, 1.0]
+[2025-09-29 00:12:46]    → BULL Head: F1=0.880, AUC=0.967
+[2025-09-29 00:12:47]       score-quantiles: [0.0, 0.008, 0.637, 0.993, 1.0]
+[2025-09-29 00:12:47]    → RANGE Head: F1=0.883, AUC=0.949
+[2025-09-29 00:12:48]       score-quantiles: [0.0, 0.006, 0.373, 0.876, 1.0]
+[2025-09-29 00:12:48]    → VOL Head: F1=0.637, AUC=0.868
+[2025-09-29 00:12:48]    → Heads→6-Class Macro-F1 2025-02→2025-02: 0.620
+[2025-09-29 00:12:48] 📆 Split Train 2025-01→2025-02 | Test 2025-03→2025-03 | Größen: tr=50,135, te=25,200
+[2025-09-29 00:12:48]    · BULL  Train cls={0: 28597, 1: 21538}  Test cls={0: 14328, 1: 10872}
+[2025-09-29 00:12:48]    · RANGE Train cls={0: 20861, 1: 29274}  Test cls={0: 9627, 1: 15573}
+[2025-09-29 00:12:48]    · VOL   Train cls={0: 35314, 1: 14821}  Test cls={0: 15216, 1: 9984}
+[2025-09-29 00:12:51]    → 6-Class Macro-F1 2025-03→2025-03: 0.037
+[2025-09-29 00:12:52]       score-quantiles: [0.0, 0.0, 0.324, 1.0, 1.0]
+[2025-09-29 00:12:52]    → BULL Head: F1=0.897, AUC=0.974
+[2025-09-29 00:12:53]       score-quantiles: [0.0, 0.01, 0.725, 0.994, 1.0]
+[2025-09-29 00:12:53]    → RANGE Head: F1=0.897, AUC=0.955
+[2025-09-29 00:12:54]       score-quantiles: [0.0, 0.012, 0.495, 0.935, 1.0]
+[2025-09-29 00:12:54]    → VOL Head: F1=0.778, AUC=0.899
+[2025-09-29 00:12:54]    → Heads→6-Class Macro-F1 2025-03→2025-03: 0.674
+[2025-09-29 00:12:54] 📆 Split Train 2025-02→2025-03 | Test 2025-04→2025-04 | Größen: tr=49,132, te=26,012
+[2025-09-29 00:12:54]    · BULL  Train cls={0: 28098, 1: 21034}  Test cls={0: 13518, 1: 12494}
+[2025-09-29 00:12:54]    · RANGE Train cls={1: 29508, 0: 19624}  Test cls={0: 10970, 1: 15042}
+[2025-09-29 00:12:54]    · VOL   Train cls={1: 15746, 0: 33386}  Test cls={1: 17508, 0: 8504}
+[2025-09-29 00:12:56]    → 6-Class Macro-F1 2025-04→2025-04: 0.045
+[2025-09-29 00:12:57]       score-quantiles: [0.0, 0.0, 0.41, 1.0, 1.0]
+[2025-09-29 00:12:58]    → BULL Head: F1=0.905, AUC=0.971
+[2025-09-29 00:12:58]       score-quantiles: [0.0, 0.005, 0.636, 0.995, 1.0]
+[2025-09-29 00:12:59]    → RANGE Head: F1=0.881, AUC=0.948
+[2025-09-29 00:13:00]       score-quantiles: [0.0, 0.069, 0.68, 0.984, 1.0]
+[2025-09-29 00:13:00]    → VOL Head: F1=0.873, AUC=0.902
+[2025-09-29 00:13:00]    → Heads→6-Class Macro-F1 2025-04→2025-04: 0.657
+[2025-09-29 00:13:00] 📆 Split Train 2025-03→2025-04 | Test 2025-05→2025-05 | Größen: tr=51,212, te=26,334
+[2025-09-29 00:13:00]    · BULL  Train cls={0: 27846, 1: 23366}  Test cls={0: 14264, 1: 12070}
+[2025-09-29 00:13:00]    · RANGE Train cls={0: 20597, 1: 30615}  Test cls={1: 16363, 0: 9971}
+[2025-09-29 00:13:00]    · VOL   Train cls={0: 23720, 1: 27492}  Test cls={1: 10804, 0: 15530}
+[2025-09-29 00:13:03]    → 6-Class Macro-F1 2025-05→2025-05: 0.03
+[2025-09-29 00:13:04]       score-quantiles: [0.0, 0.0, 0.414, 1.0, 1.0]
+[2025-09-29 00:13:04]    → BULL Head: F1=0.898, AUC=0.971
+[2025-09-29 00:13:05]       score-quantiles: [0.0, 0.008, 0.74, 0.996, 1.0]
+[2025-09-29 00:13:05]    → RANGE Head: F1=0.890, AUC=0.947
+[2025-09-29 00:13:06]       score-quantiles: [0.0, 0.01, 0.444, 0.844, 1.0]
+[2025-09-29 00:13:06]    → VOL Head: F1=0.755, AUC=0.862
+[2025-09-29 00:13:06]    → Heads→6-Class Macro-F1 2025-05→2025-05: 0.630
+[2025-09-29 00:13:06] 📆 Split Train 2025-04→2025-05 | Test 2025-06→2025-06 | Größen: tr=52,346, te=25,036
+[2025-09-29 00:13:06]    · BULL  Train cls={0: 27782, 1: 24564}  Test cls={0: 13279, 1: 11757}
+[2025-09-29 00:13:06]    · RANGE Train cls={0: 20941, 1: 31405}  Test cls={1: 14989, 0: 10047}
+[2025-09-29 00:13:06]    · VOL   Train cls={1: 28312, 0: 24034}  Test cls={1: 7947, 0: 17089}
+[2025-09-29 00:13:09]    → 6-Class Macro-F1 2025-06→2025-06: 0.099
+[2025-09-29 00:13:10]       score-quantiles: [0.0, 0.0, 0.43, 1.0, 1.0]
+[2025-09-29 00:13:10]    → BULL Head: F1=0.901, AUC=0.970
+[2025-09-29 00:13:12]       score-quantiles: [0.0, 0.009, 0.683, 0.993, 1.0]
+[2025-09-29 00:13:12]    → RANGE Head: F1=0.886, AUC=0.948
+[2025-09-29 00:13:13]       score-quantiles: [0.0, 0.008, 0.362, 0.788, 0.999]
+[2025-09-29 00:13:13]    → VOL Head: F1=0.644, AUC=0.826
+[2025-09-29 00:13:13]    → Heads→6-Class Macro-F1 2025-06→2025-06: 0.604
+[2025-09-29 00:13:13] 🏁 Walk-forward Macro-F1 (6-Class avg): 0.049
+[2025-09-29 00:13:22]       score-quantiles: [0.0, 0.0, 0.374, 1.0, 1.0]
+[2025-09-29 00:13:24]       score-quantiles: [0.0, 0.008, 0.678, 0.994, 1.0]
+[2025-09-29 00:13:26]       score-quantiles: [0.0, 0.018, 0.468, 0.879, 1.0]
+[2025-09-29 00:13:57] 🎯 Auto-Thresholds (global): {'score': 0.6186218389683528, 'bull': 0.6000000000000001, 'range': 0.5, 'vol': 0.55}
+[2025-09-29 00:13:58]    → Heads→6-Class Macro-F1 (global tuned, QA): 0.666
+[2025-09-29 00:13:58] ✅ Training fertig

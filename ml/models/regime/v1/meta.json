@@ -1,0 +1,73 @@
+{
+  "feature_cols": [
+    "atr_pips_14",
+    "atr_pips_28",
+    "roc5_pct",
+    "adx14",
+    "chop14",
+    "rsi14",
+    "ema21",
+    "ema50",
+    "ema100",
+    "ema21_slope",
+    "ema50_slope",
+    "spread_pips_eff",
+    "commission_pips",
+    "cost_pips_roundtrip",
+    "fee_burden_ratio",
+    "dow",
+    "hour"
+  ],
+  "avg_macro_f1": 0.04946699626053937,
+  "splits": [
+    [
+      "2024-12\u21922025-01",
+      "2025-02\u21922025-02"
+    ],
+    [
+      "2025-01\u21922025-02",
+      "2025-03\u21922025-03"
+    ],
+    [
+      "2025-02\u21922025-03",
+      "2025-04\u21922025-04"
+    ],
+    [
+      "2025-03\u21922025-04",
+      "2025-05\u21922025-05"
+    ],
+    [
+      "2025-04\u21922025-05",
+      "2025-06\u21922025-06"
+    ]
+  ],
+  "classes": [
+    "Bear_Quiet",
+    "Bear_Volatile",
+    "Bull_Quiet",
+    "Bull_Volatile",
+    "Range_Quiet",
+    "Range_Volatile"
+  ],
+  "heads": {
+    "BULL": {
+      "f1": 0.8963062564264811,
+      "auc": 0.970881831468078
+    },
+    "RANGE": {
+      "f1": 0.8876815040707271,
+      "auc": 0.9496690801978526
+    },
+    "VOL": {
+      "f1": 0.771533338322233,
+      "auc": 0.8881829027620842
+    }
+  },
+  "heads_thresholds": {
+    "bull": 0.6000000000000001,
+    "range": 0.5,
+    "vol": 0.55
+  },
+  "heads_thresholds_score": 0.6186218389683528,
+  "heads2six_macro_f1_global_tuned": 0.6660522783241016
+}

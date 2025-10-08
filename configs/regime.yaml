@@ -1,0 +1,82 @@
+# Welche Daten?
+version: "v1"
+features_dir: "F:/TradingBot/FTMOEA/data_pipeline/data/features"
+artifacts_dir: "F:/TradingBot/FTMOEA/ml/models/regime/v1"
+
+assets: ["EURUSD", "GBPUSD", "US500.cash"]  # Symbol ohne Slash wie in Dateinamen
+timeframes: ["5m", "15m", "1h"]
+mode_filter: "BACKTEST"                 # nutze Backtest-Dateien als Trainingssource
+
+# Feature-Set (Spalten müssen in den Parquets existieren)
+feature_columns:
+  - atr_pips_14
+  - atr_pips_28
+  - roc5_pct
+  - adx14            # NEW
+  - chop14           # NEW
+  - rsi14
+  - ema21
+  - ema50
+  - ema100
+  - ema21_slope
+  - ema50_slope
+  - spread_pips_eff
+  - commission_pips
+  - cost_pips_roundtrip
+  - fee_burden_ratio
+  - dow
+  - hour
+
+# Ziel-Regime, in die gemappt wird (6-Klassen-Standard)
+target_regimes: ["Bull_Quiet","Bull_Volatile","Bear_Quiet","Bear_Volatile","Range_Quiet","Range_Volatile"]
+
+# Clustering
+clustering:
+  algo: "hdbscan"
+  pca_components: 8
+  min_cluster_size: 250
+  min_samples: 10
+  metric: "euclidean"
+
+# Mapping-Heuristik (aus Roh-Clustern → Zielregime)
+mapping_rules:
+  vol_percentile: 60
+  adx_percentile_low: 40
+  chop_percentile_high: 60
+  slope_percentile_bull: 55
+
+
+# Classifier
+classifier:
+  algo: "xgboost"      # oder "logreg" | "disabled"
+  heads_algo: "logreg"
+  n_estimators: 400
+  max_depth: 6
+  learning_rate: 0.08
+  subsample: 0.8
+  colsample_bytree: 0.8
+  eval_metric: "mlogloss"
+
+
+training:
+  save_qc: true            # 6-Klassen-Modell speichern
+  qc_filename: "clf6.joblib"  # Name erzwingen (passt zum Analyzer) 
+
+heads_thresholds:
+  bull: 0.55
+  range: 0.45
+  vol: 0.60
+  
+
+# Walk-forward
+walkforward:
+  split_by: "month"        # month | week | fixed
+  min_train_months: 2
+  test_months: 1
+
+# Drift
+drift:
+  psi_alert: 0.2
+
+# Misc
+random_state: 42
