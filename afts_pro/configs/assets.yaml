@@ -1,0 +1,9 @@
+assets:
+  ETHUSDT_5T:
+    symbol: "ETHUSDT_5T"
+    base_asset: "ETH"
+    quote_asset: "USDT"
+    min_qty: 0.001
+    max_qty: 100
+    qty_step: 0.0001
+    price_step: 0.01

@@ -1,0 +1,27 @@
+title: "Core Scaffold anlegen"
+summary: >
+  Lege die gesamte Projekt-Ordnerstruktur von AFTS-PRO an und implementiere
+  den ModeDispatcher, der TRAIN/SIM/LIVE Modi lädt.
+inputs:
+  - project_root: "afts_pro/"
+  - modes:
+      - TRAIN
+      - SIM
+      - LIVE
+outputs:
+  - vollständige Ordnerstruktur inklusive src/, configs/, data/, runs/
+  - funktionsfähiger ModeDispatcher (main.py → engine.start(mode))
+  - leere Platzhaltermodule für alle Schichten (core, data, strategies …)
+acceptance:
+  - Projekt lässt sich mit "python main.py --mode sim" starten
+  - ModeDispatcher lädt korrekt train/sim/live und ruft engine.start()
+  - Alle Ordner existieren in korrektem Layout
+  - Keine Logik in den Klassen – aber alle Dateien existieren
+coding_standards:
+  - Pydantic v2 für Models
+  - Typer für CLI
+  - logging statt prints
+  - async-ready Code (prepare for uvloop)
+notes: >
+  Minimale Implementierung, kein Business-Logik. 
+  Dient nur als Skelett, damit alle weiteren Tasks in echte Module schreiben können.

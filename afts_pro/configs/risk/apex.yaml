@@ -1,0 +1,4 @@
+type: "apex"
+initial_balance: 50000.0
+trailing_dd_pct: 0.04
+include_unrealized: true

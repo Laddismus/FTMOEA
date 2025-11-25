@@ -1,0 +1,50 @@
+title: "DataFeed Parquet + MarketStateBuilder + SIM-Integration"
+summary: >
+  Implementiere den gesamten OHLCV-Parquet-Datafeed für AFTS-PRO inklusive
+  MarketState-Modell, ParquetFeed, MarketStateBuilder und einer Engine-SIM-
+  Integration (Smoke-Test), die ETHUSDT_5T aus data/final_agg lädt. 
+inputs:
+  - project_root: "afts_pro/"
+  - data_root: "afts_pro/data/"
+  - parquet_examples:
+      - "final_agg/ETHUSDT_5T.parquet"
+      - "final_agg/SOLUSDT_5T.parquet"
+  - model_fields:
+      timestamp: datetime
+      symbol: str
+      ohlcv:
+        - open
+        - high
+        - low
+        - close
+        - volume
+      extras: dict
+      regime: optional int
+      features: dict
+      position: optional PositionState
+outputs:
+  - Datei: src/afts_pro/core/models.py (inkl. MarketState & PositionState in Pydantic v2)
+  - Datei: src/afts_pro/data/parquet_feed.py (ParquetFeed für OHLCV)
+  - Datei: src/afts_pro/data/market_state_builder.py (Wrapper über ParquetFeed)
+  - Datei: src/afts_pro/engine/engine.py (SIM-Modus lädt ETHUSDT_5T.parquet und loggt erste 10 Bars)
+acceptance:
+  - `python afts_pro/main.py --mode sim` läuft ohne Fehler
+  - Engine lädt ETHUSDT_5T.parquet aus data/final_agg
+  - Es werden min. 10 MarketState-Objekte geloggt (Timestamp, Symbol, Close)
+  - ParquetFeed validiert erforderliche Spalten (timestamp, open, high, low, close, volume)
+  - DataFrame wird korrekt `to_datetime(..., utc=True)` konvertiert und sortiert
+  - MarketStateBuilder reicht MarketState-Objekte sauber durch
+coding_standards:
+  - Pydantic v2
+  - logging statt print
+  - vollständige Typannotationen
+  - modulare Struktur: DataFeed, Builder, Engine strikt getrennt
+  - lesbare Fehler (FileNotFound, MissingColumns)
+notes: >
+  Diese Task-Datei enthält den vollständigen Umfang: Modelldefinition,
+  ParquetFeed, MarketStateBuilder und SIM-Integration. Codex soll die
+  Dateien exakt an den genannten Pfaden erzeugen. Später wird die gleiche
+  Infrastruktur für TRAIN/RL wiederverwendet.
+  Keine Extras, Features oder Regime in diesem Task – nur OHLCV-Basisfeed.
+  Die Dateien ETHUSDT_5T.parquet und SOLUSDT_5T.parquet existieren bereits
+  unter data/final_agg.

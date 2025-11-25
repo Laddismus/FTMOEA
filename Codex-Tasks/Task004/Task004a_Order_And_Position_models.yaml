@@ -1,0 +1,87 @@
+title: "AF_Task_004a_Order_and_Position_Models"
+summary: >
+  Definiere die zentralen Modelle für Orders, Fills, Positionen und den
+  AccountState in AFTS-PRO. Diese Modelle bilden die Grundlage für den
+  OrderBuilder, die SIM-FillEngine und spätere LIVE-Broker-Bridges.
+inputs:
+  - project_root: "afts_pro/"
+  - core_models_module: "src/afts_pro/core/models.py"
+  - exec_package: "src/afts_pro/exec/"
+outputs:
+  - Neue Datei: src/afts_pro/exec/order_models.py
+      - Enum: OrderSide (BUY, SELL)
+      - Enum: OrderType (MARKET, LIMIT, STOP_MARKET, STOP_LIMIT)
+      - Enum: OrderStatus (NEW, PARTIALLY_FILLED, FILLED, CANCELED)
+      - Enum: TimeInForce (GTC, IOC, FOK) [für später, v1 GTC ausreichend]
+      - Klasse: Order
+          - id: str
+          - client_order_id: Optional[str]
+          - symbol: str
+          - side: OrderSide
+          - type: OrderType
+          - qty: float
+          - price: Optional[float]
+          - stop_price: Optional[float]
+          - reduce_only: bool (Default False)
+          - is_sl: bool (Default False)
+          - is_tp: bool (Default False)
+          - time_in_force: TimeInForce (Default GTC)
+          - status: OrderStatus (Default NEW)
+          - created_at: datetime
+          - updated_at: datetime
+  - Neue Datei: src/afts_pro/exec/fill_models.py
+      - Klasse: Fill
+          - order_id: str
+          - trade_id: str
+          - symbol: str
+          - side: OrderSide
+          - qty: float
+          - price: float
+          - fee: float
+          - fee_asset: str
+          - timestamp: datetime
+  - Neue Datei: src/afts_pro/exec/position_models.py
+      - Enum: PositionSide (LONG, SHORT)
+      - Klasse: Position
+          - symbol: str
+          - side: PositionSide
+          - qty: float
+          - entry_price: float
+          - realized_pnl: float
+          - unrealized_pnl: float
+          - avg_entry_fees: float
+      - Klasse: AccountState
+          - balance: float
+          - equity: float
+          - realized_pnl: float
+          - unrealized_pnl: float
+          - fees_total: float
+          - positions: Dict[str, Position]  # key: symbol
+          - open_orders: Dict[str, Order]   # key: order_id
+  - Optional: Exports in src/afts_pro/exec/__init__.py
+      - from .order_models import Order, OrderSide, OrderType, OrderStatus, TimeInForce
+      - from .fill_models import Fill
+      - from .position_models import Position, PositionSide, AccountState
+acceptance:
+  - `mypy` oder type-check läuft ohne Fehler für die neuen Module (falls konfiguriert).
+  - Import-Test in einer kleinen Dummy-Datei (z. B. in engine.py):
+      - from afts_pro.exec.order_models import Order, OrderType
+      - from afts_pro.exec.position_models import AccountState
+      - Instanziierung einer Dummy-Order und eines leeren AccountState ohne Exceptions.
+  - `python main.py --mode sim` läuft weiterhin ohne Verhaltensänderung
+      - (die neuen Modelle sind definiert, werden aber noch nicht verwendet).
+  - Order-Modell unterstützt das Flag `reduce_only`, das in späteren Tasks
+    von der FillEngine beachtet wird.
+coding_standards:
+  - Pydantic v2 oder dataclasses (eine Variante wählen, bevorzugt Pydantic v2 für Konsistenz)
+  - Vollständige Typannotationen
+  - keine Business-Logik in diesen Modellen, nur Datenstruktur
+  - datetime-Felder immer als timezone-aware (UTC)
+notes: >
+  Dieser Task ist rein modellorientiert und verändert die Engine-Laufzeit
+  nicht. Er legt jedoch die Grundlage für:
+  - OrderBuilder (Strategie -> Orders)
+  - FillEngine (SIM)
+  - Account/Risk-Layer.
+  Die Modelle müssen so generisch und robust sein, dass sie später sowohl
+  für Crypto (Bybit) als auch für FX (MT5/CFDs) verwendbar sind.

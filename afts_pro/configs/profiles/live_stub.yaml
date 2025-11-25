@@ -1,0 +1,11 @@
+profile:
+  name: "live_stub"
+  description: "Placeholder for future LIVE trading profile – do not use in production yet."
+  includes:
+    environment: "configs/environment.yaml"
+    execution: "configs/execution.yaml"
+    assets: "configs/assets.yaml"
+    strategy: "configs/strategy.yaml"
+    risk: "configs/risk/ftmo.yaml"
+    behaviour: "configs/behaviour/default.yaml"
+    features: "configs/features.yaml"

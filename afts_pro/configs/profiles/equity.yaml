@@ -1,0 +1,11 @@
+profile:
+  name: "equity"
+  description: "Own-capital profile using HWM-based equity risk policy."
+  includes:
+    environment: "configs/environment.yaml"
+    execution: "configs/execution.yaml"
+    assets: "configs/assets.yaml"
+    strategy: "configs/strategy.yaml"
+    risk: "configs/risk/equity.yaml"
+    behaviour: "configs/behaviour/default.yaml"
+    features: "configs/features.yaml"

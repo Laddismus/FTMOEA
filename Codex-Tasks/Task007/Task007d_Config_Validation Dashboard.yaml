@@ -1,0 +1,138 @@
+title: "AF_Task_007d_Config_HotReload_Foundation"
+summary: >
+  Implementiere eine grundlegende Hot-Reload-Funktionalität für Konfigurationen
+  in SIM/TRAIN-Modus. Die Engine beobachtet die verwendete Profil- und
+  Config-Dateien und lädt GlobalConfig bei Änderungen neu. In v1 werden
+  Behaviour-, Strategy- und Execution-Settings im laufenden SIM-Lauf aktualisiert;
+  Risk-Policy-Änderungen werden nur geloggt (kein Live-Switch, um Konsistenz zu
+  wahren).
+
+inputs:
+  - project_root: "afts_pro/"
+  - engine_module: "src/afts_pro/engine/engine.py"
+  - config_loader_module: "src/afts_pro/config/loader.py"
+  - profile_module: "src/afts_pro/config/profile_config.py"
+  - global_config_module: "src/afts_pro/config/global_config.py"
+  - behaviour_module: "src/afts_pro/behaviour/manager.py"
+  - strategy_registry: "src/afts_pro/strategies/registry.py"
+  - execution_sim_module: "src/afts_pro/exec/execution_sim.py"
+
+outputs:
+  - Erweiterung: EnvironmentConfig (src/afts_pro/config/environment_config.py)
+      - Neue Felder:
+          - config_hot_reload_enabled: bool = False
+          - config_hot_reload_interval_bars: int = 0
+              # v1: Reloadprüfung alle N Bars
+          - config_hot_reload_scope: List[Literal["behaviour", "strategy", "execution"]] = ["behaviour", "strategy"]
+
+  - Erweiterung: src/afts_pro/config/loader.py
+      - Hilfsfunktion:
+          - def get_file_mtimes(paths: List[Path]) -> Dict[Path, float]:
+              # Liefert modifcation time (stat().st_mtime) pro Datei.
+      - Optional: Cache-Struktur für zuletzt gesehene mtimes.
+
+  - Erweiterung: src/afts_pro/config/profile_config.py
+      - Funktion:
+          - def get_profile_include_paths(profile_path: str) -> List[Path]:
+              # lädt ProfileConfig und gibt die absoluten Pfade aller included YAMLs zurück.
+
+  - Erweiterung: src/afts_pro/engine/engine.py (SIM-Loop)
+      - Im Setup:
+          - Wenn environment.config_hot_reload_enabled True ist:
+              - ermittle liste der relevanten Config-Dateien:
+                  - profile_path (falls via CLI gewählt)
+                  - includes.environment
+                  - includes.execution
+                  - includes.assets
+                  - includes.strategy
+                  - includes.risk
+                  - includes.behaviour
+              - speichere ihre initialen mtimes via get_file_mtimes
+      - Neue Helper-Methode (in engine oder in eigenem Modul, v1 in engine ok):
+          - def maybe_reload_config(
+                *,
+                bar_index: int,
+                profile_path: Optional[str],
+                global_config: GlobalConfig,
+                current_behaviour_manager: Optional[BehaviourManager],
+                current_strategies: Dict[str, BaseStrategy],
+                current_execution_engine: SimFillEngine,
+            ) -> Tuple[GlobalConfig, Optional[BehaviourManager], Dict[str, BaseStrategy], SimFillEngine]:
+              - Nur aktiv, wenn environment.config_hot_reload_enabled True und
+                environment.mode in {"sim", "train"}.
+              - Wenn bar_index % environment.config_hot_reload_interval_bars != 0:
+                  - return unverändert
+              - Bestimme Config-Dateien wie oben, vergleiche aktuelle mtimes mit gecacheten.
+              - Wenn keine Änderungen → return unverändert.
+              - Wenn Änderungen:
+                  - log INFO: "CONFIG_HOT_RELOAD_TRIGGERED | changed_files=[...]"
+                  - new_global_config = load_global_config_from_profile(profile_path)
+                  - Für jede Scope-Komponente:
+                      - Wenn "behaviour" in scope:
+                          - Erzeuge neue BehaviourManager-Instanz aus new_global_config.behaviour
+                      - Wenn "strategy" in scope:
+                          - Instanziere Strategien neu über StrategyRegistry + strategy_params
+                      - Wenn "execution" in scope:
+                          - Erzeuge neue SimFillEngine mit neuer ExecutionConfig
+                  - RiskConfig:
+                      - v1: nur loggen:
+                          - "CONFIG_HOT_RELOAD_RISK_CHANGE_IGNORED_IN_V1"
+                          - RiskPolicy wird nicht live ersetzt (Konsistenz).
+                  - return (new_global_config, new_behaviour_manager, new_strategies, new_execution_engine)
+      - Im Bar-Loop:
+          - Führe maybe_reload_config am Anfang oder nach bestimmter Phase aus (z. B. nach Risk/Behaviour, vor StrategyDecision).
+          - Aktualisiere lokale Referenzen auf:
+              - global_config
+              - behaviour_manager
+              - strategies/StrategyBridge
+              - execution_engine
+
+  - Anpassung: afts_pro/main.py
+      - In CLI-Hilfe (Helptext) von --mode und --profile kurz erwähnen:
+          - Config-Hot-Reload verfügbar für SIM/Train, wenn in environment.yaml aktiviert.
+
+  - Beispiel-Update: configs/environment.yaml
+      - Ergänze:
+          environment:
+            mode: "sim"
+            timezone: "UTC"
+            warmup_bars: 100
+            live_api_enabled: false
+            config_hot_reload_enabled: false
+            config_hot_reload_interval_bars: 50
+            config_hot_reload_scope: ["behaviour", "strategy"]
+
+acceptance:
+  - Mit config_hot_reload_enabled=false:
+      - SIM-Run verhält sich exakt wie bisher.
+  - Mit config_hot_reload_enabled=true und config_hot_reload_interval_bars=10:
+      - Starte: `python main.py --mode sim --profile sim --log-level INFO`
+      - Während des Laufs:
+          - ändere z. B. in configs/behaviour/default.yaml:
+              - max_trades_per_day oder enabled-Flag
+          - Nach einigen Bars sollte Log anzeigen:
+              - "CONFIG_HOT_RELOAD_TRIGGERED | changed_files=[...]"
+          - Verhalten:
+              - neuer BehaviourManager wird verwendet (z. B. anderer max_trades_per_day)
+              - Strategien bleiben unverändert, wenn scope kein "strategy" enthält.
+      - Wenn scope auch "strategy" enthält und du z. B. dummy_ml in strategy.yaml deaktivierst:
+          - nach Reload werden nur noch die neuen Strategien instanziert (in Logs sichtbar).
+  - Risk-Policy-Änderungen während eines Runs:
+      - werden erkannt und geloggt, aber RiskPolicy wird nicht gewechselt (v1).
+      - Log:
+          - "CONFIG_HOT_RELOAD_RISK_CHANGE_IGNORED_IN_V1"
+  - Keine Exceptions bei Config-Reload (Validation-Fehler würden in späterem Task behandelt).
+
+coding_standards:
+  - Saubere Typannotationen.
+  - Klare Logs für jeden Reload-Event.
+  - Keine Hot-Reload-Logik im RiskLayer selbst.
+  - Hot-Reload nur in SIM/Train aktiv; Live bleibt v1 unberührt.
+
+notes: >
+  Dieser Task legt die Grundlage dafür, dass du während langer SIM- oder
+  Trainingsläufe Behaviour-, Strategy- und Execution-Einstellungen on the fly
+  anpassen kannst, ohne die Engine neu zu starten. Für Live-Mode können wir
+  später strengere Regeln und explizite „apply windows“ definieren. In
+  Kombination mit Task 007c kannst du Config-Änderungen zuerst validieren
+  (config validate) und dann im laufenden System live übernehmen.

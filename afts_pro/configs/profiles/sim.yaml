@@ -1,0 +1,11 @@
+profile:
+  name: "sim"
+  description: "Default SIM profile for ETHUSDT backtests."
+  includes:
+    environment: "configs/environment.yaml"
+    execution: "configs/execution.yaml"
+    assets: "configs/assets.yaml"
+    strategy: "configs/strategy.yaml"
+    risk: "configs/risk/risk.yaml"
+    behaviour: "configs/behaviour/default.yaml"
+    features: "configs/features.yaml"

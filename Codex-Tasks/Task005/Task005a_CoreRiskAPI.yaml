@@ -1,0 +1,128 @@
+title: "AF_Task_005a_Core_Risk_API_and_FTMO_Policy"
+summary: >
+  Implementiere die globale Risk-API für AFTS-PRO inklusive einer FTMO-konformen
+  RiskPolicy. Die Policy überwacht Daily Drawdown und Total Drawdown, kann neue
+  Orders blockieren und den Handel hart stoppen. Integriere den Risk-Layer in
+  den SIM-Engine-Loop, sodass Strategy-Decisions nur dann zu Orders führen, wenn
+  die Risk-Policy es erlaubt.
+inputs:
+  - project_root: "afts_pro/"
+  - risk_package: "src/afts_pro/risk/"
+  - engine_module: "src/afts_pro/engine/engine.py"
+  - account_state_model: "src/afts_pro/exec/position_models.py -> AccountState"
+  - strategy_decision_model: "src/afts_pro/core/models.py -> StrategyDecision"
+  - logging_utils_module: "src/afts_pro/utils/logging.py"
+outputs:
+  - Neue Datei: src/afts_pro/risk/base_policy.py
+      - logging.getLogger(__name__) verwenden
+      - Klasse: RiskDecision (Pydantic v2)
+          - allow_new_orders: bool
+          - hard_stop_trading: bool
+          - reason: Optional[str]
+          - meta: Dict[str, Any] = {}
+      - Abstrakte Basisklasse: BaseRiskPolicy
+          - Konfiguration:
+              - name: str
+          - Zustand:
+              - kann interne State-Variablen halten (z. B. daily_start_equity)
+          - Methoden:
+              - on_new_day(account_state: AccountState, ts: datetime) -> None
+              - evaluate(
+                    *,
+                    account_state: AccountState,
+                    ts: datetime,
+                ) -> RiskDecision
+                # Wird im Engine-Loop pro Bar aufgerufen.
+  - Neue Datei: src/afts_pro/risk/ftmo_policy.py
+      - Klasse: FtmoRiskPolicy(BaseRiskPolicy)
+          - Init-Parameter:
+              - initial_balance: float
+              - max_daily_dd_pct: float   # z. B. 0.05
+              - max_total_dd_pct: float   # z. B. 0.10
+              - include_unrealized: bool  # v1: True/False per Param
+          - Interner Zustand:
+              - daily_start_equity: Optional[float]
+              - last_day: Optional[date]
+          - Hilfsmethoden:
+              - _get_equity(account_state) -> float
+              - _update_daily_start_if_needed(account_state, ts)
+          - evaluate(...):
+              - equity = _get_equity(...)
+              - total_dd = (initial_balance - equity) / initial_balance
+              - daily_dd_limit = daily_start_equity * max_daily_dd_pct
+              - daily_dd = daily_start_equity - equity
+              - Logik:
+                  - Wenn total_dd >= max_total_dd_pct:
+                      - hard_stop_trading=True
+                      - allow_new_orders=False
+                      - reason="FTMO_TOTAL_DD_BREACH"
+                  - Sonst, wenn daily_dd >= daily_dd_limit:
+                      - hard_stop_trading=False (Engine könnte trotzdem Session killen)
+                      - allow_new_orders=False
+                      - reason="FTMO_DAILY_DD_BREACH"
+                  - Sonst:
+                      - allow_new_orders=True
+                      - hard_stop_trading=False
+              - meta z. B. mit:
+                  - {"equity": equity, "total_dd": total_dd, "daily_dd": daily_dd,
+                     "daily_start_equity": daily_start_equity}
+  - Neue Datei: src/afts_pro/risk/manager.py
+      - Klasse: RiskManager
+          - __init__(policy: BaseRiskPolicy)
+          - Methoden:
+              - on_bar(account_state: AccountState, ts: datetime) -> RiskDecision
+              - before_new_orders(account_state: AccountState, ts: datetime) -> RiskDecision
+          - in v1 kann on_bar == before_new_orders verwenden oder gleich handeln,
+            aber API sollte beide Wege erlauben.
+  - Anpassung: src/afts_pro/engine/engine.py (SIM-Mode)
+      - Im SIM-Setup:
+          - Erzeuge eine FtmoRiskPolicy-Instanz mit z. B.:
+              - initial_balance=100000.0
+              - max_daily_dd_pct=0.05
+              - max_total_dd_pct=0.10
+              - include_unrealized=True
+          - Wrappe sie in einen RiskManager.
+      - Im Bar-Loop:
+          - Vor OrderBuilder:
+              - risk_decision = risk_manager.before_new_orders(account_state, ms.timestamp)
+              - Logging (DEBUG/INFO) der risk_decision (allow_new_orders, reason, meta.short)
+              - Wenn risk_decision.hard_stop_trading:
+                  - Log INFO/ERROR: "RISK HARD STOP – trading halted by FTMO policy"
+                  - breche SIM-Loop sauber ab (return aus der SIM-Funktion).
+              - Wenn not risk_decision.allow_new_orders:
+                  - Überspringe OrderBuilder/Order-Erzeugung für diese Bar
+                  - Fills für bestehende Orders (z. B. SL/TP) sind weiterhin erlaubt.
+          - Die FillEngine- und PositionManager-Logik bleibt unverändert aktiv,
+            auch wenn allow_new_orders=False (wir wollen offene SL/TP weiter beachten).
+  - Optional: src/afts_pro/risk/__init__.py
+      - Re-Exports für BaseRiskPolicy, FtmoRiskPolicy, RiskManager.
+acceptance:
+  - `python main.py --mode sim` läuft ohne Exceptions.
+  - Logs im SIM-Run (INFO/DEBUG) zeigen:
+      - Pro Bar einen Risk-Check vor OrderBuilder, z. B.:
+          - "RISK | ts=... | allow_new_orders=True | hard_stop=False | reason=None | total_dd=..."
+      - Wenn man in engine.py für Testzwecke die AccountState.equity künstlich
+        unter den Total-DD-Limit setzt, löst dies:
+          - risk_decision.hard_stop_trading=True aus
+          - den Abbruch des Loops mit einem klaren Log-Eintrag.
+  - Bei normalem Run ohne künstliche Manipulation:
+      - allow_new_orders bleibt True
+      - es gibt keine Hard-Stops.
+  - Die Risk-API ist generisch:
+      - RiskManager hängt nur von BaseRiskPolicy ab, nicht direkt von FtmoRiskPolicy.
+  - Strategien und StrategyBridge bleiben von Risk unbeeinflusst:
+      - Risk greift nur an der Stelle ein, wo Orders aus StrategyDecisions gebaut werden würden.
+coding_standards:
+  - Pydantic v2 für RiskDecision.
+  - logging.getLogger(__name__) in allen Risk-Modulen.
+  - vollständige Typannotationen.
+  - keine Broker-spezifische Logik im Risk-Layer.
+  - Risiko-Entscheidungen sind reine Funktionen von AccountState + Zeit.
+notes: >
+  Dieser Task implementiert die erste globale Risk-Schicht (FTMO) und bindet
+  sie in den Engine-Loop ein. Der Fokus liegt auf:
+  - sauberem API-Contract (BaseRiskPolicy, RiskDecision),
+  - klarer Bar-Sequenz: erst Risk prüfen, dann Orders erstellen,
+  - Fähigkeit, den Handel zu stoppen oder neue Orders zu blockieren.
+  Apex-Policy und klassische Eigenkapital-MaxDD folgen in Task 005b und nutzen
+  dieselbe API.

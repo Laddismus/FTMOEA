@@ -1,0 +1,11 @@
+profile:
+  name: "apex"
+  description: "Apex-style SIM profile using trailing DD policy."
+  includes:
+    environment: "configs/environment.yaml"
+    execution: "configs/execution.yaml"
+    assets: "configs/assets.yaml"
+    strategy: "configs/strategy.yaml"
+    risk: "configs/risk/apex.yaml"
+    behaviour: "configs/behaviour/default.yaml"
+    features: "configs/features.yaml"

@@ -1,0 +1,10 @@
+strategy:
+  enabled_strategies:
+    - orb
+    - dummy_ml
+  strategy_params:
+    orb:
+      lookback: 20
+      breakout_pct: 0.003
+    dummy_ml:
+      model_path: "models/dummy_ml.pkl"

@@ -1,0 +1,106 @@
+title: "AF_Task_005b_Apex_and_Equity_RiskPolicies_and_Config"
+summary: >
+  Ergänze die globalen Risk-Policies um eine Apex-ähnliche Trailing-Drawdown-
+  Policy und eine klassische Eigenkapital-MaxDD-Policy. Führe eine einfache
+  Risk-Config ein, um zwischen FTMO-, Apex- und Equity-Policy zu wählen, ohne
+  den Code anzupassen.
+inputs:
+  - project_root: "afts_pro/"
+  - risk_package: "src/afts_pro/risk/"
+  - configs_root: "configs/"
+  - existing_ftmo_policy: "src/afts_pro/risk/ftmo_policy.py"
+  - risk_manager_module: "src/afts_pro/risk/manager.py"
+  - engine_module: "src/afts_pro/engine/engine.py"
+  - account_state_model: "src/afts_pro/exec/position_models.py -> AccountState"
+outputs:
+  - Neue Datei: src/afts_pro/risk/apex_policy.py
+      - Klasse: ApexRiskPolicy(BaseRiskPolicy)
+          - Init-Parameter:
+              - trailing_dd_pct: float  # z. B. 0.10
+              - include_unrealized: bool
+          - Interner Zustand:
+              - live_ath_equity: float
+          - evaluate(...):
+              - equity = current equity (realized + ggf. unrealized)
+              - live_ath_equity = max(live_ath_equity, equity)
+              - trailing_floor = live_ath_equity * (1.0 - trailing_dd_pct)
+              - Wenn equity < trailing_floor:
+                  - hard_stop_trading=True
+                  - allow_new_orders=False
+                  - reason="APEX_TRAILING_DD_BREACH"
+              - Sonst:
+                  - allow_new_orders=True
+                  - hard_stop_trading=False
+                  - reason=None
+  - Neue Datei: src/afts_pro/risk/equity_policy.py
+      - Klasse: EquityMaxDdPolicy(BaseRiskPolicy)
+          - Init-Parameter:
+              - max_dd_pct: float        # z. B. 0.15
+              - initial_balance: float
+              - include_unrealized: bool
+          - evaluate(...):
+              - equity = current equity
+              - total_dd = (initial_balance - equity) / initial_balance
+              - Wenn total_dd >= max_dd_pct:
+                  - hard_stop_trading=True
+                  - allow_new_orders=False
+                  - reason="EQUITY_MAX_DD_BREACH"
+              - Sonst:
+                  - allow_new_orders=True
+                  - hard_stop_trading=False
+  - Neue Datei: configs/risk/ftmo.yaml
+      - Beispielconfig:
+          - type: "ftmo"
+          - initial_balance: 100000.0
+          - max_daily_dd_pct: 0.05
+          - max_total_dd_pct: 0.10
+          - include_unrealized: true
+  - Neue Datei: configs/risk/apex.yaml
+      - type: "apex"
+      - initial_balance: 50000.0
+      - trailing_dd_pct: 0.10
+      - include_unrealized: true
+  - Neue Datei: configs/risk/equity.yaml
+      - type: "equity"
+      - initial_balance: 25000.0
+      - max_dd_pct: 0.15
+      - include_unrealized: true
+  - Neue Datei: src/afts_pro/risk/factory.py
+      - Funktion: create_risk_policy_from_config(config_path: str) -> BaseRiskPolicy
+          - lädt YAML (ruft intern z. B. eine kleine Config-Utility auf oder
+            nutzt direkt yaml.safe_load)
+          - liest field "type"
+          - "ftmo"   -> FtmoRiskPolicy(**params)
+          - "apex"   -> ApexRiskPolicy(**params)
+          - "equity" -> EquityMaxDdPolicy(**params)
+  - Anpassung: src/afts_pro/engine/engine.py (SIM-Mode)
+      - Statt eine FtmoRiskPolicy hart zu instanziieren:
+          - Engine liest eine Risk-Config, z. B. "configs/risk/ftmo.yaml"
+            (Pfad kann vorerst hardcoded oder aus core.yaml gelesen werden).
+          - verwendet create_risk_policy_from_config(...) um die Policy zu bauen.
+      - Logging:
+          - Beim Engine-Start im SIM-Mode:
+              - "RISK_CONFIG | path=... | type=... | params=..."
+acceptance:
+  - `python main.py --mode sim` mit ftmo.yaml:
+      - RiskManager verwendet FtmoRiskPolicy.
+      - Logs bestätigen type="ftmo".
+  - Wenn in engine.py testweise apex.yaml verwendet wird:
+      - RiskManager verwendet ApexRiskPolicy.
+      - Logs zeigen type="apex" und trailing-ATH-Werte in meta.
+  - Bei equity.yaml:
+      - RiskManager verwendet EquityMaxDdPolicy.
+  - Alle drei Policies liefern RiskDecision über die bestehende RiskManager-API,
+    ohne dass der Engine-Loop angepasst werden muss (nur Config gewechselt).
+  - Es ist möglich, die Policies später auch im LIVE-Mode zu verwenden, ohne
+    Code-Änderungen.
+coding_standards:
+  - YAML-Config-Dateien klar und minimal halten.
+  - logging.getLogger(__name__) in allen neuen Risk-Modulen.
+  - vollständige Typannotationen.
+  - Factory-Funktion enthält keine Business-Logik, nur Mapping type -> Policy.
+notes: >
+  Task 005b macht den Risk-Layer vollständig konfigurierbar und erweitert
+  FTMO um Apex- und klassische Eigenkapital-Policies. Die Engine kennt nur
+  noch einen Config-Pfad und eine BaseRiskPolicy – der konkrete Risk-Typ
+  ist ein Deployment-Detail (FTMO-Phase, Apex-Account, Eigenkapital-Konto).

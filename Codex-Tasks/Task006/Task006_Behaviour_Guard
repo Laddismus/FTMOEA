@@ -1,0 +1,291 @@
+title: "AF_Task_006_BehaviourGuards_Core"
+summary: >
+  Implementiere einen BehaviourGuard-Layer, der Trading-Verhalten überwacht
+  (Overtrading, Max Trades pro Tag, Loss-Streak, Cooldowns) und vor dem
+  OrderBuilder neue Orders blockieren kann. Der Behaviour-Layer arbeitet
+  komplementär zur RiskPolicy: Risk schützt das Konto (Equity/DD), Behaviour
+  schützt die Trading-Qualität (Verhalten).
+
+inputs:
+  - project_root: "afts_pro/"
+  - engine_module: "src/afts_pro/engine/engine.py"
+  - fill_models: "src/afts_pro/exec/fill_models.py"
+  - position_manager_module: "src/afts_pro/exec/position_manager.py"
+  - account_state_model: "src/afts_pro/exec/position_models.py -> AccountState"
+  - risk_manager_module: "src/afts_pro/risk/manager.py"
+  - risk_policies: 
+      - "src/afts_pro/risk/ftmo_policy.py"
+      - "src/afts_pro/risk/apex_policy.py"
+      - "src/afts_pro/risk/equity_policy.py"
+  - configs_root: "configs/"
+
+outputs:
+  - Neuer Package-Ordner: src/afts_pro/behaviour/
+      - __init__.py
+          - Re-Export der wichtigsten Klassen:
+              - BehaviourDecision
+              - BaseBehaviourGuard
+              - MaxTradesPerDayGuard
+              - MaxConsecutiveLossesGuard
+              - CooldownAfterLossGuard
+              - BehaviourManager
+
+  - Neue Datei: src/afts_pro/behaviour/base_guard.py
+      - import logging, datetime, typing, pydantic v2
+      - logger = logging.getLogger(__name__)
+      - Pydantic-Modell: BehaviourDecision
+          - allow_new_orders: bool
+          - hard_block_trading: bool = False
+              # für sehr harte Behaviour-Sperren (z. B. massives Overtrading),
+              # Default False (normal nur "no new orders").
+          - reason: Optional[str] = None
+          - meta: Dict[str, Any] = {}
+      - Pydantic-Modell: TradeStats
+          - date: date
+          - trades_closed_today: int = 0
+          - losses_closed_today: int = 0
+          - wins_closed_today: int = 0
+          - consecutive_losses: int = 0
+          - last_trade_pnl: float = 0.0
+          - realized_pnl_today: float = 0.0
+      - Abstrakte Basisklasse: BaseBehaviourGuard
+          - Attribute:
+              - name: str
+          - Methoden:
+              - on_trade_closed(
+                    *,
+                    trade_pnl: float,
+                    ts: datetime,
+                    stats: TradeStats,
+                    account_state: AccountState,
+                ) -> None
+                  # default: no-op
+              - before_new_orders(
+                    *,
+                    ts: datetime,
+                    stats: TradeStats,
+                    account_state: AccountState,
+                ) -> BehaviourDecision
+                  # default: erlaubt alles:
+                  # return BehaviourDecision(allow_new_orders=True)
+
+  - Neue Datei: src/afts_pro/behaviour/guards.py
+      - logger = logging.getLogger(__name__)
+      - Implementierung: MaxTradesPerDayGuard(BaseBehaviourGuard)
+          - Init-Parameter:
+              - max_trades_per_day: int
+          - before_new_orders(...):
+              - Wenn stats.trades_closed_today >= max_trades_per_day:
+                  - return BehaviourDecision(
+                        allow_new_orders=False,
+                        hard_block_trading=False,
+                        reason="MAX_TRADES_PER_DAY_REACHED",
+                        meta={"trades_closed_today": stats.trades_closed_today,
+                              "max_trades_per_day": max_trades_per_day},
+                    )
+              - sonst: allow_new_orders=True
+      - Implementierung: MaxConsecutiveLossesGuard(BaseBehaviourGuard)
+          - Init-Parameter:
+              - max_consecutive_losses: int
+          - on_trade_closed(...):
+              - Wenn trade_pnl < 0:
+                  - stats.consecutive_losses += 1
+                  - stats.losses_closed_today += 1
+              - Wenn trade_pnl > 0:
+                  - stats.consecutive_losses = 0
+                  - stats.wins_closed_today += 1
+              - stats.trades_closed_today += 1
+              - stats.realized_pnl_today += trade_pnl
+              - stats.last_trade_pnl = trade_pnl
+          - before_new_orders(...):
+              - Wenn stats.consecutive_losses >= max_consecutive_losses:
+                  - return BehaviourDecision(
+                        allow_new_orders=False,
+                        hard_block_trading=False,
+                        reason="MAX_CONSEC_LOSSES_REACHED",
+                        meta={"consecutive_losses": stats.consecutive_losses,
+                              "max_consecutive_losses": max_consecutive_losses},
+                    )
+              - sonst: allow_new_orders=True
+      - Implementierung: CooldownAfterLossGuard(BaseBehaviourGuard)
+          - Init-Parameter:
+              - cooldown_minutes: int
+          - Interner State:
+              - last_loss_ts: Optional[datetime] = None
+          - on_trade_closed(...):
+              - Wenn trade_pnl < 0:
+                  - last_loss_ts = ts
+              - (TradeStats-Update NICHT doppeln; Stats-Update kommt primär
+                 aus MaxConsecutiveLossesGuard; diese Guard nutzt last_loss_ts.)
+          - before_new_orders(...):
+              - Wenn last_loss_ts ist None:
+                  - allow_new_orders=True
+              - sonst:
+                  - delta = ts - last_loss_ts
+                  - Wenn delta < cooldown_minutes:
+                      - BehaviourDecision(
+                            allow_new_orders=False,
+                            hard_block_trading=False,
+                            reason="COOLDOWN_AFTER_LOSS_ACTIVE",
+                            meta={"minutes_since_last_loss": delta.total_seconds()/60.0,
+                                  "cooldown_minutes": cooldown_minutes},
+                        )
+                  - sonst allow_new_orders=True
+      - Hinweis: Die Guards teilen sich dieselben TradeStats-Instanzen.
+        Die Engine sorgt dafür, dass on_trade_closed zuerst Stats aktualisiert,
+        bevor before_new_orders für alle Guards läuft.
+
+  - Neue Datei: src/afts_pro/behaviour/manager.py
+      - logger = logging.getLogger(__name__)
+      - Klasse: BehaviourManager
+          - __init__(guards: List[BaseBehaviourGuard], tz: Optional[tzinfo] = None)
+          - Attribute:
+              - guards: List[BaseBehaviourGuard]
+              - tz: timezone (für Tageswechsel; v1 optional)
+              - stats: TradeStats
+          - Methoden:
+              - _ensure_stats_date(ts: datetime) -> None
+                  - wenn stats.date != ts.date(), reset Stats auf neues Datum
+                    (trades_closed_today=0, etc.)
+              - on_trade_closed(trade_pnl: float, ts: datetime, account_state: AccountState) -> None
+                  - _ensure_stats_date(ts)
+                  - für jeden Guard: guard.on_trade_closed(..., stats=self.stats, account_state=account_state)
+              - before_new_orders(ts: datetime, account_state: AccountState) -> BehaviourDecision
+                  - _ensure_stats_date(ts)
+                  - Sammle Decisions aller Guards:
+                      - Für jeden Guard: gd = guard.before_new_orders(...)
+                      - Wenn einer gd.hard_block_trading=True:
+                          - aggregierte Decision:
+                              - allow_new_orders=False
+                              - hard_block_trading=True
+                              - reason="BEHAVIOUR_HARD_BLOCK"
+                              - meta: Liste/Dict der Einzelgründe
+                          - sofort zurückgeben
+                      - Falls kein Hard-Block, aber mindestens ein Guard allow_new_orders=False:
+                          - aggregierte Decision:
+                              - allow_new_orders=False
+                              - hard_block_trading=False
+                              - reason="BEHAVIOUR_SOFT_BLOCK"
+                              - meta: Liste/Dict der Einzelgründe
+                      - Falls alle allow_new_orders=True:
+                          - return BehaviourDecision(allow_new_orders=True)
+                  - Logging:
+                      - DEBUG: pro Guard-Decision
+                      - INFO: wenn Soft- oder Hard-Block ausgelöst wird
+
+  - Anpassung: src/afts_pro/exec/position_manager.py
+      - Ziel: Die Engine soll Verhalten bei "Trade geschlossen" erkennen können.
+      - Füge ein einfaches Event-Modell hinzu:
+          - Pydantic-Modell oder dataclass: PositionEvent
+              - symbol: str
+              - event_type: Literal["OPENED", "INCREASED", "REDUCED", "CLOSED", "NO_CHANGE"]
+              - realized_pnl_delta: float = 0.0
+          - Aktualisiere PositionManager.apply_fill(fill, account_state) -> PositionEvent:
+              - Bisherige Logik (open/increase/reduce/close) bleibt erhalten.
+              - Wenn eine Position vollständig geschlossen wird (qty -> 0):
+                  - event_type="CLOSED"
+                  - realized_pnl_delta = der durch diesen Fill neu hinzugekommene
+                    realized PnL (nicht Gesamt-PnL über alle Trades).
+              - Wenn nur reduziert, aber nicht vollständig geschlossen:
+                  - event_type="REDUCED"
+                  - realized_pnl_delta entsprechend (kann 0 oder !=0 sein).
+              - Wenn Position eröffnet:
+                  - event_type="OPENED"
+              - Wenn erhöht:
+                  - event_type="INCREASED"
+              - Kein Strukturwechsel:
+                  - event_type="NO_CHANGE"
+              - apply_fill gibt PositionEvent zurück.
+
+  - Anpassung: src/afts_pro/engine/engine.py (SIM-Mode)
+      - Im SIM-Setup:
+          - Importiere BehaviourManager und Guards:
+              - from afts_pro.behaviour import BehaviourManager, MaxTradesPerDayGuard, MaxConsecutiveLossesGuard, CooldownAfterLossGuard
+          - Instanziere ein Set von Guards mit konservativen Defaults, z. B.:
+              - MaxTradesPerDayGuard(max_trades_per_day=20)
+              - MaxConsecutiveLossesGuard(max_consecutive_losses=3)
+              - CooldownAfterLossGuard(cooldown_minutes=15)
+          - Erzeuge behaviour_manager = BehaviourManager([...guards...])
+      - Im Bar-Loop:
+          - Beim Verarbeiten der Fills (nach SimFillEngine.process_bar):
+              - Für jeden Fill:
+                  - event = position_manager.apply_fill(fill, account_state)
+                  - Wenn event.event_type in {"CLOSED", "REDUCED"} und event.realized_pnl_delta != 0:
+                      - behaviour_manager.on_trade_closed(
+                            trade_pnl=event.realized_pnl_delta,
+                            ts=current_bar.timestamp,
+                            account_state=account_state,
+                        )
+          - Nach Risk-Check, aber VOR StrategyDecision/OrderBuilder:
+              - Zuerst risk_decision = risk_manager.before_new_orders(...)
+              - Wenn risk_decision.hard_stop_trading:
+                  - wie bisher: Loop beenden
+              - Wenn risk_decision.allow_new_orders == False:
+                  - keine Behaviour-Prüfung nötig, direkt weiter zur nächsten Bar
+              - Wenn risk_decision.allow_new_orders == True:
+                  - behaviour_decision = behaviour_manager.before_new_orders(
+                        ts=current_bar.timestamp,
+                        account_state=account_state,
+                    )
+                  - Logging (INFO):
+                      - "BEHAVIOUR | ts=... | allow_new_orders=... | hard_block=... | reason=... | meta_short=..."
+                  - Wenn behaviour_decision.hard_block_trading:
+                      - ähnlich wie Risk-Hard-Stop:
+                          - Log INFO/ERROR: "BEHAVIOUR HARD BLOCK – trading halted by guards"
+                          - Loop sauber abbrechen (return)
+                  - Wenn not behaviour_decision.allow_new_orders:
+                      - StrategyDecision/OrderBuilder werden für diese Bar übersprungen
+                      - Fills aus bestehenden Orders/SL/TP laufen weiterhin normal
+
+  - Neue Config-Datei: configs/behaviour/default.yaml
+      - Beispielkonfiguration (für spätere Nutzung, v1 darf Engine noch
+        hardcoded Default-Werte verwenden, aber Datei soll existieren):
+          - max_trades_per_day: 20
+          - max_consecutive_losses: 3
+          - cooldown_after_loss_minutes: 15
+
+acceptance:
+  - `python main.py --mode sim --log-level INFO` läuft ohne Exceptions.
+  - Logs zeigen pro Bar:
+      - weiterhin Risk-Logs
+      - NEU: Behaviour-Logs, z. B.:
+          - "BEHAVIOUR | ts=... | allow_new_orders=True | hard_block=False | reason=None | meta_short=..."
+  - Bei einem einfachen Dev-Test (manuell in engine oder über eine künstliche
+    Test-Strategie):
+      - Erzeuge mehrere Verlust-Trades nacheinander (z. B. 4 geschlossene Trades mit negativem PnL):
+          - Nach dem dritten Verlust sollte MaxConsecutiveLossesGuard:
+              - behaviour_decision.allow_new_orders=False
+              - reason="MAX_CONSEC_LOSSES_REACHED"
+          - Engine baut ab diesem Punkt keine neuen Orders mehr,
+            verarbeitet aber weiterhin Fills (Positionen können weiter reduziert/geschlossen werden).
+      - Simuliere > max_trades_per_day abgeschlossene Trades:
+          - behaviour_decision.allow_new_orders=False
+          - reason="MAX_TRADES_PER_DAY_REACHED"
+      - Simuliere einen Verlust-Trade und direkt danach eine Bar innerhalb des Cooldowns:
+          - behaviour_decision.allow_new_orders=False
+          - reason="COOLDOWN_AFTER_LOSS_ACTIVE"
+  - Risk- und Behaviour-Layer interagieren sauber:
+      - Wenn Risk allow_new_orders=False liefert, wird Behaviour nicht
+        zur Blockade verwendet (Orders sind ohnehin blockiert).
+      - Wenn Risk allow_new_orders=True, kann Behaviour zusätzlich
+        Orders blockieren oder sogar hart stoppen.
+  - PositionManager.apply_fill gibt PositionEvent zurück und die Engine
+    verwendet realized_pnl_delta für Behaviour-Statistiken.
+
+coding_standards:
+  - Pydantic v2 für BehaviourDecision und TradeStats.
+  - logging.getLogger(__name__) für alle Behaviour-Module, sinnvolle INFO/DEBUG-Logs.
+  - Vollständige Typannotationen.
+  - Keine Broker- oder Strategie-spezifische Logik im Behaviour-Layer; Guards
+    sind rein von TradeStats/AccountState abhängig.
+  - Engine-Loop bleibt klar strukturiert:
+      - validate -> activate -> fill -> position_update -> behaviour_stats_update -> risk -> behaviour -> strategy -> orders_queue.
+
+notes: >
+  Dieser Task führt einen BehaviourGuard-Layer ein, der unabhängig vom
+  Risk-Layer arbeitet. Risk schützt das Konto (Equity, Drawdown), Behaviour
+  schützt das Verhalten (Overtrading, Loss-Streaks, Cooldowns). Der Fokus liegt
+  auf konservativen, aber realistisch einsetzbaren Standard-Guards. In späteren
+  Tasks können weitere Guards hinzugefügt werden (Session-Zeitfenster, News-
+  Pausen, Volatility-Spikes, etc.), die alle über BehaviourManager aggregiert
+  werden.

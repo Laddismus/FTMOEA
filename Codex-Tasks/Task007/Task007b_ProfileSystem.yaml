@@ -1,0 +1,214 @@
+title: "AF_Task_007b_Config_Profiles_System"
+summary: >
+  Führe ein Profil-System ein, mit dem komplette Konfigurationen (Environment,
+  Execution, Risk, Behaviour, Strategy, Assets) über ein einziges Profil-Label
+  wie 'sim', 'ftmo', 'apex', 'live' geladen werden können. Profile-Definitionen
+  liegen in configs/profiles/*.yaml und werden von der CLI (main.py) ausgewählt.
+
+inputs:
+  - project_root: "afts_pro/"
+  - main_cli: "afts_pro/main.py"
+  - config_package: "src/afts_pro/config/"
+  - global_config_module: "src/afts_pro/config/global_config.py"
+  - config_loader_module: "src/afts_pro/config/loader.py"
+  - existing_yaml_configs:
+      - "configs/environment.yaml"
+      - "configs/execution.yaml"
+      - "configs/assets.yaml"
+      - "configs/strategy.yaml"
+      - "configs/risk/risk.yaml"
+      - "configs/risk/ftmo.yaml"
+      - "configs/risk/apex.yaml"
+      - "configs/risk/equity.yaml"
+      - "configs/behaviour/default.yaml"
+
+outputs:
+  - Neuer Ordner: configs/profiles/
+      - configs/profiles/sim.yaml
+      - configs/profiles/ftmo.yaml
+      - configs/profiles/apex.yaml
+      - configs/profiles/equity.yaml
+      - (optional) configs/profiles/live_stub.yaml
+
+  - Inhalt: configs/profiles/sim.yaml
+      profile:
+        name: "sim"
+        description: "Default SIM profile for ETHUSDT backtests."
+        includes:
+          environment: "configs/environment.yaml"
+          execution: "configs/execution.yaml"
+          assets: "configs/assets.yaml"
+          strategy: "configs/strategy.yaml"
+          risk: "configs/risk/risk.yaml"
+          behaviour: "configs/behaviour/default.yaml"
+
+  - Inhalt: configs/profiles/ftmo.yaml
+      profile:
+        name: "ftmo"
+        description: "FTMO-style SIM profile using FTMO risk policy."
+        includes:
+          environment: "configs/environment.yaml"
+          execution: "configs/execution.yaml"
+          assets: "configs/assets.yaml"
+          strategy: "configs/strategy.yaml"
+          risk: "configs/risk/ftmo.yaml"
+          behaviour: "configs/behaviour/default.yaml"
+
+  - Inhalt: configs/profiles/apex.yaml
+      profile:
+        name: "apex"
+        description: "Apex-style SIM profile using trailing DD policy."
+        includes:
+          environment: "configs/environment.yaml"
+          execution: "configs/execution.yaml"
+          assets: "configs/assets.yaml"
+          strategy: "configs/strategy.yaml"
+          risk: "configs/risk/apex.yaml"
+          behaviour: "configs/behaviour/default.yaml"
+
+  - Inhalt: configs/profiles/equity.yaml
+      profile:
+        name: "equity"
+        description: "Own-capital profile using HWM-based equity risk policy."
+        includes:
+          environment: "configs/environment.yaml"
+          execution: "configs/execution.yaml"
+          assets: "configs/assets.yaml"
+          strategy: "configs/strategy.yaml"
+          risk: "configs/risk/equity.yaml"
+          behaviour: "configs/behaviour/default.yaml"
+
+  - Optionales Stub-Profil: configs/profiles/live_stub.yaml
+      profile:
+        name: "live_stub"
+        description: "Placeholder for future LIVE trading profile – do not use in production yet."
+        includes:
+          environment: "configs/environment.yaml"
+          execution: "configs/execution.yaml"
+          assets: "configs/assets.yaml"
+          strategy: "configs/strategy.yaml"
+          risk: "configs/risk/ftmo.yaml"
+          behaviour: "configs/behaviour/default.yaml"
+
+  - Neue Datei: src/afts_pro/config/profile_config.py
+      - import pydantic v2, typing, logging
+      - logger = logging.getLogger(__name__)
+      - Pydantic-Modell: ProfileIncludes
+          - environment: str
+          - execution: str
+          - assets: str
+          - strategy: str
+          - risk: str
+          - behaviour: str
+      - Pydantic-Modell: ProfileConfig
+          - name: str
+          - description: Optional[str] = None
+          - includes: ProfileIncludes
+      - Funktion: load_profile(path: str) -> ProfileConfig
+          - nutzt existing yaml loader (loader.load_yaml)
+      - Funktion: list_profile_paths(base_dir: str = "configs/profiles") -> Dict[str, str]
+          - durchsucht Ordner nach *.yaml, liest jeweils profile.name und baut Mapping:
+            {profile_name: full_path}
+      - Logging:
+          - INFO beim Laden eines Profils:
+            "PROFILE | name=... | path=... | includes={...}"
+
+  - Anpassung: src/afts_pro/config/global_config.py
+      - Ergänze eine neue Funktion:
+          - def load_global_config_from_profile(profile_path: str) -> GlobalConfig:
+              - profile = load_profile(profile_path)
+              - includes = profile.includes
+              - Lese einzelne YAMLs:
+                  - env_dict = loader.load_yaml(includes.environment)
+                  - exec_dict = loader.load_yaml(includes.execution)
+                  - assets_dict = loader.load_yaml(includes.assets)
+                  - strategy_dict = loader.load_yaml(includes.strategy)
+                  - risk_dict = loader.load_yaml(includes.risk)
+                  - behaviour_dict = loader.load_yaml(includes.behaviour)
+              - Mappe diese Dicts auf:
+                  - EnvironmentConfig
+                  - ExecutionConfig
+                  - AssetConfig
+                  - StrategyConfig
+                  - RiskConfig
+                  - BehaviourConfig
+              - Erzeuge GlobalConfig(environment=..., execution=..., assets=..., strategy=..., risk=..., behaviour=...)
+              - Logge eine kompakte Summary:
+                  - "GLOBAL_CONFIG_FROM_PROFILE | profile=... | env=... | risk_policy=... | strategies=... | behaviour_enabled=..."
+              - return GlobalConfig
+
+      - Bestehende `load_all_configs_into_global()` darf bleiben, kann intern optional einen Default-Profile-Pfad verwenden oder parallel existieren.
+        Für diesen Task reicht es, wenn beide Funktionen koexistieren.
+
+  - Anpassung: afts_pro/main.py (Typer CLI)
+      - Erweitere CLI um Optionen:
+          - --profile / -p: Optional[str]
+              - Beschreibung: "Name of config profile (e.g. sim, ftmo, apex, equity)."
+          - --profile-path: Optional[str]
+              - Beschreibung: "Explicit path to a profile YAML (overrides --profile)."
+      - Auflösung:
+          - Wenn --profile-path gesetzt:
+              - Verwende diesen Pfad direkt für load_global_config_from_profile()
+          - elif --profile gesetzt:
+              - Verwende list_profile_paths() um name → path zu resolven
+              - Wenn Name unbekannt:
+                  - logge ERROR und beende mit cleanem Exit
+          - else:
+              - default: nutze z. B. configs/profiles/sim.yaml
+      - Engine-Start:
+          - Ersetze bisherigen Config-Load durch:
+              - global_config = load_global_config_from_profile(resolved_profile_path)
+          - Logge:
+              - "PROFILE_SELECTED | name=... | path=..."
+
+  - Optional: src/afts_pro/config/__init__.py
+      - Re-Exports:
+          - ProfileConfig
+          - load_profile
+          - load_global_config_from_profile
+          - list_profile_paths
+
+acceptance:
+  - `python main.py --mode sim` ohne weitere Args:
+      - verwendet default profile (sim.yaml)
+      - Logs zeigen:
+          - PROFILE_SELECTED | name=sim | path=configs/profiles/sim.yaml
+          - GLOBAL_CONFIG_FROM_PROFILE | profile=sim | ...
+  - `python main.py --mode sim --profile ftmo`:
+      - verwendet ftmo.yaml
+      - risk.policy_path zeigt auf ftmo.yaml
+      - Risk-Layer läuft mit FTMO-Policy
+  - `python main.py --mode sim --profile apex`:
+      - verwendet apex.yaml
+      - Risk-Layer verwendet ApexRiskPolicy
+  - `python main.py --mode sim --profile equity`:
+      - verwendet equity.yaml
+      - Risk-Layer verwendet EquityMaxDdPolicy
+  - `python main.py --mode sim --profile-path configs/profiles/ftmo.yaml`:
+      - funktioniert unabhängig von list_profile_paths()
+  - Wird ein unbekanntes Profil über --profile übergeben:
+      - sauberes Logging:
+          - "PROFILE_ERROR | unknown profile=... | available=[sim, ftmo, apex, equity, ...]"
+      - Programm beendet sich kontrolliert ohne Traceback.
+  - Entfernen von dummy_ml in configs/strategy.yaml und Run mit beliebigem Profil:
+      - Engine instanziiert nur ORB (oder was konfigurtiert ist)
+      - keine DummyML-Logs mehr.
+  - Setzt man in configs/behaviour/default.yaml:
+      - behaviour.enabled: false
+      - und startet mit z. B. --profile sim:
+          - Logs zeigen, dass BehaviourManager nicht instanziiert wird
+          - Es gibt keine BEHAVIOUR-Logs in der Engine.
+
+coding_standards:
+  - Pydantic v2 für ProfileConfig & Includes.
+  - logging.getLogger(__name__) in neuen Config-Modulen.
+  - Vollständige Typannotationen.
+  - Keine Business-Logik in Profile-Layern; sie orchestrieren nur Config-Ladepfade.
+  - CLI bleibt Typer-basiert, mit klaren Help-Texts und Defaults.
+
+notes: >
+  Dieses Profil-System hebt den Config-Layer auf Produktions-Niveau: Jede
+  Kombination aus Risk-, Behaviour-, Execution-, Strategy- und Asset-Settings
+  kann unter einem Profil-Label versioniert und via CLI (später via UI) gewählt
+  werden. So kannst du z. B. 'sim', 'ftmo', 'apex', 'equity', 'scalping',
+  'swing' als Profile definieren, ohne Codeänderung – nur durch YAML.

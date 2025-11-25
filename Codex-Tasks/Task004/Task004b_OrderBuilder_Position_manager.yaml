@@ -1,0 +1,76 @@
+title: "AF_Task_004b_OrderBuilder_and_PositionManager"
+summary: >
+  Implementiere den OrderBuilder (StrategyDecision -> Orders) und den PositionManager
+  (Fills -> PositionState/AccountState Updates). Beide Module bilden die Kernlogik
+  der Execution-Schicht in SIM und LIVE. Der Task enthält ebenfalls erste Testaufrufe
+  im SIM-Mode, um Position-Updates zu validieren.
+inputs:
+  - project_root: "afts_pro/"
+  - strategy_decision_model: "src/afts_pro/core/models.py -> StrategyDecision"
+  - order_models: "src/afts_pro/exec/order_models.py"
+  - fill_models: "src/afts_pro/exec/fill_models.py"
+  - position_models: "src/afts_pro/exec/position_models.py"
+outputs:
+  - Neue Datei: src/afts_pro/exec/order_builder.py
+      - Klasse: OrderBuilder
+          - Methoden:
+              - build_entry_orders(decision, market_state, account_state)
+              - build_manage_orders(decision, market_state, account_state)
+              - build_exit_orders(decision, market_state, account_state)
+              - helper: _build_sl_order, _build_tp_order, _build_partial_close_order
+              - alle Orders nutzen reduce_only=True außer Entry-Orders
+      - Unterstützte update-Felder:
+          - new_sl: float
+          - new_tp: float
+          - trail_sl_to: "BE"
+          - trail_sl_pct: float
+          - close_pct: float
+          - rr_target: float
+  - Neue Datei: src/afts_pro/exec/position_manager.py
+      - Klasse: PositionManager
+          - Methoden:
+              - apply_fill(fill: Fill, account_state: AccountState)
+              - update_unrealized_pnl(market_price)
+              - _open_position, _increase_position, _reduce_position, _close_position
+          - Unterstützt Netting:
+              - LONG qty + SELL fill   -> qty reduziert
+              - SHORT qty + BUY fill   -> qty reduziert
+              - Position flip verboten (für v1)
+  - Integration: src/afts_pro/engine/engine.py
+      - SIM-Mode:
+          - Erstellt: OrderBuilder + PositionManager
+          - Nach jeder StrategyDecision:
+              - builder erzeugt dummy Orders (nur Logging)
+              - eine Dummy-Fill wird generiert (z. B. fill 0.01 qty)
+              - PositionManager verarbeitet Fill
+              - Logging zeigt:
+                  - Position qty
+                  - entry_price
+                  - realized/unrealized pnl
+acceptance:
+  - SIM-Mode startet ohne Fehler.
+  - Bei jedem Bar werden:
+      - StrategyDecision geloggt
+      - OrderBuilder generiert (noch nicht gefillte) Orders
+      - Dummy-Fill generiert und durch PositionManager verarbeitet
+      - Positions-Updates geloggt (qty, entry, PnL)
+  - PositionManager kann:
+      - neue Position eröffnen
+      - Position erhöhen (same side)
+      - Position reduzieren
+      - Position schließen (qty auf 0)
+  - Alle Orders, die nicht Entry sind, setzen reduce_only=True.
+  - Kein Flip: LONG -> SHORT oder SHORT -> LONG wird in diesem Task verboten.
+  - Code enthält umfassendes Debug-Logging.
+coding_standards:
+  - Pydantic v2 Modelle verwenden
+  - logging.getLogger(__name__) in allen Modulen
+  - vollständige Typannotationen
+  - keine Network Calls
+  - OrderBuilder bildet die einzige Schnittstelle zwischen StrategyDecision und Execution
+notes: >
+  Dieser Task implementiert die gesamte interne Execution-API vor dem
+  eigentlichen FillEngine-Backtest. PositionManager + OrderBuilder bilden
+  die Grundlage für Risk, MM, RL und LIVE-Trading. Der Dummy-Fill-Test im
+  SIM-Mode erlaubt End-to-End-Verifikation, bevor in Task 004c die echte
+  Bar-basierte Fillsimulation implementiert wird.

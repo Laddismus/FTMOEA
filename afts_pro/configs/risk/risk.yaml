@@ -1,0 +1,3 @@
+risk:
+  policy_type: "ftmo"
+  policy_path: "configs/risk/ftmo.yaml"

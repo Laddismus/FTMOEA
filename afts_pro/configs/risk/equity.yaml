@@ -1,0 +1,6 @@
+type: "equity"
+initial_balance: 25000.0
+max_dd_pct: 0.15
+include_unrealized: true
+use_hwm: true
+equity_basis: "full"

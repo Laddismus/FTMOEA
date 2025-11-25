@@ -1,0 +1,112 @@
+title: "AF_Task_003_Strategy_API_and_Bridge"
+summary: >
+  Implementiere die Strategy-Schnittstelle für AFTS-PRO inklusive
+  StrategyDecision-Modell, BaseStrategy-ABC, einer einfachen ORB-Strategie,
+  einer Dummy-ML-Strategie und einer StrategyBridge, die mehrere Strategien
+  pro Bar aufruft und deren Entscheidungen konsolidiert. SIM-Mode soll
+  nach Taskabschluss pro Bar auch die StrategyDecision loggen.
+inputs:
+  - project_root: "afts_pro/"
+  - existing_models_module: "src/afts_pro/core/models.py"
+  - existing_market_state:
+      class_name: "MarketState"
+      fields:
+        - timestamp
+        - symbol
+        - ohlcv
+        - extras
+        - regime
+        - features
+        - position
+  - strategies_package: "src/afts_pro/strategies/"
+  - engine_module: "src/afts_pro/engine/engine.py"
+outputs:
+  - Erweiterung von src/afts_pro/core/models.py:
+      - neue Pydantic-Klasse: StrategyDecision
+  - Neue/erweiterte Dateien im strategies-Paket:
+      - src/afts_pro/strategies/base.py:
+          - BaseStrategy ABC mit on_bar(market_state) -> StrategyDecision
+      - src/afts_pro/strategies/orb.py:
+          - einfache ORB-Strategie auf OHLCV-Basis
+      - src/afts_pro/strategies/dummy_ml.py:
+          - Dummy-ML-Strategie mit zufälliger/heuristischer confidence
+      - src/afts_pro/strategies/bridge.py:
+          - StrategyBridge, die mehrere Strategien aufruft und eine
+            konsolidierte StrategyDecision zurückgibt
+      - src/afts_pro/strategies/registry.py:
+          - StrategyRegistry, das Namen (str) auf Strategy-Klassen mappt
+  - Anpassung von src/afts_pro/engine/engine.py:
+      - SIM-Modus instanziiert StrategyBridge mit ORB + DummyML
+      - pro MarketState wird StrategyBridge.on_bar() aufgerufen
+      - Logging der StrategyDecision (action, side, confidence)
+acceptance:
+  - `python afts_pro/main.py --mode sim` läuft ohne Fehler.
+  - Für die ersten 10 MarketStates werden zusätzlich zur bisherigen
+    MarketState-Logzeile auch StrategyDecision-Logzeilen geschrieben.
+  - StrategyDecision-Modell:
+      - Felder:
+          - action: Literal["none", "entry", "manage", "exit"]
+          - side: Optional[Literal["long", "short"]]
+          - confidence: float (0.0–1.0, Default 1.0)
+          - update: dict (Default {})
+          - meta: dict (Default {})
+  - BaseStrategy:
+      - abstrakte Methode: on_bar(self, market_state: MarketState) -> StrategyDecision
+      - jede Strategie bekommt im Konstruktor mindestens symbol: str
+  - ORB-Strategie:
+      - arbeitet auf einem einzelnen Symbol (z. B. ETHUSDT)
+      - identifiziert die erste Bar des Tages (UTC) als ORB-Range
+      - wenn close der aktuellen Bar über ORB-High schließt -> action="entry", side="long"
+      - wenn close der aktuellen Bar unter ORB-Low schließt -> action="entry", side="short"
+      - sonst action="none"
+      - confidence einfach 1.0
+  - Dummy-ML-Strategie:
+      - gibt bei jedem Bar eine StrategyDecision zurück
+      - action:
+          - wenn ORB bereits ein entry signalisiert, Dummy-ML action="manage"
+          - sonst action="none"
+      - confidence:
+          - heuristisch oder pseudozufällig im Bereich 0.3–0.9
+      - meta enthält z. B. {"model": "dummy_ml_v0"}
+  - StrategyBridge:
+      - erhält im Konstruktor eine Liste von BaseStrategy-Instanzen
+      - Methode: on_bar(market_state: MarketState) -> StrategyDecision
+      - ruft alle Strategien auf und sammelt deren StrategyDecision
+      - einfache Merge-Logik:
+          - wenn mindestens eine Strategie action != "none" liefert:
+              - priorisiere entry > manage > exit > none
+              - falls mehrere entry: nimm die mit höchster confidence
+          - falls alle "none": liefere StrategyDecision(action="none", side=None, confidence=0.0)
+      - meta der resultierenden StrategyDecision enthält pro Strategie ein Sub-Dict,
+        z. B. {"strategies": [{"name": "orb", "action": "...", "confidence": ...}, ...]}
+  - StrategyRegistry:
+      - globale Funktion oder Klasse, die Name -> Strategy-Klasse mappt
+      - z. B. get("orb") -> OrbStrategy, get("dummy_ml") -> DummyMLStrategy
+      - wird in diesem Task minimal genutzt, aber lauffähig gehalten
+  - Engine-SIM:
+      - im SIM-Smoke-Test wird vor der MarketState-Schleife eine StrategyBridge
+        mit OrbStrategy + DummyMLStrategy für das Symbol "ETHUSDT" erzeugt
+      - pro Bar:
+          - Engine loggt wie bisher MarketState (timestamp, symbol, close)
+          - danach loggt sie StrategyDecision (action, side, confidence)
+coding_standards:
+  - Pydantic v2 für StrategyDecision (gleiche BaseModel-Konfiguration wie MarketState)
+  - Typannotationen überall
+  - logging statt print (logging.info / logging.debug)
+  - keine I/O (Dateien, Netzwerk) in Strategien – reine Logik
+  - Strategien sind zustandsarm:
+      - ORB darf intern pro Tag Range-Infos speichern
+      - sonst kein globaler Zustand
+  - StrategyBridge kennt weder Risk noch Execution – nur Strategie-Ebene
+notes: >
+  Dieser Task führt die einheitliche Strategy-API ein, die später von
+  regelbasierten Strategien, ML-Filtern und RL-Agents gleichermaßen
+  verwendet wird. Die Implementierung darf simpel sein, muss aber
+  schon den finalen Contract respektieren:
+  - StrategyDecision-Modell
+  - BaseStrategy.on_bar(MarketState) -> StrategyDecision
+  - StrategyBridge, die mehrere Strategien pro Bar zusammenführt.
+  Die ORB-Logik darf pragmatisch umgesetzt werden (z. B. erste Bar je Tag
+  als ORB; Range bleibt für den Tag gültig). Der Fokus dieses Tasks
+  liegt auf der technischen Struktur und den Schnittstellen, nicht auf
+  perfekter Trading-Logik.

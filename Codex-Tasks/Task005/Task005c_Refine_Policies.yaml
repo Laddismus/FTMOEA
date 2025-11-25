@@ -1,0 +1,260 @@
+title: "AF_Task_005c_Refine_RiskPolicies_FTMO_Apex_Equity_HWM"
+summary: >
+  Schärfe die bestehenden Risk-Policies nach professionellen FTMO-/Apex- und
+  Eigenkapital-Standards: Die FtmoRiskPolicy erhält Puffer-Level (8.5 % Total,
+  3.5 %/4 % Daily), ApexRiskPolicy nutzt standardmäßig 4 % Trailing-DD und die
+  EquityMaxDdPolicy wird um eine HWM-Logik mit wählbarer Equity-Basis
+  ("full" vs. "realized") erweitert. Risk-Configs werden entsprechend angepasst.
+
+inputs:
+  - project_root: "afts_pro/"
+  - ftmo_policy_module: "src/afts_pro/risk/ftmo_policy.py"
+  - apex_policy_module: "src/afts_pro/risk/apex_policy.py"
+  - equity_policy_module: "src/afts_pro/risk/equity_policy.py"
+  - risk_factory_module: "src/afts_pro/risk/factory.py"
+  - account_state_model: "src/afts_pro/exec/position_models.py -> AccountState"
+  - risk_configs:
+      - "configs/risk/ftmo.yaml"
+      - "configs/risk/apex.yaml"
+      - "configs/risk/equity.yaml"
+
+outputs:
+  - Anpassung: src/afts_pro/risk/ftmo_policy.py
+      - FtmoRiskPolicy erhält folgende Init-Parameter (teilweise neu/umbenannt):
+          - initial_balance: float
+          - total_dd_hard_stop_pct: float = 0.085     # 8.5 % vom Initialkapital
+          - daily_soft_dd_pct: float = 0.035          # 3.5 % vom Initialkapital
+          - daily_hard_dd_pct: float = 0.04           # 4.0 % vom Initialkapital
+          - include_unrealized: bool = True
+      - Interner Zustand:
+          - daily_start_equity: Optional[float]
+          - last_day: Optional[date]
+      - Hilfsmethoden:
+          - _get_equity(account_state: AccountState) -> float
+              # wenn include_unrealized=True: nutzt account_state.equity
+              # sonst: nutzt account_state.balance
+          - _update_daily_start_if_needed(account_state: AccountState, ts: datetime) -> None
+              # setzt daily_start_equity am Beginn eines neuen Tages auf aktuelle Equity
+          - _compute_total_dd(equity: float) -> float
+              # (initial_balance - equity) / initial_balance
+          - _compute_daily_limits() -> Tuple[float, float]
+              # nutzt initial_balance, um absolute Puffer abzuleiten:
+              # soft_dd_abs  = initial_balance * daily_soft_dd_pct
+              # hard_dd_abs  = initial_balance * daily_hard_dd_pct
+              # daily_soft_limit = daily_start_equity - soft_dd_abs
+              # daily_hard_limit = daily_start_equity - hard_dd_abs
+      - evaluate(account_state: AccountState, ts: datetime) -> RiskDecision:
+          - equity = _get_equity(...)
+          - total_dd = _compute_total_dd(equity)
+          - daily_start_equity wird ggf. per _update_daily_start_if_needed aktualisiert
+          - daily_soft_limit, daily_hard_limit = _compute_daily_limits()
+          - daily_dd_soft_breached = equity <= daily_soft_limit
+          - daily_dd_hard_breached = equity <= daily_hard_limit
+          - total_dd_hard_breached = total_dd >= total_dd_hard_stop_pct
+          - Entscheidungslogik:
+              - Wenn total_dd_hard_breached:
+                  - hard_stop_trading = True
+                  - allow_new_orders = False
+                  - reason = "FTMO_TOTAL_HARD_STOP"
+              - elif daily_dd_hard_breached:
+                  - hard_stop_trading = True
+                  - allow_new_orders = False
+                  - reason = "FTMO_DAILY_HARD_STOP"
+              - elif daily_dd_soft_breached:
+                  - hard_stop_trading = False
+                  - allow_new_orders = False
+                  - reason = "FTMO_DAILY_SOFT_STOP"
+              - sonst:
+                  - hard_stop_trading = False
+                  - allow_new_orders = True
+                  - reason = None
+          - RiskDecision.meta enthält mindestens:
+              - "equity": equity
+              - "total_dd": total_dd
+              - "total_dd_hard_stop_pct": total_dd_hard_stop_pct
+              - "daily_start_equity": daily_start_equity
+              - "daily_soft_limit": daily_soft_limit
+              - "daily_hard_limit": daily_hard_limit
+
+  - Anpassung: src/afts_pro/risk/apex_policy.py
+      - ApexRiskPolicy erhält oder bestätigt folgende Init-Parameter:
+          - initial_balance: float
+          - trailing_dd_pct: float = 0.04     # Default jetzt 4 %
+          - include_unrealized: bool = True
+      - Interner Zustand:
+          - live_ath_equity: float
+              # Initial: initial_balance
+      - evaluate(account_state: AccountState, ts: datetime) -> RiskDecision:
+          - equity:
+              - wenn include_unrealized=True: account_state.equity
+              - sonst: account_state.balance
+          - live_ath_equity = max(live_ath_equity, equity)
+          - trailing_floor = live_ath_equity * (1.0 - trailing_dd_pct)
+          - Wenn equity < trailing_floor:
+              - hard_stop_trading = True
+              - allow_new_orders = False
+              - reason = "APEX_TRAILING_DD_BREACH"
+          - sonst:
+              - hard_stop_trading = False
+              - allow_new_orders = True
+              - reason = None
+          - meta enthält:
+              - "equity": equity
+              - "live_ath_equity": live_ath_equity
+              - "trailing_floor": trailing_floor
+              - "trailing_dd_pct": trailing_dd_pct
+
+  - Anpassung: src/afts_pro/risk/equity_policy.py
+      - EquityMaxDdPolicy erhält neue Init-Parameter:
+          - initial_balance: float
+          - max_dd_pct: float
+          - include_unrealized: bool = True
+          - use_hwm: bool = True              # High-Water-Mark-Modus standardmäßig aktiv
+          - equity_basis: Literal["full", "realized"] = "full"
+              # "full"    -> nutzt Equity inkl. Unrealized PnL
+              # "realized" -> nutzt nur Balance (realized PnL)
+      - Interner Zustand:
+          - hwm_equity: float
+              # Initial: initial_balance
+      - Hilfsmethode:
+          - _get_equity(account_state: AccountState) -> float:
+              - wenn equity_basis == "full":
+                  - equity = account_state.equity
+              - wenn equity_basis == "realized":
+                  - equity = account_state.balance
+          - _update_hwm(equity: float) -> None:
+              - wenn use_hwm: hwm_equity = max(hwm_equity, equity)
+      - evaluate(account_state: AccountState, ts: datetime) -> RiskDecision:
+          - equity = _get_equity(...)
+          - _update_hwm(equity)
+          - Wenn use_hwm:
+              - dd = (hwm_equity - equity) / hwm_equity
+          - sonst:
+              - dd = (initial_balance - equity) / initial_balance
+          - Wenn dd >= max_dd_pct:
+              - hard_stop_trading = True
+              - allow_new_orders = False
+              - reason = "EQUITY_MAX_DD_BREACH"
+          - sonst:
+              - hard_stop_trading = False
+              - allow_new_orders = True
+              - reason = None
+          - meta enthält:
+              - "equity": equity
+              - "hwm_equity": hwm_equity
+              - "dd": dd
+              - "max_dd_pct": max_dd_pct
+              - "equity_basis": equity_basis
+              - "use_hwm": use_hwm
+
+  - Anpassung: src/afts_pro/risk/factory.py
+      - create_risk_policy_from_config(config_path: str) -> BaseRiskPolicy:
+          - Aktualisiere Mapping und Parameter-Weitergabe:
+              - type == "ftmo":
+                  - liest ggf. neue Felder:
+                      - total_dd_hard_stop_pct (optional; Default 0.085)
+                      - daily_soft_dd_pct (optional; Default 0.035)
+                      - daily_hard_dd_pct (optional; Default 0.04)
+                      - include_unrealized
+              - type == "apex":
+                  - trailing_dd_pct (optional; Default 0.04)
+                  - include_unrealized
+              - type == "equity":
+                  - max_dd_pct
+                  - include_unrealized
+                  - use_hwm (optional; Default True)
+                  - equity_basis (optional; Default "full")
+          - Factory stellt sicher, dass Defaults genutzt werden, wenn Felder im YAML fehlen.
+
+  - Anpassung: configs/risk/ftmo.yaml
+      - Beispielkonfiguration:
+          - type: "ftmo"
+          - initial_balance: 100000.0
+          - total_dd_hard_stop_pct: 0.085
+          - daily_soft_dd_pct: 0.035
+          - daily_hard_dd_pct: 0.04
+          - include_unrealized: true
+
+  - Anpassung: configs/risk/apex.yaml
+      - type: "apex"
+      - initial_balance: 50000.0
+      - trailing_dd_pct: 0.04
+      - include_unrealized: true
+
+  - Anpassung: configs/risk/equity.yaml
+      - type: "equity"
+      - initial_balance: 25000.0
+      - max_dd_pct: 0.15
+      - include_unrealized: true
+      - use_hwm: true
+      - equity_basis: "full"   # alternative: "realized"
+
+acceptance:
+  - `python main.py --mode sim --log-level DEBUG` läuft ohne Exceptions mit:
+      - configs/risk/ftmo.yaml
+      - configs/risk/apex.yaml
+      - configs/risk/equity.yaml
+  - FTMO-Policy:
+      - Logs zeigen pro Bar:
+          - "RISK | ts=... | policy=ftmo | allow_new_orders=... | hard_stop=... | reason=... | meta={...}"
+      - Wenn AccountState.equity testweise (z. B. per künstlicher Manipulation) auf:
+          - initial_balance * (1 - 0.085) oder darunter gesetzt wird:
+              - RiskDecision:
+                  - hard_stop_trading = True
+                  - allow_new_orders = False
+                  - reason = "FTMO_TOTAL_HARD_STOP"
+              - Engine bricht den SIM-Loop ab.
+      - Wenn daily_start_equity = 12000 und Equity auf:
+          - 11650 fällt:
+              - allow_new_orders = False
+              - hard_stop_trading = False
+              - reason = "FTMO_DAILY_SOFT_STOP"
+          - 11600 oder darunter:
+              - hard_stop_trading = True
+              - reason = "FTMO_DAILY_HARD_STOP"
+      - FTMO-5%-Daily-Limit (formal) wird durch die 3.5/4%-Puffer nicht mehr erreicht,
+        solange Engine-Stop korrekt greift.
+
+  - Apex-Policy:
+      - Bei Nutzung von configs/risk/apex.yaml:
+          - trailing_dd_pct ist 0.04, falls im YAML nicht überschrieben.
+          - Wenn Equity von 50000 auf z. B. 48000 steigt (neue HWM) und danach
+            unter 48000 * (1 - 0.04) = 46080 fällt, wird:
+              - hard_stop_trading = True
+              - reason = "APEX_TRAILING_DD_BREACH"
+
+  - Equity-Policy:
+      - Bei Nutzung von configs/risk/equity.yaml mit equity_basis="full":
+          - dd wird aus Equity inkl. Unrealized-PnL berechnet.
+          - hwm_equity wächst bei neuen Highs mit.
+          - Wenn dd >= max_dd_pct (z. B. 0.15), wird:
+              - hard_stop_trading = True
+              - allow_new_orders = False
+              - reason = "EQUITY_MAX_DD_BREACH"
+      - Wenn equity_basis in der Config auf "realized" gestellt wird:
+          - dd-Berechnung basiert nur auf account_state.balance.
+          - hwm_equity trackt dann die Balance-Historie.
+      - use_hwm=false:
+          - dd wird gegen initial_balance berechnet (Legacy-Verhalten ohne HWM).
+
+  - Alle drei Policies (FTMO, Apex, Equity) liefern weiterhin kompatible
+    RiskDecision-Objekte und werden unverändert über create_risk_policy_from_config
+    instanziert.
+
+coding_standards:
+  - Pydantic v2 für RiskDecision; Policies bleiben einfache Klassen mit sauberem State.
+  - logging.getLogger(__name__) in allen Risk-Modulen; sinnvolle DEBUG/INFO-Logs.
+  - vollständige Typannotationen.
+  - Keine Broker-/Strategie-spezifische Logik im Risk-Layer; Policies bleiben
+    reine Funktionen von AccountState + Zeit + Konfiguration.
+  - Bestehende RiskManager-API (before_new_orders / on_bar) bleibt unverändert.
+
+notes: >
+  Mit dieser Verfeinerung verhält sich die FtmoRiskPolicy wie ein
+  professioneller "Safe Wrapper" um die formalen 10 %/5 %-Limits: Die echten
+  Kill-Levels der Prop-Firma werden durch Puffer (8.5 %, 3.5 %, 4 %) nie erreicht.
+  ApexRiskPolicy erhält einen realistischen 4 %-Trailing-Standard, und
+  EquityMaxDdPolicy kann auf HWM- oder initial-basierten Drawdown mit
+  wählbarer Equity-Basis (full vs. realized) konfiguriert werden. Damit ist
+  der Risk-Layer fit für Prop-Accounts, Trainingsphasen und echte
+  Eigenkapital-Konten.

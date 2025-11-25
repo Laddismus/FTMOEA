@@ -1,0 +1,308 @@
+title: "AF_Task_008a_FeatureEngine_Core"
+summary: >
+  Führe eine zentrale FeatureEngine ein, die aus MarketState einen RawFeatureState
+  (menschlich interpretierbare Features/Indikatoren) und optional einen
+  ModelFeatureVector (für ML/RL normalisierte Feature-Vektoren) baut. Die
+  Strategien erhalten künftig MarketState + FeatureBundle; Rule-based Strategien
+  nutzen RawFeatureState, ML-Strategien können zusätzlich ModelFeatureVector
+  konsumieren. Alles wird über FeatureConfig/YAML steuerbar und ist strikt
+  lookahead-safe.
+
+inputs:
+  - project_root: "afts_pro/"
+  - engine_module: "src/afts_pro/engine/engine.py"
+  - market_state_model: "src/afts_pro/core/models.py -> MarketState"
+  - strategy_bridge_module: "src/afts_pro/strategies/bridge.py"
+  - strategy_base: "src/afts_pro/strategies/base.py"
+  - strategies:
+      - "src/afts_pro/strategies/orb.py"
+      - "src/afts_pro/strategies/dummy_ml.py"
+  - config_package: "src/afts_pro/config/"
+  - profile_config_module: "src/afts_pro/config/profile_config.py"
+  - global_config_module: "src/afts_pro/config/global_config.py"
+  - loader_module: "src/afts_pro/config/loader.py"
+  - existing_configs:
+      - "configs/profiles/*.yaml"
+      - "configs/environment.yaml"
+      - "configs/execution.yaml"
+      - "configs/assets.yaml"
+      - "configs/strategy.yaml"
+      - "configs/risk/*.yaml"
+      - "configs/behaviour/default.yaml"
+
+outputs:
+  # ---------------------------------------------------------------------------
+  # 1) Feature-Config Layer (Config/Profiles anpassen)
+  # ---------------------------------------------------------------------------
+  - Neue YAML: configs/features.yaml
+      # v1: minimaler Satz an Basisfeatures, eher als Scaffold.
+      features:
+        enabled: true
+
+        raw_features:
+          - name: "close_return_1"
+            calculator: "close_return"
+            params:
+              lookback: 1
+
+          - name: "rolling_vol_20"
+            calculator: "rolling_vol"
+            params:
+              window: 20
+
+        model_features:
+          enabled: false
+          feature_order:
+            - "close_return_1"
+            - "rolling_vol_20"
+          scaling:
+            type: "none"
+            params: {}
+
+  - Anpassung: configs/profiles/sim.yaml (und analog ftmo/apex/equity/live_stub)
+      # In jedem Profil eine zusätzliche Include-Zeile:
+      # (für alle profiles/*.yaml)
+      - Füge unter profile.includes hinzu:
+          features: "configs/features.yaml"
+
+  - Anpassung: src/afts_pro/config/profile_config.py
+      - ProfileIncludes um ein Feld erweitern:
+          - features: str
+      - Beim Laden existierender Profile sicherstellen, dass das neue Feld
+        berücksichtigt wird (Default für alte Profile kann sim.yaml sein, ist
+        aber in diesem Task bereits geregelt, da wir alle Profile anpassen).
+
+  - Neue Datei: src/afts_pro/config/feature_config.py
+      - import pydantic v2, typing, logging
+      - logger = logging.getLogger(__name__)
+
+      - Pydantic-Modell: RawFeatureDef
+          - name: str
+          - calculator: str
+          - params: Dict[str, Any] = {}
+
+      - Pydantic-Modell: ModelFeaturesConfig
+          - enabled: bool = False
+          - feature_order: List[str] = []
+          - scaling: Dict[str, Any] = {}
+              # v1: "type": "none", später: "zscore", "minmax", etc.
+
+      - Pydantic-Modell: FeatureConfig
+          - enabled: bool = True
+          - raw_features: List[RawFeatureDef] = []
+          - model_features: ModelFeaturesConfig = ModelFeaturesConfig()
+
+      - Funktion: load_feature_config(path: str) -> FeatureConfig
+          - liest YAML via loader.load_yaml(path)
+          - extrahiert "features" key und baut FeatureConfig
+
+  - Anpassung: src/afts_pro/config/global_config.py
+      - Importiere FeatureConfig
+      - GlobalConfig um Feld erweitern:
+          - features: FeatureConfig
+      - In load_global_config_from_profile(profile_path):
+          - neben environment/execution/assets/strategy/risk/behaviour auch
+            features_config laden:
+              - features_dict = loader.load_yaml(includes.features)
+              - feature_config = FeatureConfig(**features_dict["features"])
+          - GlobalConfig(environment=..., execution=..., ..., features=feature_config)
+      - global_config_summary(global_config) erweitern:
+          - z. B. "features_enabled": global_config.features.enabled
+          - "model_features_enabled": global_config.features.model_features.enabled
+
+  # ---------------------------------------------------------------------------
+  # 2) FeatureEngine Package & Models
+  # ---------------------------------------------------------------------------
+  - Neuer Ordner: src/afts_pro/features/
+      - __init__.py
+          - Exportiert:
+              - RawFeatureState
+              - ModelFeatureVector
+              - FeatureBundle
+              - FeatureEngine
+              - FeatureConfig (optional re-export aus config.feature_config)
+
+      - Neue Datei: src/afts_pro/features/state.py
+          - import pydantic v2, typing, numpy optional (v1 lieber List[float])
+          - logger = logging.getLogger(__name__)
+
+          - Pydantic-Modell: RawFeatureState
+              - values: Dict[str, float] = {}
+              - Methoden:
+                  - def get(self, name: str, default: Optional[float] = None) -> Optional[float]
+                  - def to_vector(self, order: List[str]) -> List[float]:
+                      # gibt Werte in definierter Reihenfolge zurück (NaN/None -> 0.0 o. Ä.).
+
+          - Pydantic-Modell: ModelFeatureVector
+              - values: List[float] = []
+              - optional: def as_array(self) -> List[float] (für spätere np-Integration)
+
+          - Pydantic-Modell: FeatureBundle
+              - raw: RawFeatureState
+              - model: Optional[ModelFeatureVector] = None
+
+      - Neue Datei: src/afts_pro/features/base_calculator.py
+          - Abstrakte Basisklasse:
+              - class BaseFeatureCalculator(ABC):
+                    def __init__(self, name: str, **params): ...
+                    @abstractmethod
+                    def update(self, bar: MarketState) -> None:
+                        """
+                        Nimmt neuen Bar entgegen, aktualisiert internen Zustand.
+                        Muss strikt lookahead-safe sein (nur aktuelle und vergangene Daten).
+                        """
+                    @abstractmethod
+                    def current_value(self) -> Optional[float]:
+                        """
+                        Liefert aktuellen Feature-Wert (z. B. für Bar t).
+                        Kann None zurückgeben, wenn noch nicht genug History.
+                        """
+
+      - Neue Datei: src/afts_pro/features/simple_calculators.py
+          - Implementiere zwei einfache Feature-Berechner als Scaffold:
+              - CloseReturnCalculator(BaseFeatureCalculator)
+                  - Params: lookback: int (z. B. 1)
+                  - Hält eine deque der letzten N closes
+                  - current_value = (close_t / close_{t-lookback}) - 1, falls genug History
+              - RollingVolCalculator(BaseFeatureCalculator)
+                  - Params: window: int
+                  - Hält deque der letzten N returns (z. B. close/prev_close - 1)
+                  - current_value = standard deviation der returns (v1: simple math, kein numpy Pflicht)
+
+      - Neue Datei: src/afts_pro/features/engine.py
+          - logger = logging.getLogger(__name__)
+          - Klasse: FeatureEngine
+              - __init__(self, config: FeatureConfig):
+                  - self.config = config
+                  - self.calculators: Dict[str, BaseFeatureCalculator] = {}
+                  - initialisiere pro RawFeatureDef:
+                      - mapping calculator_name -> Klasse:
+                          - "close_return" -> CloseReturnCalculator
+                          - "rolling_vol"  -> RollingVolCalculator
+                      - instanziere mit name + params, speichere in self.calculators[name]
+              - def update(self, bar: MarketState) -> FeatureBundle:
+                  - Für jeden Calculator: calc.update(bar)
+                  - baue RawFeatureState:
+                      - values = {name: calc.current_value() or 0.0}
+                  - ModelFeatureVector:
+                      - falls self.config.model_features.enabled:
+                          - order = self.config.model_features.feature_order
+                          - vec = raw.to_vector(order)
+                          - scaling:
+                              - v1: wenn scaling["type"] == "none": keine Änderung
+                              - (später: zscore/minmax/…)
+                          - model = ModelFeatureVector(values=vec)
+                      - sonst: model = None
+                  - return FeatureBundle(raw=raw, model=model)
+
+  # ---------------------------------------------------------------------------
+  # 3) Strategy-Interface & Bridge anpassen (FeatureBundle reinreichen)
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/strategies/base.py
+      - Erweitere die Signatur von BaseStrategy.on_bar:
+          - Bisher vermutlich: on_bar(self, market: MarketState, position: PositionState, ...)
+          - Neu (v1, minimal):
+              - def on_bar(
+                    self,
+                    market: MarketState,
+                    position: PositionState,
+                    features: Optional[FeatureBundle] = None,
+                ) -> StrategyDecision:
+          - Default-Implementierung/Docstring darauf anpassen.
+          - Bestehende Strategien (ORB, DummyML) sollen features-Argument
+            ignorieren, wenn sie es nicht benötigen.
+
+  - Anpassung: src/afts_pro/strategies/bridge.py
+      - StrategyBridge.on_bar(...) soll FeatureBundle an alle Strategien weiterreichen:
+          - bridge.on_bar(market_state, position_state, feature_bundle)
+      - Beim Logging in DEBUG kann optional ein kleines Feature-Summary mit ausgegeben werden (z. B. Anzahl Features, keine riesigen Dumps).
+
+  - Anpassung: src/afts_pro/strategies/orb.py
+      - Methode on_bar so anpassen, dass sie features: Optional[FeatureBundle] akzeptiert,
+        aber v1 nicht benutzt (pure ORB-Logik bleibt unverändert).
+
+  - Anpassung: src/afts_pro/strategies/dummy_ml.py
+      - Ebene v1: akzeptiert features-Argument.
+      - Optional (nur Scaffold): wenn FeatureBundle.model nicht None:
+          - Logge DEBUG:
+              - "DummyML got model feature vector of length N"
+        (Noch keine echte ML-Integration notwendig.)
+
+  # ---------------------------------------------------------------------------
+  # 4) Engine-Integration (SIM-Mode)
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/engine/engine.py
+      - Im Setup nach Laden des GlobalConfig:
+          - if global_config.features.enabled:
+                feature_engine = FeatureEngine(global_config.features)
+            else:
+                feature_engine = None
+          - Log INFO:
+                - "FEATURE_ENGINE_ENABLED | raw_features=... | model_enabled=..."
+
+      - Im Bar-Loop, bevor StrategyBridge aufgerufen wird:
+          - Falls feature_engine is not None:
+                feature_bundle = feature_engine.update(current_market_state)
+            sonst:
+                feature_bundle = None
+      - StrategyBridge.on_bar(...) mit feature_bundle aufrufen:
+          - bridge_decision = strategy_bridge.on_bar(
+                market_state=current_market_state,
+                position_state=current_position_state,
+                features=feature_bundle,
+            )
+      - Logging:
+          - Auf DEBUG-Level:
+              - für die ersten paar Bars (z. B. bar_index < 5): kleines Summary:
+                  - "FEATURES | ts=... | raw_keys=[...] | model_len=..."
+
+  # ---------------------------------------------------------------------------
+  # 5) Config-Validator leicht erweitern (optional)
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/config/validator.py
+      - Neue Validierung: validate_features(global_config: GlobalConfig) -> List[str]
+          - Prüft:
+              - Wenn features.enabled=True:
+                  - Alle raw_features haben unique name.
+                  - Alle feature_order-Einträge existieren in raw_features.name.
+          - WARN bei fehlenden raw_features wenn enabled=True.
+      - In run_all_validations(...) diese Funktion einbinden.
+      - Bei config validate sollen Feature-WARN/ERROR mit ausgegeben werden.
+
+acceptance:
+  - `python main.py --mode sim --log-level INFO` läuft ohne Exceptions.
+  - Logs beim Start:
+      - "PROFILE_SELECTED ..." (wie zuvor)
+      - "Loaded GlobalConfig ..." (wie zuvor)
+      - NEU: "FEATURE_ENGINE_ENABLED | raw_features=2 | model_enabled=False"
+        (oder entsprechend der Config)
+  - `python main.py config validate`:
+      - berücksichtigt nun auch Features (keine ERRORs bei default features.yaml).
+  - Während eines SIM-Runs mit --log-level DEBUG:
+      - Für die ersten paar Bars erscheinen Logs der Form:
+          - "FEATURES | ts=... | raw_keys=['close_return_1', 'rolling_vol_20'] | model_len=0"
+  - ORB- und Dummy-Strategie laufen weiterhin stabil:
+      - Es gibt keine Exceptions aufgrund der erweiterten on_bar-Signatur.
+      - Decisions bleiben wie zuvor (wir wollen in 008a noch keine Logikänderung).
+  - Wenn in configs/features.yaml `features.enabled=false` gesetzt wird:
+      - FeatureEngine wird NICHT instanziiert.
+      - StrategyBridge erhält features=None; Strategien müssen damit umgehen.
+      - Logs zeigen z. B.:
+          - "FEATURE_ENGINE_DISABLED"
+
+coding_standards:
+  - Pydantic v2 für alle neuen Modelle (RawFeatureState, ModelFeatureVector, FeatureBundle, FeatureConfig).
+  - logging.getLogger(__name__) in allen neuen Modulen, sinnvolle INFO/DEBUG Logs.
+  - Vollständige Typannotationen.
+  - FeatureEngine strictly lookahead-safe: sie sieht nur aktuelle und historische Bars. Keine zukünftigen Daten.
+  - Keine Trading-Logik in der FeatureEngine; sie berechnet nur Features.
+  - Strategien bleiben leichtgewichtig und konsumieren nur bereitgestellte FeatureBundles.
+
+notes: >
+  Dieser Task legt das Fundament der FeatureEngine: eine klare Trennung zwischen
+  MarketState (Rohdaten), RawFeatureState (interpretierbare Indikatoren) und
+  ModelFeatureVector (ML-normalisierte Features). In späteren Tasks (008b ff.)
+  werden zusätzliche Indikatoren (ATR, EMA, RSI, Trend-/Volatilitäts-Scores,
+  Regime-Features) ergänzt sowie echte ML-Scaler-Integration für Training/Live.
+  Wichtig: Rule-based Strategien bleiben auf RawFeatureState, während ML/RL
+  ModelFeatureVector nutzen – genau wie du es dir gewünscht hast.

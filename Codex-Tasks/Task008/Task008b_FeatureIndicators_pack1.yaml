@@ -1,0 +1,282 @@
+title: "AF_Task_008b_FeatureIndicators_Pack1"
+summary: >
+  Erweitere die FeatureEngine um ein erstes Set professioneller Trading-Indikatoren:
+  ATR, EMA, RSI, eine einfache Volatility-Score-Metrik und einen Trend-Score.
+  Die neuen Features werden über FeatureConfig/YAML aktiviert, in FeatureEngine
+  registriert und als RawFeatureState-Werte bereitgestellt; ModelFeatureVector
+  nutzt sie über feature_order. Kein ML-Scaling in diesem Task, nur 'none'.
+
+inputs:
+  - project_root: "afts_pro/"
+  - feature_config: "src/afts_pro/config/feature_config.py"
+  - feature_engine_module: "src/afts_pro/features/engine.py"
+  - feature_state_module: "src/afts_pro/features/state.py"
+  - feature_base_calc: "src/afts_pro/features/base_calculator.py"
+  - feature_simple_calcs: "src/afts_pro/features/simple_calculators.py"
+  - market_state_model: "src/afts_pro/core/models.py -> MarketState"
+  - validator_module: "src/afts_pro/config/validator.py"
+  - global_config_module: "src/afts_pro/config/global_config.py"
+  - features_yaml: "configs/features.yaml"
+
+outputs:
+  # ---------------------------------------------------------------------------
+  # 1) Neue Indikator-Calculators
+  # ---------------------------------------------------------------------------
+  - Erweiterung: src/afts_pro/features/simple_calculators.py
+      - Importiere: deque aus collections, math, optional statistics.stdev
+
+      - Neue Klasse: ATRCalculator(BaseFeatureCalculator)
+          - Params:
+              - period: int  # z. B. 14
+          - Interner State:
+              - prev_close: Optional[float]
+              - tr_values: deque[float] maxlen=period
+          - update(bar: MarketState):
+              - Wenn prev_close is None:
+                  - tr = bar.high - bar.low
+              - sonst:
+                  - tr = max(
+                        bar.high - bar.low,
+                        abs(bar.high - prev_close),
+                        abs(bar.low - prev_close),
+                    )
+              - tr_values.append(tr)
+              - prev_close = bar.close
+          - current_value() -> Optional[float]:
+              - Wenn len(tr_values) == 0: return None
+              - ATR v1: Simple-Durchschnitt: sum(tr_values) / len(tr_values)
+
+      - Neue Klasse: EMACalculator(BaseFeatureCalculator)
+          - Params:
+              - period: int
+          - Interner State:
+              - alpha: float = 2 / (period + 1)
+              - ema: Optional[float] = None
+          - update(bar: MarketState):
+              - Wenn ema is None:
+                  - ema = bar.close
+              - sonst:
+                  - ema = alpha * bar.close + (1 - alpha) * ema
+          - current_value():
+              - return ema
+
+      - Neue Klasse: RSICalculator(BaseFeatureCalculator)
+          - Params:
+              - period: int  # typ. 14
+          - Interner State:
+              - prev_close: Optional[float]
+              - gain_ema: Optional[float]
+              - loss_ema: Optional[float]
+              - alpha: float = 1 / period    # Wilder-Approximation
+          - update(bar: MarketState):
+              - Wenn prev_close is None:
+                  - prev_close = bar.close; return
+              - change = bar.close - prev_close
+              - gain = max(change, 0.0)
+              - loss = max(-change, 0.0)
+              - Wenn gain_ema is None (erste Iteration):
+                  - gain_ema = gain
+                  - loss_ema = loss
+              - sonst:
+                  - gain_ema = gain_ema + alpha * (gain - gain_ema)
+                  - loss_ema = loss_ema + alpha * (loss - loss_ema)
+              - prev_close = bar.close
+          - current_value():
+              - Wenn gain_ema is None oder loss_ema is None:
+                  - return None
+              - Wenn loss_ema == 0:
+                  - return 100.0
+              - rs = gain_ema / loss_ema
+              - rsi = 100.0 - (100.0 / (1.0 + rs))
+              - return rsi
+
+      - Neue Klasse: VolatilityScoreCalculator(BaseFeatureCalculator)
+          - Idee: ATR / Close → einfache Volatilitäts-Intensität als Prozent.
+          - Params:
+              - period: int  # für ATR
+          - Interner State:
+              - atr_calc: ATRCalculator (intern, period=period)
+          - update(bar: MarketState):
+              - atr_calc.update(bar)
+          - current_value():
+              - atr = atr_calc.current_value()
+              - Wenn atr is None oder bar.close<=0: return None
+              - vol_score = atr / bar.close    # v1, später skalierbar
+              - return vol_score
+
+      - Neue Klasse: TrendScoreCalculator(BaseFeatureCalculator)
+          - Idee: (close_t - close_{t-n}) / (n * close_t) → grobe Trendintensität.
+          - Params:
+              - lookback: int
+          - Interner State:
+              - closes: deque[float] maxlen=lookback+1
+          - update(bar: MarketState):
+              - closes.append(bar.close)
+          - current_value():
+              - Wenn len(closes) <= 1: return None
+              - oldest = closes[0]
+              - latest = closes[-1]
+              - Wenn latest <= 0: return None
+              - n = max(len(closes) - 1, 1)
+              - score = (latest - oldest) / (n * latest)
+              - score kann in [-1, 1]-range liegen; v1: Clamp:
+                  - score = max(min(score, 1.0), -1.0)
+              - return score
+
+  # ---------------------------------------------------------------------------
+  # 2) FeatureEngine: Calculator-Mapping erweitern
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/features/engine.py
+      - Importiere die neuen Calculator-Klassen aus simple_calculators.
+      - In __init__(self, config: FeatureConfig):
+          - Bisher: mapping für "close_return", "rolling_vol"
+          - Erweitere um:
+              - "atr" -> ATRCalculator
+              - "ema" -> EMACalculator
+              - "rsi" -> RSICalculator
+              - "volatility_score" -> VolatilityScoreCalculator
+              - "trend_score" -> TrendScoreCalculator
+          - Beim Instanzieren:
+              - Für jede RawFeatureDef:
+                  - cls = mapping.get(def.calculator)
+                  - Wenn None:
+                      - logger.error("Unknown feature calculator: %s", def.calculator)
+                      - Feature überspringen oder Exception werfen (v1: Warning + skip)
+                  - sonst:
+                      - calculators[def.name] = cls(name=def.name, **def.params)
+
+      - In update(bar: MarketState):
+          - Keine Logikänderung – neue Calculator-Werte werden einfach in RawFeatureState.values aufgenommen.
+
+  # ---------------------------------------------------------------------------
+  # 3) FeatureConfig / YAML: Default-Features erweitern
+  # ---------------------------------------------------------------------------
+  - Anpassung: configs/features.yaml
+      - Ersetze den bisherigen minimalen Inhalt durch einen etwas reicheren Default:
+
+      features:
+        enabled: true
+
+        raw_features:
+          - name: "close_return_1"
+            calculator: "close_return"
+            params:
+              lookback: 1
+
+          - name: "rolling_vol_20"
+            calculator: "rolling_vol"
+            params:
+              window: 20
+
+          - name: "atr_14"
+            calculator: "atr"
+            params:
+              period: 14
+
+          - name: "ema_21"
+            calculator: "ema"
+            params:
+              period: 21
+
+          - name: "ema_50"
+            calculator: "ema"
+            params:
+              period: 50
+
+          - name: "rsi_14"
+            calculator: "rsi"
+            params:
+              period: 14
+
+          - name: "vol_score_14"
+            calculator: "volatility_score"
+            params:
+              period: 14
+
+          - name: "trend_score_20"
+            calculator: "trend_score"
+            params:
+              lookback: 20
+
+        model_features:
+          enabled: false
+          feature_order:
+            - "close_return_1"
+            - "rolling_vol_20"
+            - "atr_14"
+            - "ema_21"
+            - "ema_50"
+            - "rsi_14"
+            - "vol_score_14"
+            - "trend_score_20"
+          scaling:
+            type: "none"
+            params: {}
+
+  - Anpassung (falls nötig): src/afts_pro/config/feature_config.py
+      - Keine strukturelle Änderung nötig, aber sicherstellen:
+          - FeatureConfig lädt das aktualisierte YAML korrekt.
+      - Optional: kleine Helper-Methoden:
+          - FeatureConfig.get_raw_feature_names()
+          - FeatureConfig.get_model_feature_order()
+
+  # ---------------------------------------------------------------------------
+  # 4) Validator um Feature-Mapping erweitern
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/config/validator.py
+      - In validate_features(global_config: GlobalConfig):
+          - Ergänze Checks:
+              - Alle raw_features.name sind eindeutig.
+              - Alle feature_order-Einträge kommen auch in raw_features.name vor.
+              - Alle raw_features.calculator gehören zu dem bekannten Set:
+                  - {"close_return", "rolling_vol", "atr", "ema", "rsi", "volatility_score", "trend_score"}
+              - Bei unbekanntem calculator:
+                  - ERROR-Message: "ERROR: Unknown feature calculator '<name>' in feature '<feature_name>'"
+          - Danach Rückgabe-Liste der Messages wie gehabt (WARN/ERROR).
+      - Sicherstellen, dass run_all_validations(...) validate_features weiter aufruft.
+
+  # ---------------------------------------------------------------------------
+  # 5) Logging & Sanity-Checks (nur leichte Ergänzungen)
+  # ---------------------------------------------------------------------------
+  - Optional: src/afts_pro/features/engine.py
+      - Beim Start (im __init__):
+          - logger.info(
+              "FeatureEngine initialized | raw_features=%s | model_enabled=%s",
+              [f.name for f in config.raw_features],
+              config.model_features.enabled,
+            )
+
+  - Optional: src/afts_pro/engine/engine.py
+      - Die bereits existierenden DEBUG-Logs zu Features (erste Bars) können
+        jetzt z. B. Anzahl der neuen ATR/EMA/RSI-Keys mit ausgeben; keine
+        Strukturänderung nötig.
+
+acceptance:
+  - `python main.py config validate` läuft ohne Exceptions:
+      - keine ERRORs bzgl. Features; bekannte calculator-Namen werden erkannt.
+  - `python main.py --mode sim --log-level INFO` läuft durch:
+      - FeatureEngine wird mit den neuen Default-Features initialisiert.
+  - `python main.py --mode sim --log-level DEBUG`:
+      - In den ersten Bars sieht man Logs wie:
+          - "FEATURES | ts=... | raw_keys=['close_return_1', 'rolling_vol_20', 'atr_14', 'ema_21', 'ema_50', 'rsi_14', 'vol_score_14', 'trend_score_20'] | model_len=0"
+  - Alle bestehenden Strategien (ORB, DummyML) laufen weiter ohne Fehler:
+      - Sie ignorieren die neuen Features, sofern sie sie nicht explizit aus dem FeatureBundle auslesen.
+  - Wenn in configs/features.yaml ein falscher calculator-Name eingetragen wird:
+      - `config validate` meldet einen ERROR bezüglich unbekanntem Calculator.
+      - Engine-Run mit solcher Config sollte idealerweise verweigert werden oder zumindest klar loggen, dass das Feature ignoriert wird (Implementierung wie in engine.py/FeatureEngine vorgesehen).
+
+coding_standards:
+  - Pydantic v2 für Config/State-Modelle unverändert beibehalten.
+  - logging.getLogger(__name__) konsequent nutzen, sinnvolle Messages.
+  - Vollständige Typannotationen.
+  - Alle Calculator strikt lookahead-safe (nur aktuelle und vergangene OHLC-Daten).
+  - Keine Trading- oder Order-Logik in den Calculators; sie liefern nur Feature-Werte.
+
+notes: >
+  Dieser Task liefert dein erstes vollwertiges Indicator-Pack: ATR, EMA, RSI,
+  VolatilityScore und TrendScore stehen allen Strategien über RawFeatureState
+  zur Verfügung und können später als Basis für ML/RL-Features genutzt werden.
+  Die ModelFeatureVector-Logik bleibt vorerst mit 'scaling.type: none', sodass
+  wir in einem späteren Task (008c/008d) gezielt Scaler/Normalizer für ML
+  integrieren können, ohne die RawFeatures für klassische Algo-Strategien
+  zu „verunreinigen“.

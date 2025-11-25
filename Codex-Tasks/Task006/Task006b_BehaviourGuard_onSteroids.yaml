@@ -1,0 +1,337 @@
+title: "AF_Task_006b_BehaviourGuards_On_Steroids_Configurable"
+summary: >
+  Erweitere den Behaviour-Layer um zusätzliche professionelle Guards
+  (DailyPnL, ProfitTarget, MaxOpenPositions, SessionTimeWindows, BigLossCooldown)
+  und führe eine zentrale BehaviourConfig ein, über die alle Guards aktivierbar,
+  deaktivierbar und parametrierbar sind. Die Engine lädt die BehaviourConfig
+  und instanziiert nur die aktivierten Guards.
+
+inputs:
+  - project_root: "afts_pro/"
+  - behaviour_package: "src/afts_pro/behaviour/"
+  - behaviour_base: "src/afts_pro/behaviour/base_guard.py"
+  - behaviour_guards: "src/afts_pro/behaviour/guards.py"
+  - behaviour_manager_module: "src/afts_pro/behaviour/manager.py"
+  - account_state_model: "src/afts_pro/exec/position_models.py -> AccountState"
+  - position_event_model: "src/afts_pro/exec/position_manager.py -> PositionEvent"
+  - engine_module: "src/afts_pro/engine/engine.py"
+  - configs_behaviour: "configs/behaviour/default.yaml"
+
+outputs:
+  - Erweiterung: src/afts_pro/behaviour/guards.py
+      - Neue Guard: DailyPnLGuard(BaseBehaviourGuard)
+          - Zweck:
+              - Begrenze Daily Loss (verhaltensbasiert, zusätzlich zur RiskPolicy).
+              - Optionale „Lock-in-Profit“-Logik: nach X% Gewinn am Tag aggressiver werden
+                (oder z. B. SoftStop, um nicht alles zurückzugeben).
+          - Init-Parameter:
+              - initial_balance: float
+              - max_daily_loss_pct_initial: float  # z. B. 0.03 (3 % vom Initialkapital)
+              - lock_in_profit_pct_initial: float = 0.0
+                  # Wenn realized_pnl_today >= lock_in_profit_pct_initial * initial_balance:
+                  # kann das Verhalten angepasst werden (z. B. SoftStop).
+          - before_new_orders(...):
+              - daily_realized = stats.realized_pnl_today
+              - daily_loss = min(daily_realized, 0.0)
+              - daily_loss_abs = abs(daily_loss)
+              - max_daily_loss_abs = initial_balance * max_daily_loss_pct_initial
+              - Wenn daily_loss_abs >= max_daily_loss_abs:
+                  - BehaviourDecision(
+                        allow_new_orders=False,
+                        hard_block_trading=False,
+                        reason="DAILY_REALIZED_LOSS_GUARD",
+                        meta={"daily_realized_pnl": daily_realized,
+                              "max_daily_loss_abs": max_daily_loss_abs},
+                    )
+              - Optional: Lock-in-Profit:
+                  - target_profit_abs = initial_balance * lock_in_profit_pct_initial
+                  - Wenn daily_realized >= target_profit_abs:
+                      - (v1: SoftStop)
+                      - BehaviourDecision(
+                            allow_new_orders=False,
+                            hard_block_trading=False,
+                            reason="DAILY_PROFIT_LOCKIN_GUARD",
+                            meta={"daily_realized_pnl": daily_realized,
+                                  "lockin_profit_abs": target_profit_abs},
+                        )
+              - sonst: allow_new_orders=True
+
+      - Neue Guard: DailyProfitTargetGuard(BaseBehaviourGuard)
+          - Zweck:
+              - Wenn ein bestimmtes Tagesziel erreicht ist, optional „Feierabend machen“.
+          - Init-Parameter:
+              - initial_balance: float
+              - target_profit_pct_initial: float  # z. B. 0.02 (= 2 %)
+              - mode: Literal["soft_stop", "hard_stop"] = "soft_stop"
+          - before_new_orders(...):
+              - daily_realized = stats.realized_pnl_today
+              - target_abs = initial_balance * target_profit_pct_initial
+              - Wenn daily_realized >= target_abs:
+                  - Wenn mode == "soft_stop":
+                      - allow_new_orders=False, hard_block_trading=False,
+                      - reason="DAILY_PROFIT_TARGET_SOFT"
+                  - Wenn mode == "hard_stop":
+                      - allow_new_orders=False, hard_block_trading=True,
+                      - reason="DAILY_PROFIT_TARGET_HARD"
+              - sonst: allow_new_orders=True
+
+      - Neue Guard: MaxOpenPositionsGuard(BaseBehaviourGuard)
+          - Zweck:
+              - Begrenze gleichzeitig offene Positionen (Diversifikation/Overexposure).
+          - Init-Parameter:
+              - max_open_positions: int
+          - before_new_orders(...):
+              - open_positions_count = Anzahl nicht-leerer Positions-Einträge
+                in account_state.positions
+              - Wenn open_positions_count >= max_open_positions:
+                  - BehaviourDecision(
+                        allow_new_orders=False,
+                        hard_block_trading=False,
+                        reason="MAX_OPEN_POSITIONS_REACHED",
+                        meta={"open_positions": open_positions_count,
+                              "max_open_positions": max_open_positions},
+                    )
+              - sonst: allow_new_orders=True
+
+      - Neue Guard: SessionTimeWindowGuard(BaseBehaviourGuard)
+          - Zweck:
+              - Handel nur innerhalb konfigurierter Handelsfenster (z. B. London/NY),
+                optional nach Wochentagen.
+          - Init-Parameter:
+              - windows: List[SessionWindowConfig]
+              - SessionWindowConfig (Pydantic-Modell):
+                  - name: str
+                  - start_time: time     # "HH:MM"
+                  - end_time: time       # "HH:MM"
+                  - weekdays: Optional[List[int]] = None
+                      # 0=Montag ... 6=Sonntag; None = alle Tage
+          - before_new_orders(...):
+              - lokales Datum/Zeit aus ts nehmen (ts.time(), ts.weekday())
+              - Prüfe, ob irgendein Fenster `start_time <= ts.time() < end_time`
+                UND (weekdays is None oder ts.weekday() in weekdays)
+              - Wenn kein Fenster matcht:
+                  - BehaviourDecision(
+                        allow_new_orders=False,
+                        hard_block_trading=False,
+                        reason="OUTSIDE_SESSION_WINDOW",
+                        meta={"ts": ts.isoformat(), "windows": [w.name ...]},
+                    )
+              - sonst: allow_new_orders=True
+
+      - Neue Guard: BigLossCooldownGuard(BaseBehaviourGuard)
+          - Zweck:
+              - Nach einem einzelnen sehr großen Verlust (z. B. -2% oder -2R)
+                für längere Zeit keine neuen Orders erlauben.
+          - Init-Parameter:
+              - initial_balance: float
+              - big_loss_pct_initial: float   # z. B. 0.02
+              - cooldown_minutes: int         # z. B. 60
+          - Interner State:
+              - last_big_loss_ts: Optional[datetime] = None
+          - on_trade_closed(...):
+              - Wenn trade_pnl < 0 und abs(trade_pnl) >= initial_balance * big_loss_pct_initial:
+                  - last_big_loss_ts = ts
+          - before_new_orders(...):
+              - Wenn last_big_loss_ts ist None:
+                  - allow_new_orders=True
+              - sonst:
+                  - delta = ts - last_big_loss_ts
+                  - Wenn delta < cooldown_minutes:
+                      - BehaviourDecision(
+                            allow_new_orders=False,
+                            hard_block_trading=False,
+                            reason="BIG_LOSS_COOLDOWN_ACTIVE",
+                            meta={"minutes_since_big_loss": delta.total_seconds()/60.0,
+                                  "cooldown_minutes": cooldown_minutes},
+                        )
+                  - sonst: allow_new_orders=True
+
+  - Neue Datei: src/afts_pro/behaviour/config.py
+      - Zweck:
+          - BehaviourConfig laden und daraus Guard-Instanzen bauen.
+      - Pydantic-Modell: BehaviourGuardConfig
+          - enabled: bool = True
+          - params: Dict[str, Any] = {}
+      - Pydantic-Modell: BehaviourConfig
+          - max_trades_per_day: Optional[BehaviourGuardConfig]
+          - max_consecutive_losses: Optional[BehaviourGuardConfig]
+          - cooldown_after_loss: Optional[BehaviourGuardConfig]
+          - daily_pnl: Optional[BehaviourGuardConfig]
+          - daily_profit_target: Optional[BehaviourGuardConfig]
+          - max_open_positions: Optional[BehaviourGuardConfig]
+          - session_time_window: Optional[BehaviourGuardConfig]
+          - big_loss_cooldown: Optional[BehaviourGuardConfig]
+      - Funktion: load_behaviour_config(path: str) -> BehaviourConfig
+          - lädt YAML via yaml.safe_load
+      - Funktion: create_guards_from_config(
+            config: BehaviourConfig,
+            *,
+            initial_balance: float,
+        ) -> List[BaseBehaviourGuard]
+          - Für jeden Config-Eintrag:
+              - wenn None oder enabled=False → kein Guard
+              - sonst: entsprechenden Guard mit params + initial_balance instantiieren.
+          - Mapping-Beispiele:
+              - max_trades_per_day:
+                  - MaxTradesPerDayGuard(max_trades_per_day=params["max_trades_per_day"])
+              - max_consecutive_losses:
+                  - MaxConsecutiveLossesGuard(max_consecutive_losses=params["max_consecutive_losses"])
+              - cooldown_after_loss:
+                  - CooldownAfterLossGuard(cooldown_minutes=params["cooldown_minutes"])
+              - daily_pnl:
+                  - DailyPnLGuard(
+                        initial_balance=initial_balance,
+                        max_daily_loss_pct_initial=params["max_daily_loss_pct_initial"],
+                        lock_in_profit_pct_initial=params.get("lock_in_profit_pct_initial", 0.0),
+                    )
+              - daily_profit_target:
+                  - DailyProfitTargetGuard(
+                        initial_balance=initial_balance,
+                        target_profit_pct_initial=params["target_profit_pct_initial"],
+                        mode=params.get("mode", "soft_stop"),
+                    )
+              - max_open_positions:
+                  - MaxOpenPositionsGuard(max_open_positions=params["max_open_positions"])
+              - session_time_window:
+                  - SessionWindowGuard(
+                        windows=[SessionWindowConfig(**w) for w in params["windows"]]
+                    )
+              - big_loss_cooldown:
+                  - BigLossCooldownGuard(
+                        initial_balance=initial_balance,
+                        big_loss_pct_initial=params["big_loss_pct_initial"],
+                        cooldown_minutes=params["cooldown_minutes"],
+                    )
+
+  - Anpassung: configs/behaviour/default.yaml
+      - Ersetze Placeholder durch strukturierte Config:
+          behaviour:
+            max_trades_per_day:
+              enabled: true
+              params:
+                max_trades_per_day: 20
+
+            max_consecutive_losses:
+              enabled: true
+              params:
+                max_consecutive_losses: 3
+
+            cooldown_after_loss:
+              enabled: true
+              params:
+                cooldown_minutes: 15
+
+            daily_pnl:
+              enabled: true
+              params:
+                max_daily_loss_pct_initial: 0.03
+                lock_in_profit_pct_initial: 0.02
+
+            daily_profit_target:
+              enabled: false
+              params:
+                target_profit_pct_initial: 0.03
+                mode: "soft_stop"
+
+            max_open_positions:
+              enabled: true
+              params:
+                max_open_positions: 3
+
+            session_time_window:
+              enabled: false
+              params:
+                windows:
+                  - name: "London"
+                    start_time: "07:00"
+                    end_time: "17:00"
+                    weekdays: [0,1,2,3,4]
+                  - name: "NY"
+                    start_time: "13:00"
+                    end_time: "22:00"
+                    weekdays: [0,1,2,3,4]
+
+            big_loss_cooldown:
+              enabled: true
+              params:
+                big_loss_pct_initial: 0.02
+                cooldown_minutes: 60
+
+  - Anpassung: src/afts_pro/behaviour/__init__.py
+      - Re-Export:
+          - BehaviourDecision
+          - TradeStats
+          - BaseBehaviourGuard
+          - MaxTradesPerDayGuard
+          - MaxConsecutiveLossesGuard
+          - CooldownAfterLossGuard
+          - DailyPnLGuard
+          - DailyProfitTargetGuard
+          - MaxOpenPositionsGuard
+          - SessionTimeWindowGuard
+          - BigLossCooldownGuard
+          - BehaviourManager
+          - BehaviourConfig
+          - load_behaviour_config
+          - create_guards_from_config
+
+  - Anpassung: src/afts_pro/engine/engine.py (SIM-Mode)
+      - Statt BehaviourManager mit hart codierten Guards zu instanzieren:
+          - Lese BehaviourConfig:
+              - z. B. behaviour_config = load_behaviour_config("configs/behaviour/default.yaml")
+          - Hole initial_balance:
+              - z. B. aus RiskConfig oder AccountState-Initialisierung (bereits vorhanden).
+          - guards = create_guards_from_config(behaviour_config, initial_balance=initial_balance)
+          - behaviour_manager = BehaviourManager(guards=guards)
+          - Beim Start loggen:
+              - "BEHAVIOUR_CONFIG | path=... | enabled_guards=[...names...]"
+
+acceptance:
+  - `python main.py --mode sim --log-level INFO` läuft ohne Exceptions.
+  - Logs beim Engine-Start:
+      - "BEHAVIOUR_CONFIG | path=configs/behaviour/default.yaml | enabled_guards=[...]" 
+  - Wenn in default.yaml z. B. `max_trades_per_day.enabled=false` gesetzt wird:
+      - Guard wird nicht instanziert (Logs zeigen ihn nicht in enabled_guards).
+  - DailyPnLGuard-Test:
+      - Simuliere mehrere Verlust-Trades, bis realized_pnl_today <= - (max_daily_loss_pct_initial * initial_balance):
+          - behaviour_decision.allow_new_orders=False
+          - reason="DAILY_REALIZED_LOSS_GUARD"
+  - DailyProfitTargetGuard-Test:
+      - Setze `daily_profit_target.enabled=true` und low target (z. B. 0.001).
+      - Erzeuge Trades, die realized_pnl_today >= target_abs bringen:
+          - bei mode="soft_stop":
+              - allow_new_orders=False, hard_block_trading=False
+          - bei mode="hard_stop":
+              - allow_new_orders=False, hard_block_trading=True
+              - Engine beendet den SIM-Loop.
+  - SessionTimeWindowGuard-Test:
+      - Aktiviere Guard mit 1 Fenster, das NICHT dem Timestamp der Testdaten entspricht:
+          - behaviour_decision.allow_new_orders=False
+          - reason="OUTSIDE_SESSION_WINDOW"
+      - Passe das Fenster passend zu den Bar-Zeiten an:
+          - allow_new_orders=True.
+  - BigLossCooldownGuard-Test:
+      - Erzeuge einen Trade mit loss <= -big_loss_pct_initial * initial_balance:
+          - last_big_loss_ts gesetzt
+          - in den nächsten Bars, solange delta < cooldown, werden keine neuen Orders erlaubt.
+  - MaxOpenPositionsGuard-Test:
+      - Setze max_open_positions=1, erzeuge 1 Position:
+          - allow_new_orders=True, solange keine zweite Position eröffnet wird.
+          - Versuch, eine zweite Position zu eröffnen → new orders werden blockiert.
+
+coding_standards:
+  - Pydantic v2 für Config- und Decision-Modelle.
+  - logging.getLogger(__name__) in allen Behaviour-Modulen; sinnvolle INFO-/DEBUG-Logs.
+  - Vollständige Typannotationen.
+  - Keine Broker-/Strategie-spezifische Logik in Guards; sie arbeiten rein auf
+    AccountState, TradeStats und Zeit.
+  - Engine-Loop-Architektur bleibt:
+      - validate -> activate -> fill -> position_update -> behaviour_stats_update
+        -> risk -> behaviour -> strategy -> orders_queue.
+
+notes: >
+  Dieser Task hebt den Behaviour-Layer auf „Steroids“-Level: Alle wichtigen
+  Behavior Guards sind vorhanden, einzeln konfigurierbar und deaktivierbar.
+  Dadurch kann AFTS-PRO später für unterschiedliche Kontotypen (FTMO, Apex,
+  Eigenkapital, Training, RL-Experimente) spezifische Behaviour-Profile
+  fahren, ohne Code anzufassen – nur über YAML.

@@ -1,0 +1,6 @@
+type: "ftmo"
+initial_balance: 100000.0
+total_dd_hard_stop_pct: 0.085
+daily_soft_dd_pct: 0.035
+daily_hard_dd_pct: 0.04
+include_unrealized: true

@@ -1,0 +1,8 @@
+environment:
+  mode: "sim"
+  timezone: "UTC"
+  warmup_bars: 100
+  live_api_enabled: false
+  config_hot_reload_enabled: false
+  config_hot_reload_interval_bars: 50
+  config_hot_reload_scope: ["behaviour", "strategy"]

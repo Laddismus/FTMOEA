@@ -1,0 +1,120 @@
+title: "AF_Task_007c_Config_Validate_And_Dump"
+summary: >
+  Füge einen dedizierten Config-Validierungs- und Dump-Mode hinzu, mit dem
+  Profile und GlobalConfig ohne Start der SIM-Engine geprüft und zusammengefasst
+  werden können. Der Mode prüft u. a. Pfade, Risk/Behaviour-Konfiguration,
+  verfügbare Assets und Strategien und gibt eine kompakte Übersicht für Debugging
+  und zukünftige UI/GUI aus.
+
+inputs:
+  - project_root: "afts_pro/"
+  - main_cli: "afts_pro/main.py"
+  - config_package: "src/afts_pro/config/"
+  - profile_module: "src/afts_pro/config/profile_config.py"
+  - global_config_module: "src/afts_pro/config/global_config.py"
+  - config_loader_module: "src/afts_pro/config/loader.py"
+  - risk_configs:
+      - "configs/risk/ftmo.yaml"
+      - "configs/risk/apex.yaml"
+      - "configs/risk/equity.yaml"
+  - behaviour_config: "configs/behaviour/default.yaml"
+  - strategy_config: "configs/strategy.yaml"
+  - assets_config: "configs/assets.yaml"
+  - data_root: "data/final_agg/"
+
+outputs:
+  - Neue Datei: src/afts_pro/config/validator.py
+      - logger = logging.getLogger(__name__)
+      - Funktionen:
+          - validate_paths(global_config: GlobalConfig) -> List[str]
+              # Prüft:
+              # - existiert risk.policy_path?
+              # - existiert jedes in Profile/Includes angegebene Config-File?
+          - validate_assets(global_config: GlobalConfig, data_root: Path) -> List[str]
+              # Prüft:
+              # - Für jedes AssetSpec.symbol existiert mindestens eine passende
+              #   Parquet-Datei unter data_root (z. B. ETHUSDT_*.parquet)?
+              # - Gibt Warnungen zurück, wenn kein File gefunden wird.
+          - validate_strategies(global_config: GlobalConfig) -> List[str]
+              # Prüft:
+              # - Jede strategy in enabled_strategies existiert im StrategyRegistry?
+              # - strategy_params enthalten nur bekannte Strategien?
+          - validate_behaviour(global_config: GlobalConfig) -> List[str]
+              # Prüft:
+              # - Wenn behaviour.enabled=True, sind die wichtigsten Parameter gesetzt?
+              # - Z. B. keine negativen max_trades_per_day, max_consecutive_losses, etc.
+          - run_all_validations(global_config: GlobalConfig, data_root: Path) -> Tuple[bool, List[str]]
+              # Ruft alle obigen Validatoren auf.
+              # bool = True, wenn keine ERROR-Level-Probleme, nur Warnungen.
+      - Severity-Konzept (im Text der Messages):
+          - "ERROR: ..." → bricht Acceptance
+          - "WARN: ..."  → Hinweis, aber kein Hard-Fail
+
+  - Erweiterung: src/afts_pro/config/global_config.py
+      - Hilfsfunktion:
+          - def global_config_summary(global_config: GlobalConfig) -> Dict[str, Any]:
+              # Baut eine kompakte Summary:
+              # {
+              #   "environment": {...},
+              #   "risk_policy": global_config.risk.policy_type,
+              #   "behaviour_enabled": global_config.behaviour.enabled,
+              #   "strategies": global_config.strategy.enabled_strategies,
+              #   "assets": list(global_config.assets.assets.keys()),
+              # }
+
+  - Anpassung: afts_pro/main.py (Typer CLI)
+      - Füge einen neuen Sub-Command hinzu: `config`
+          - Unterbefehle:
+              - `config validate`
+                  - Optionen:
+                      - --profile / -p: optional
+                      - --profile-path: optional
+                  - Ablauf:
+                      - löst Profil wie in Task 007b
+                      - baut global_config via load_global_config_from_profile
+                      - ruft run_all_validations(global_config, data_root)
+                      - loggt Summary (INFO) und jede Validation-Message (WARN/ERROR)
+                      - exit code:
+                          - 0, wenn keine ERROR-Messages
+                          - 1, wenn mind. eine ERROR-Message
+              - `config dump`
+                  - Optionen:
+                      - --profile / -p
+                      - --profile-path
+                      - --format: "table" | "json" (Default: "table")
+                  - Ablauf:
+                      - Lädt global_config wie oben
+                      - Erzeugt eine kompakte Summary via global_config_summary
+                      - Gibt sie je nach Format aus:
+                          - "table": schön formatierte Text-Tabelle auf stdout (kein JSON)
+                          - "json": json.dumps(summary, indent=2)
+                      - Exit Code immer 0, falls Laden erfolgreich
+
+acceptance:
+  - `python main.py config validate` (ohne Profil):
+      - verwendet default sim-Profile
+      - loggt:
+          - "PROFILE_SELECTED | name=sim | path=..."
+          - danach eine Liste von Validation-Messages
+      - Exit Code 0, wenn alle Checks OK.
+  - `python main.py config validate --profile ftmo`:
+      - validiert FTMO-Profil, inkl. ftmo.yaml-Pfade.
+  - Falls in strategy.yaml absichtlich eine nicht existierende Strategie eingetragen wird:
+      - validate_strategies gibt ERROR zurück
+      - `config validate` beendet sich mit Exit Code 1.
+  - `python main.py config dump --profile apex --format json`:
+      - gibt eine JSON-Summary der wichtigsten Felder aus (Environment, RiskPolicy, BehaviourEnabled, Strategies, Assets).
+  - `python main.py config dump` ohne Profil:
+      - nutzt sim-Profile, Ausgabe im Tabellenformat.
+
+coding_standards:
+  - Pydantic v2, voll typisiert.
+  - Typer-Subcommands mit klaren Help-Texts.
+  - logging.getLogger(__name__) und sinnvolle INFO/WARN/ERROR Logs.
+  - Keine Engine-/Execution-Logik im Validator, nur Config-bezogene Checks.
+
+notes: >
+  Mit diesem Task bekommst du einen dedizierten „Config-Doktor“, der Profile
+  und GlobalConfig auf Konsistenz prüft und dir für UI-, Ops- und Deployment-
+  Zwecke eine lesbare Zusammenfassung liefert. Ideal, um vor größeren
+  Backtests/Live-Runs Config-Probleme zu erkennen.

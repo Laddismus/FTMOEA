@@ -1,0 +1,52 @@
+behaviour:
+  enabled: true
+  max_trades_per_day:
+    enabled: true
+    params:
+      max_trades_per_day: 20
+
+  max_consecutive_losses:
+    enabled: true
+    params:
+      max_consecutive_losses: 3
+
+  cooldown_after_loss:
+    enabled: true
+    params:
+      cooldown_minutes: 15
+
+  daily_pnl:
+    enabled: true
+    params:
+      max_daily_loss_pct_initial: 0.03
+      lock_in_profit_pct_initial: 0.02
+
+  daily_profit_target:
+    enabled: false
+    params:
+      target_profit_pct_initial: 0.03
+      mode: "soft_stop"
+
+  max_open_positions:
+    enabled: true
+    params:
+      max_open_positions: 3
+
+  session_time_window:
+    enabled: false
+    params:
+      windows:
+        - name: "London"
+          start_time: "07:00"
+          end_time: "17:00"
+          weekdays: [0,1,2,3,4]
+        - name: "NY"
+          start_time: "13:00"
+          end_time: "22:00"
+          weekdays: [0,1,2,3,4]
+
+  big_loss_cooldown:
+    enabled: true
+    params:
+      big_loss_pct_initial: 0.02
+      cooldown_minutes: 60

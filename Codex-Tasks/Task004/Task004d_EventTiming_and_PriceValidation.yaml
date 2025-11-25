@@ -1,0 +1,119 @@
+title: "AF_Task_004d_EventTiming_and_PriceValidator"
+summary: >
+  Stelle sicher, dass die SIM-Execution strikt event-driven und look-ahead-frei ist.
+  StrategyDecisions, die auf Bar t basieren, dürfen frühestens in Bar t+1 zu Fills
+  führen. Implementiere dazu eine klare Timing-Logik im SIM-Loop sowie einen
+  PriceValidator, der Retro-Fills und rückwärtslaufende Timestamps verhindert.
+inputs:
+  - project_root: "afts_pro/"
+  - engine_module: "src/afts_pro/engine/engine.py"
+  - sim_fill_engine_module: "src/afts_pro/exec/execution_sim.py"
+  - position_manager_module: "src/afts_pro/exec/position_manager.py"
+  - market_state_model: "src/afts_pro/core/models.py -> MarketState"
+  - order_models: "src/afts_pro/exec/order_models.py"
+  - account_state_model: "src/afts_pro/exec/position_models.py -> AccountState"
+outputs:
+  - Neue Datei: src/afts_pro/sim/price_validator.py
+      - logging.getLogger(__name__) verwenden
+      - Klasse: PriceValidator
+          - Methode: validate_bar_sequence(prev_bar: Optional[MarketState], curr_bar: MarketState) -> None
+              - Wenn prev_bar vorhanden:
+                  - assert curr_bar.timestamp > prev_bar.timestamp
+                  - bei Verstoß: ERROR-Log + ValueError
+          - Methode: validate_fill_timing(order, fill_ts: datetime) -> None
+              - assert fill_ts >= order.created_at
+              - bei Verstoß: ERROR-Log + ValueError (Retro-Fill)
+  - Anpassung: src/afts_pro/engine/engine.py (SIM-Loop)
+      - Ziel: StrategyDecision auf Bar t -> Orders werden erst in Bar t+1 aktiv
+      - Implementiere folgenden Ablauf (High-Level-Logik, Codex darf Details in Code gießen):
+          - Im Engine-SIM-Mode:
+              - Erzeuge einmalig:
+                  - PriceValidator-Instanz
+                  - leere Liste `pending_orders_for_next_bar: List[Order]`
+                  - `last_bar: Optional[MarketState] = None`
+              - Für jede Bar `ms` aus MarketState-Stream:
+                  1) Bar-Sequenz validieren:
+                      - price_validator.validate_bar_sequence(last_bar, ms)
+                  2) Orders aus dem vorherigen Schritt aktivieren:
+                      - Alle Orders in `pending_orders_for_next_bar` werden:
+                          - in AccountState.open_orders registriert
+                          - ihre `created_at`-Zeit bleibt unverändert (oder wird,
+                            falls bisher None, mit `last_bar.timestamp` gesetzt)
+                      - `pending_orders_for_next_bar` wird danach geleert.
+                  3) Fills für bereits aktive Orders erzeugen:
+                      - Wenn last_bar nicht None:
+                          - SimFillEngine.process_bar(...) aufrufen mit:
+                              - account_state
+                              - account_state.open_orders
+                              - current_bar = ms
+                              - last_bar = last_bar
+                          - Für jeden Fill:
+                              - price_validator.validate_fill_timing(order, fill.timestamp)
+                              - PositionManager.apply_fill(fill, account_state)
+                  4) StrategyDecision auf Basis der aktuellen Bar ms holen:
+                      - StrategyBridge.on_bar(ms) -> StrategyDecision
+                      - Logging der Entscheidung wie bisher
+                  5) OrderBuilder aufrufen:
+                      - Neue Orders (Entry/Manage/Exit) aus StrategyDecision ableiten.
+                      - Diese neuen Orders NICHT sofort in open_orders eintragen,
+                        sondern in `pending_orders_for_next_bar` legen:
+                          - sie werden erst in der NÄCHSTEN Iteration aktiv und
+                            können dann frühestens in Bar t+1 gefüllt werden.
+                  6) last_bar = ms
+      - Entferne eventuell existierende Pfade, die Orders im selben Bar aktivieren
+        und sofort füllen, sofern diese gegen die neue Timing-Logik verstoßen.
+  - Optionale Ergänzung: src/afts_pro/exec/execution_sim.py
+      - Stelle sicher, dass process_bar(...) klar dokumentiert:
+          - „Orders, die in Bar t erzeugt wurden, sollen im Regelfall in Bar t+1
+             gefüllt werden; der Engine-Loop ist dafür verantwortlich, die
+             Aktivierung/Timing der Orders zu steuern.“
+      - Keine Änderung der Fill-Logik notwendig, außer falls sie implizit
+        von einer „same-bar“-Annahme ausgeht. Die Zeitlogik (t vs t+1)
+        liegt primär in engine.py.
+acceptance:
+  - `python main.py --mode sim` läuft ohne Exceptions.
+  - Lauf mit `--log-level DEBUG`:
+      - Zeigt pro Bar:
+          - BAR-Log (ts, symbol, close)
+          - ggf. DECISION-Log
+          - ggf. POSITION-Log
+      - Zusätzlich:
+          - bei jedem Bar-Paar (prev, curr) keine WARN/ERROR-Logs aus PriceValidator,
+            solange die Daten zeitlich korrekt sind.
+  - Timing-Verhalten:
+      - Füge im Code oder in einem kleinen Dev-Test in engine.py temporär ein:
+          - eine Strategie/Dev-Hook, der auf der ALLERERSTEN Bar eine Entry-Order
+            erzeugt (z. B. Market-Buy).
+      - Erwartetes Verhalten:
+          - Auf Bar 1:
+              - StrategyDecision signalisiert Entry, OrderBuilder erzeugt Order,
+                diese landet in `pending_orders_for_next_bar`.
+              - SimFillEngine füllt noch NICHT, weil last_bar zu diesem Zeitpunkt
+                None ist.
+          - Auf Bar 2:
+              - pending_orders_for_next_bar werden zu open_orders.
+              - SimFillEngine.process_bar(...) mit current_bar=Bar2:
+                  - füllt die Order basierend auf OHLC von Bar2.
+              - PositionManager öffnet eine Position.
+              - Logs zeigen:
+                  - keine Fills auf Bar 1
+                  - einen Fill auf Bar 2 mit fill.timestamp == Bar2.timestamp.
+      - Bei einem bewusst eingebauten Fehler (z. B. Order.created_at in der Zukunft):
+          - PriceValidator.validate_fill_timing löst eine Exception aus
+            (ValueError) und loggt ERROR.
+  - Es ist unmöglich, dass eine Order mit created_at > fill_ts gefüllt wird
+    (Retro-Fill). Jede solche Situation wirft einen Fehler.
+coding_standards:
+  - logging.getLogger(__name__) und sinnvolle DEBUG/INFO Logs
+  - vollständige Typannotationen
+  - keine Netzwerkaufrufe
+  - PriceValidator enthält keine Business-Logik (nur Invariantenprüfung)
+  - Engine-SIM bleibt klar strukturiert (Ablauf: validate -> activate -> fill -> decide -> build -> queue)
+notes: >
+  Dieser Task zieht die formale Linie zwischen „Entscheidung“ und „Ausführung“:
+  - StrategyDecision basiert auf Bar t.
+  - Orders werden erst auf Bar t+1 aktiv.
+  - Fills werden nur auf Bars >= created_at ausgeführt.
+  Damit ist AFTS-PRO gegen die klassischen Look-Ahead-/Retrotrade-Fallen
+  abgesichert, die in Backtests oft auftreten. PriceValidator kann später
+  erweitert werden (z. B. weitere Plausibilitätschecks, Spread-/Gap-Checks).

@@ -1,0 +1,96 @@
+features:
+  enabled: true
+
+  raw_features:
+    - name: "close_return_1"
+      calculator: "close_return"
+      params:
+        lookback: 1
+
+    - name: "rolling_vol_20"
+      calculator: "rolling_vol"
+      params:
+        window: 20
+
+    - name: "atr_14"
+      calculator: "atr"
+      params:
+        period: 14
+
+    - name: "ema_21"
+      calculator: "ema"
+      params:
+        period: 21
+
+    - name: "ema_50"
+      calculator: "ema"
+      params:
+        period: 50
+
+    - name: "rsi_14"
+      calculator: "rsi"
+      params:
+        period: 14
+
+    - name: "vol_score_14"
+      calculator: "volatility_score"
+      params:
+        period: 14
+
+    - name: "trend_score_20"
+      calculator: "trend_score"
+      params:
+        lookback: 20
+
+  model_features:
+    enabled: false
+    feature_order:
+      - "close_return_1"
+      - "rolling_vol_20"
+      - "atr_14"
+      - "ema_21"
+      - "ema_50"
+      - "rsi_14"
+      - "vol_score_14"
+      - "trend_score_20"
+    scaling:
+      type: "none"
+      params:
+        zscore:
+          means:
+            close_return_1: 0.0
+            rolling_vol_20: 0.0
+            atr_14: 0.0
+            ema_21: 0.0
+            ema_50: 0.0
+            rsi_14: 50.0
+            vol_score_14: 0.0
+            trend_score_20: 0.0
+          stds:
+            close_return_1: 0.01
+            rolling_vol_20: 0.01
+            atr_14: 1.0
+            ema_21: 10.0
+            ema_50: 10.0
+            rsi_14: 10.0
+            vol_score_14: 0.01
+            trend_score_20: 0.1
+        minmax:
+          mins:
+            close_return_1: -0.05
+            rolling_vol_20: 0.0
+            atr_14: 0.0
+            ema_21: 0.0
+            ema_50: 0.0
+            rsi_14: 0.0
+            vol_score_14: 0.0
+            trend_score_20: -1.0
+          maxs:
+            close_return_1: 0.05
+            rolling_vol_20: 0.1
+            atr_14: 50.0
+            ema_21: 100000.0
+            ema_50: 100000.0
+            rsi_14: 100.0
+            vol_score_14: 0.5
+            trend_score_20: 1.0

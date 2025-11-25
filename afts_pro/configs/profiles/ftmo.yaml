@@ -1,0 +1,11 @@
+profile:
+  name: "ftmo"
+  description: "FTMO-style SIM profile using FTMO risk policy."
+  includes:
+    environment: "configs/environment.yaml"
+    execution: "configs/execution.yaml"
+    assets: "configs/assets.yaml"
+    strategy: "configs/strategy.yaml"
+    risk: "configs/risk/ftmo.yaml"
+    behaviour: "configs/behaviour/default.yaml"
+    features: "configs/features.yaml"

@@ -1,0 +1,70 @@
+title: "AF_Task_003b_Enhanced_Dev_Logging_for_Strategies_and_Bridge"
+summary: >
+  Erweitere das Logging im SIM-Mode, in den Strategien und in der StrategyBridge,
+  um eine aussagekräftige Dev-Sicht zu erhalten: pro Bar sollen die Einzel-
+  Entscheidungen der Strategien, die Merge-Entscheidung der Bridge und relevante
+  ORB-States (Range) nachvollziehbar sein. Logging soll über ein zentrales
+  Logging-Setup gesteuert werden (LogLevel/Dev-Mode).
+inputs:
+  - project_root: "afts_pro/"
+  - engine_module: "src/afts_pro/engine/engine.py"
+  - logging_utils_module: "src/afts_pro/utils/logging.py"
+  - strategies_package: "src/afts_pro/strategies/"
+  - bridge_module: "src/afts_pro/strategies/bridge.py"
+  - orb_module: "src/afts_pro/strategies/orb.py"
+outputs:
+  - Erweiterung von src/afts_pro/utils/logging.py:
+      - Funktion: setup_logging(level: str = "INFO") -> None
+      - Log-Level kann per ENV-Var oder einfachem Parameter gesteuert werden
+  - Anpassung von afts_pro/main.py:
+      - nutzt setup_logging()
+      - optional CLI-Option: --log-level (default=INFO)
+  - Erweiterung von src/afts_pro/strategies/bridge.py:
+      - DEBUG-Logging pro Strategie:
+          - vor Merge: Liste der StrategyDecisions pro Bar
+          - nach Merge: finaler StrategyDecision (action, side, confidence, meta)
+  - Erweiterung von src/afts_pro/strategies/orb.py:
+      - DEBUG-Logging des ORB-Zustands:
+          - pro Tag: ORB-High/Low (Range)
+          - wenn ein Entry-Signal ausgelöst wird: ts, close, orb_high, orb_low, direction
+  - Erweiterung von src/afts_pro/strategies/dummy_ml.py:
+      - DEBUG-Logging von Dummy-ML-Ausgaben:
+          - action, confidence, relevante Meta-Infos
+  - Anpassung von src/afts_pro/engine/engine.py (SIM-Smoke-Test):
+      - INFO-Logs:
+          - wie bisher: ts, symbol, close
+          - zusätzlich bei action != "none": eine kompakte Zeile:
+              - "DECISION | ts=... | action=... | side=... | conf=... | meta_short=..."
+      - DEBUG-Logs können pro Bar detailliert sein, INFO-Logs werden knapp gehalten
+acceptance:
+  - `python afts_pro/main.py --mode sim` mit Standardaufruf:
+      - zeigt weiterhin kurze INFO-Logs:
+          - Startup
+          - pro Bar: MarketState (ts, symbol, close)
+          - bei action != "none": eine zusätzliche DECISION-Zeile
+  - `python afts_pro/main.py --mode sim --log-level DEBUG`:
+      - zusätzlich:
+          - pro Bar eine DEBUG-Zeile aus StrategyBridge mit allen Einzel-Decisions
+          - pro Bar ORB-DEBUG-Logs mit aktueller Range (sobald definiert)
+          - Dummy-ML-DEBUG-Logs mit Confidence/Meta
+  - StrategyBridge-DEBUG-Log enthält:
+      - Liste der Strategien mit Name, action, side, confidence
+      - finaler Merge-Output (action, side, confidence)
+  - ORB-DEBUG-Log enthält:
+      - pro Tag mindestens eine Zeile:
+          - "ORB_RANGE | date=... | high=... | low=..."
+      - bei Entry:
+          - "ORB_ENTRY | ts=... | direction=... | close=... | orb_high=... | orb_low=..."
+  - Logging ist zentralseitig steuerbar:
+      - Änderung von Log-Level erfordert keine Code-Änderungen in Strategien/Engine
+coding_standards:
+  - logging.getLogger(__name__) in allen Modulen
+  - keine print()-Statements
+  - DEBUG-Logs dürfen detailliert sein, INFO-Logs bleiben knapp und produktionstauglich
+  - keine Änderung des Business-Contracts (StrategyDecision, MarketState etc.)
+notes: >
+  Dieser Task dient ausschließlich der besseren Beobachtbarkeit des Systems in
+  der Entwicklungsphase. Das Logging ist so zu implementieren, dass wir später
+  im TRAIN- und LIVE-Mode mit unterschiedlichen Log-Levels arbeiten können.
+  Ziel: Bei DEBUG-Logs sehen wir genau, warum eine Strategie/Bridge etwas tut
+  oder nicht tut; bei INFO-Logs bleibt die Ausgabe schlank genug für den Alltag.

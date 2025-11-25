@@ -1,0 +1,206 @@
+title: "AF_Task_007_ConfigLayer_Core"
+summary: >
+  Baue ein zentrales konfigurierbares System für AFTS-PRO, bestehend aus:
+  GlobalConfig, ExecutionConfig, BehaviourConfig, RiskConfig, StrategyConfig,
+  AssetConfig, EnvironmentConfig. Alle Werte werden via YAML geladen,
+  versioniert, validiert und stehen für UI/GUI-Steuerung bereit. Das Config-
+  System wird zum „Single Source of Truth“ für die gesamte Engine (SIM & LIVE).
+
+inputs:
+  - project_root: "afts_pro/"
+  - config_folder: "configs/"
+  - config_files:
+      - configs/environment.yaml
+      - configs/execution.yaml
+      - configs/risk/<policies>.yaml
+      - configs/behaviour/default.yaml
+      - configs/assets.yaml
+      - configs/strategy.yaml
+
+outputs:
+  - Neuer Ordner: src/afts_pro/config/
+      - __init__.py
+      - loader.py
+      - base_models.py
+      - global_config.py
+      - execution_config.py
+      - environment_config.py
+      - strategy_config.py
+      - asset_config.py
+      - risk_config.py
+      - behaviour_config.py    # bereits vorhanden → erweitern
+
+  - Datei: src/afts_pro/config/base_models.py
+      - Pydantic v2 BaseConfig mit engineweiten Regeln:
+          - alias_generator für CamelCase <-> snake_case
+          - ConfigDict(validate_assignment=True)
+          - ConfigDict(extra="forbid")
+
+  - Datei: src/afts_pro/config/execution_config.py
+      - ExecutionConfig:
+          - slippage_model: str
+          - max_slippage_pct: float
+          - fee_model: str
+          - taker_fee_pct: float
+          - maker_fee_pct: float
+          - fill_timing: Literal["bar_open", "bar_close"]
+          - allow_partial_fills: bool
+          - tick_size: float
+          - min_notional: float
+
+  - Datei: src/afts_pro/config/environment_config.py
+      - EnvironmentConfig:
+          - mode: Literal["sim", "train", "live"]
+          - timezone: str
+          - warmup_bars: int
+          - live_api_enabled: bool
+          - live_api_key: Optional[str]
+          - live_api_secret: Optional[str]
+
+  - Datei: src/afts_pro/config/asset_config.py
+      - AssetSpec:
+          - symbol: str
+          - base_asset: str
+          - quote_asset: str
+          - min_qty: float
+          - max_qty: float
+          - qty_step: float
+          - price_step: float
+      - AssetConfig:
+          - assets: Dict[str, AssetSpec]
+
+  - Datei: src/afts_pro/config/strategy_config.py
+      - StrategyConfig:
+          - enabled_strategies: List[str]
+          - strategy_params: Dict[str, Dict[str, Any]]
+              # Z. B.:
+              # strategy_params:
+              #   orb:
+              #     lookback: 20
+              #     breakout_pct: 0.003
+              #   dummy_ml:
+              #     model_path: "models/dummy.pkl"
+
+  - Datei: src/afts_pro/config/risk_config.py
+      - RiskConfig:
+          - policy_type: str
+          - policy_path: str   # path zu ftmo.yaml, apex.yaml etc.
+
+  - Datei: src/afts_pro/config/behaviour_config.py
+      - BehaviourConfig (aus Task 006b)
+      - behaviour_config_loader()
+
+  - Datei: src/afts_pro/config/global_config.py
+      - GlobalConfig:
+          - environment: EnvironmentConfig
+          - execution: ExecutionConfig
+          - assets: AssetConfig
+          - risk: RiskConfig
+          - behaviour: BehaviourConfig
+          - strategy: StrategyConfig
+
+      - Funktionen:
+          - load_global_config(path="configs/environment.yaml") -> GlobalConfig
+          - load_all_configs_into_global() -> GlobalConfig
+              # Lädt alle YAMLs automatisch
+          - validate_global_config()
+
+      - Utility:
+          - merge_dicts_for_ui(default, user_override)
+
+  - Datei: src/afts_pro/config/loader.py
+      - load_yaml(path) → Dict
+      - save_yaml(path, data)
+      - reload_global_config()  # Hot reload-fähig
+
+  - Anpassung der Engine:
+      - src/afts_pro/engine/engine.py:
+          - Ersetze alle Hardcoded-Optionen (Risk, Behaviour, Execution) durch:
+              global_config = load_all_configs_into_global()
+          - Beim Start:
+              logger.info(f"Loaded GlobalConfig: {global_config.summary()}")
+
+          - Verwende:
+              global_config.risk.policy_path
+              global_config.behaviour (→ Guards)
+              global_config.execution.*
+              global_config.assets
+              global_config.strategy.enabled_strategies
+
+  - YAML-Dateien erstellen/erweitern:
+
+      - configs/environment.yaml
+          environment:
+            mode: "sim"
+            timezone: "UTC"
+            warmup_bars: 100
+            live_api_enabled: false
+
+      - configs/execution.yaml
+          execution:
+            slippage_model: "percent"
+            max_slippage_pct: 0.0015
+            fee_model: "maker_taker"
+            taker_fee_pct: 0.0006
+            maker_fee_pct: 0.0002
+            fill_timing: "bar_open"
+            allow_partial_fills: true
+            tick_size: 0.01
+            min_notional: 10
+
+      - configs/assets.yaml
+          assets:
+            ETHUSDT:
+              symbol: "ETHUSDT"
+              base_asset: "ETH"
+              quote_asset: "USDT"
+              min_qty: 0.001
+              max_qty: 100
+              qty_step: 0.0001
+              price_step: 0.01
+
+      - configs/strategy.yaml
+          strategy:
+            enabled_strategies:
+              - orb
+              - dummy_ml
+            strategy_params:
+              orb:
+                lookback: 20
+                breakout_pct: 0.003
+              dummy_ml:
+                model_path: "models/dummy_ml.pkl"
+
+      - configs/risk/risk.yaml
+          risk:
+            policy_type: "ftmo"
+            policy_path: "configs/risk/ftmo.yaml"
+
+      - configs/behaviour/default.yaml
+          # (aus Task 006b)
+
+acceptance:
+  - Laden aller Configs als GlobalConfig funktioniert ohne Ausnahme.
+  - Engine läuft mit: python main.py --mode sim --log-level info
+  - Log zeigt:
+      "Loaded GlobalConfig: ..."
+  - Deaktivieren einer Strategie im strategy.yaml führt dazu,
+    dass sie nicht mehr instanziiert wird.
+  - Ändern von execution.max_slippage_pct wird sofort im Sim-Fill-Engine übernommen.
+  - Ändern von behaviour.enabled = false deaktiviert den gesamten Behaviour-Layer.
+  - Ändern der Risk-Policy im risk.yaml lädt korrekt FTMO/Apex/Equity.
+  - AssetSpec wird korrekt an StrategyBridge & OrderBuilder weitergegeben.
+  - Ein späteres Web-/Desktop-UI kann alle Config-Felder direkt manipulieren.
+
+coding_standards:
+  - Pydantic v2, mit validate_assignment=True
+  - Logging auf INFO/DEBUG für alle Loader
+  - Configs niemals im Code hardcoded
+  - Engine nutzt immer GlobalConfig als einzige Quelle
+  - Hot-Reload später über reload_global_config()
+
+notes: >
+  Dieser Config Layer ist die Grundlage für zukünftige UI/GUI.
+  Jede Einstellung – Strategien, Risk, Behaviour, Execution, Assets, API Keys –
+  wird über YAML definiert, später live im UI geändert und sicher über Pydantic
+  validiert. Es ist das zentrale Steuerpult der gesamten AFTS-PRO-Architektur.
