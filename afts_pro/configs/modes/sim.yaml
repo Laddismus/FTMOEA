@@ -1,0 +1,5 @@
+use_risk_agent: false
+use_exit_agent: false
+agent_paths:
+  risk_agent: "models/risk_agent/latest"
+  exit_agent: "models/exit_agent/latest"

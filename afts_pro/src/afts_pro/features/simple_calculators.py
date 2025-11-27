@@ -17,7 +17,7 @@ class CloseReturnCalculator(BaseFeatureCalculator):
         self.lookback = max(1, lookback)
         self.closes: Deque[float] = deque(maxlen=self.lookback + 1)
 
-    def update(self, bar: MarketState) -> None:
+    def update(self, bar: MarketState, extras=None) -> None:
         self.closes.append(bar.close)
 
     def current_value(self) -> Optional[float]:
@@ -37,7 +37,7 @@ class RollingVolCalculator(BaseFeatureCalculator):
         self.returns: Deque[float] = deque(maxlen=self.window)
         self.last_close: Optional[float] = None
 
-    def update(self, bar: MarketState) -> None:
+    def update(self, bar: MarketState, extras=None) -> None:
         if self.last_close is not None and self.last_close != 0:
             ret = (bar.close / self.last_close) - 1.0
             self.returns.append(ret)
@@ -58,7 +58,7 @@ class ATRCalculator(BaseFeatureCalculator):
         self.prev_close: Optional[float] = None
         self.tr_values: Deque[float] = deque(maxlen=self.period)
 
-    def update(self, bar: MarketState) -> None:
+    def update(self, bar: MarketState, extras=None) -> None:
         if self.prev_close is None:
             tr = bar.high - bar.low
         else:
@@ -83,7 +83,7 @@ class EMACalculator(BaseFeatureCalculator):
         self.alpha = 2 / (self.period + 1)
         self.ema: Optional[float] = None
 
-    def update(self, bar: MarketState) -> None:
+    def update(self, bar: MarketState, extras=None) -> None:
         if self.ema is None:
             self.ema = bar.close
         else:
@@ -102,7 +102,7 @@ class RSICalculator(BaseFeatureCalculator):
         self.gain_ema: Optional[float] = None
         self.loss_ema: Optional[float] = None
 
-    def update(self, bar: MarketState) -> None:
+    def update(self, bar: MarketState, extras=None) -> None:
         if self.prev_close is None:
             self.prev_close = bar.close
             return
@@ -135,7 +135,7 @@ class VolatilityScoreCalculator(BaseFeatureCalculator):
         self.atr_calc = ATRCalculator(name=f"{name}_atr", period=period, **params)
         self.last_close: Optional[float] = None
 
-    def update(self, bar: MarketState) -> None:
+    def update(self, bar: MarketState, extras=None) -> None:
         self.last_close = bar.close
         self.atr_calc.update(bar)
 
@@ -152,7 +152,7 @@ class TrendScoreCalculator(BaseFeatureCalculator):
         self.lookback = max(1, lookback)
         self.closes: Deque[float] = deque(maxlen=self.lookback + 1)
 
-    def update(self, bar: MarketState) -> None:
+    def update(self, bar: MarketState, extras=None) -> None:
         self.closes.append(bar.close)
 
     def current_value(self) -> Optional[float]:

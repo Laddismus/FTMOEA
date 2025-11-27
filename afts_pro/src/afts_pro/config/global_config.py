@@ -10,8 +10,10 @@ from afts_pro.config.base_models import BaseConfigModel
 from afts_pro.config.environment_config import EnvironmentConfig
 from afts_pro.config.execution_config import ExecutionConfig
 from afts_pro.config.feature_config import FeatureConfig, load_feature_config
+from afts_pro.config.extras_config import ExtrasConfig, load_extras_config
 from afts_pro.config.loader import load_yaml
 from afts_pro.config.profile_config import ProfileConfig, load_profile
+from afts_pro.config.runlogger_config import RunLoggerConfig, load_runlogger_config
 from afts_pro.config.risk_config import RiskConfig
 from afts_pro.config.strategy_config import StrategyConfig
 
@@ -30,6 +32,8 @@ class GlobalConfig(BaseConfigModel):
     strategy: StrategyConfig
     source_paths: Dict[str, str] | None = None
     features: FeatureConfig
+    extras: ExtrasConfig
+    runlogger: RunLoggerConfig
 
     def summary(self) -> str:
         return (
@@ -82,6 +86,8 @@ def load_global_config(
     risk_wrapper_path = CONFIG_ROOT / "risk" / "risk.yaml"
     behaviour_path = CONFIG_ROOT / "behaviour" / "default.yaml"
     features_path = CONFIG_ROOT / "features.yaml"
+    extras_path = CONFIG_ROOT / "extras.yaml"
+    runlogger_path = CONFIG_ROOT / "runlogger.yaml"
 
     execution_cfg = _load_execution_config(execution_path)
     assets_cfg = _load_asset_config(assets_path)
@@ -89,6 +95,8 @@ def load_global_config(
     risk_cfg = _load_risk_config(risk_wrapper_path)
     behaviour_cfg = _load_behaviour_config(behaviour_path)
     feature_cfg = load_feature_config(str(features_path))
+    extras_cfg = load_extras_config(str(extras_path))
+    runlogger_cfg = load_runlogger_config(str(runlogger_path))
 
     global_cfg = GlobalConfig(
         environment=env_cfg,
@@ -98,6 +106,8 @@ def load_global_config(
         behaviour=behaviour_cfg,
         strategy=strategy_cfg,
         features=feature_cfg,
+        extras=extras_cfg,
+        runlogger=runlogger_cfg,
         source_paths={
             "environment": str(environment_path),
             "execution": str(execution_path),
@@ -106,6 +116,8 @@ def load_global_config(
             "risk": str(risk_wrapper_path),
             "behaviour": str(behaviour_path),
             "features": str(features_path),
+            "extras": str(extras_path),
+            "runlogger": str(runlogger_path),
         },
     )
     logger.info("Loaded GlobalConfig: %s", global_cfg.summary())
@@ -145,6 +157,10 @@ def global_config_summary(global_config: GlobalConfig) -> Dict[str, object]:
         "features_enabled": global_config.features.enabled,
         "model_features_enabled": global_config.features.model_features.enabled,
         "model_scaling_type": global_config.features.model_features.scaling.type,
+        "extras_enabled": global_config.extras.enabled,
+        "extras_datasets": [d.name for d in global_config.extras.get_enabled_datasets()],
+        "runlogger_enabled": global_config.runlogger.enabled,
+        "runlogger_base_dir": global_config.runlogger.base_dir,
     }
 
 
@@ -191,6 +207,8 @@ def load_global_config_from_profile(profile_path: str) -> GlobalConfig:
     risk_path = _resolve_path(includes.risk, profile_path_obj)
     behaviour_path = _resolve_path(includes.behaviour, profile_path_obj)
     features_path = _resolve_path(includes.features, profile_path_obj)
+    extras_path = _resolve_path(includes.extras, profile_path_obj)
+    runlogger_path = _resolve_path(includes.runlogger, profile_path_obj)
 
     environment_cfg = _load_environment_config(env_path)
     execution_cfg = _load_execution_config(exec_path)
@@ -199,6 +217,8 @@ def load_global_config_from_profile(profile_path: str) -> GlobalConfig:
     risk_cfg = _build_risk_config(risk_path)
     behaviour_cfg = _load_behaviour_config(behaviour_path)
     feature_cfg = load_feature_config(str(features_path))
+    extras_cfg = load_extras_config(str(extras_path))
+    runlogger_cfg = load_runlogger_config(str(runlogger_path))
 
     global_cfg = GlobalConfig(
         environment=environment_cfg,
@@ -208,6 +228,8 @@ def load_global_config_from_profile(profile_path: str) -> GlobalConfig:
         behaviour=behaviour_cfg,
         strategy=strategy_cfg,
         features=feature_cfg,
+        extras=extras_cfg,
+        runlogger=runlogger_cfg,
         source_paths={
             "profile": str(profile_path_obj),
             "environment": str(env_path),
@@ -217,6 +239,8 @@ def load_global_config_from_profile(profile_path: str) -> GlobalConfig:
             "risk": str(risk_path),
             "behaviour": str(behaviour_path),
             "features": str(features_path),
+            "extras": str(extras_path),
+            "runlogger": str(runlogger_path),
         },
     )
 

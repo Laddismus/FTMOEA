@@ -1,0 +1,15 @@
+action_mode: "discrete"
+n_actions: 6
+exploration_epsilon: 0.1
+sl_tighten_factor: 0.2
+partial_close_fraction: 0.3
+reward_profile: "exit"
+train:
+  total_episodes: 10
+  max_steps_per_episode: 500
+  batch_size: 32
+  learning_rate: 0.0005
+  gamma: 0.99
+  replay_capacity: 5000
+  log_interval: 1
+  save_every_n_episodes: 5

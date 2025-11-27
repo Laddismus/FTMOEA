@@ -1,0 +1,38 @@
+extras:
+  enabled: false
+  base_dir: "data"
+  final_pattern: "final/extras/{symbol}_{dataset}.parquet"
+  stage_pattern: "stage/{symbol}/extras/{dataset}/{year}-{month}/*.parquet"
+  timezone: "UTC"
+  timestamp_column: "timestamp"
+  symbol_column: "symbol"
+
+  datasets:
+    - name: "funding"
+      dataset_type: "funding_rate"
+      enabled: true
+      final_file_template: "{symbol}_funding.parquet"
+      value_columns:
+        - "funding_rate"
+      column_map:
+        fundingRate: "funding_rate"
+
+    - name: "premium"
+      dataset_type: "basis"
+      enabled: true
+      final_file_template: "{symbol}_premium.parquet"
+      value_columns:
+        - "premium_index"
+      column_map:
+        markPremium: "premium_index"
+
+    - name: "oi"
+      dataset_type: "open_interest"
+      enabled: true
+      final_file_template: "{symbol}_oi.parquet"
+      value_columns:
+        - "open_interest"
+      column_map:
+        openInterest: "open_interest"
+
+  symbol_overrides: {}

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import abc
+from typing import Optional
+
 from afts_pro.core import MarketState
+from afts_pro.features.state import ExtrasSnapshot
 
 
 class BaseFeatureCalculator(abc.ABC):
@@ -10,7 +13,7 @@ class BaseFeatureCalculator(abc.ABC):
         self.params = params
 
     @abc.abstractmethod
-    def update(self, bar: MarketState) -> None:
+    def update(self, bar: MarketState, extras: Optional[ExtrasSnapshot] = None) -> None:
         """
         Consume the latest bar and update internal state. Must be lookahead-safe.
         """

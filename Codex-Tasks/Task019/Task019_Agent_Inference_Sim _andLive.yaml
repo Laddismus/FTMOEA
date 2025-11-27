@@ -1,0 +1,234 @@
+title: AF_TASK_019_AGENT_INFERENCE_IN_SIM_AND_LIVE_PIPELINE
+
+summary: >
+  Integriere die RL-Agenten (RiskAgent & ExitAgent) in die SIM-Execution-Pipeline.
+  Ziel: AFTS-PRO soll im SIM-Mode automatisch RL-basierte Risk- und Exit-Entscheidungen
+  nutzen können, ohne das bestehende Strategy/Risk/Exec-Framework zu brechen.
+  Der Fokus liegt auf:
+    - sicherer, deterministischer Inference-Pipeline,
+    - sauber definierten Interfaces für Agent→Core,
+    - Action→OrderLogic Mapping,
+    - Hooks in StrategyBridge / RiskManager / Execution, 
+    - vollständigen Tests, die kritische Fehler verhindern:
+        * Regressionen, 
+        * Silent No-Ops,
+        * Actions die nicht gemapped werden,
+        * Dead Paths ohne Logs.
+
+  LIVE-Unterstützung wird vorbereitet, aber in Task 019 mit "Not implemented" Stub versehen.
+  Der Schwerpunkt liegt auf SIM.
+
+inputs:
+  - Name: RiskAgent, ExitAgent
+    Beschreibung: >
+      Fertige Agents aus Task 016/017 mit act(obs, deterministic=True/False),
+      save/load und Config.
+      Diese müssen inference-fähig sein, ohne Training.
+
+  - Name: RLTradingEnv
+    Beschreibung: >
+      Wird NICHT im SIM benutzt.
+      In SIM wird direkt der MarketState+ObservationBuilder+Agent verwendet,
+      ohne env.reset/step.
+      Der SIM-Mode erzeugt Observations pro Bar → Agent.act().
+
+  - Name: ObservationBuilder (aus FeatureEngine + PositionState + RiskState)
+    Beschreibung: >
+      Eine Hilfsklasse oder util-Funktion, die Observationen außerhalb von RLTradingEnv
+      generieren kann, damit SIM sie verwenden kann.
+      Falls nicht vorhanden, wird in Task 019 eine kleine ObservationAssembler-Klasse gebaut,
+      die:
+        - FeatureEngine Output,
+        - PositionState,
+        - RiskState
+      zu einem RL-kompatiblen Observationsvektor kombiniert.
+
+  - Name: StrategyBridge + RiskManager + OrderBuilder
+    Beschreibung: >
+      SIM-Pipeline:
+        DataEvent
+          -> StrategyBridge.on_bar()
+          -> RiskManager.apply()
+          -> Guards
+          -> OrderBuilder.build()
+          -> ExecutionSIM
+      Wir fügen nach RiskManager und VOR OrderBuilder einen RL-Inference-Hook ein:
+        RLHook.apply_agents(state, strategy_decision, account_state)
+      Dieser Hook erzeugt:
+        - risk_pct (von RiskAgent)
+        - exit_action (von ExitAgent)
+      und schreibt diese Informationen IN StrategyDecision.update / meta.
+
+outputs:
+  - Datei: src/afts_pro/rl/rl_inference.py
+    Inhalt: >
+      Zentrales Modul für Agent→Core Integration.
+      Enthält:
+        - class RLInferenceHook:
+            def __init__(self, risk_agent: RiskAgent | None, exit_agent: ExitAgent | None,
+                         obs_builder: ObservationBuilder):
+                ...
+
+            def compute_actions(self, state: MarketState, account_state, position_state) -> dict:
+                """
+                Erzeugt:
+                  {
+                    "risk_pct": float | None,
+                    "exit_action": int | None,
+                    "raw_obs": np.ndarray,
+                    "agent_meta": {...}
+                  }
+                Deterministic inference.
+                """
+
+            def apply_to_decision(self, decision: StrategyDecision, agent_actions: dict):
+                """
+                Updated StrategyDecision:
+                  - decision.update["risk_pct"] = agent_actions["risk_pct"]
+                  - decision.meta["exit_action"] = agent_actions["exit_action"]
+                  - decision.meta["agent_version"] = ...
+                """
+      - ObservationBuilder (falls nicht vorhanden):
+            class ObservationBuilder:
+                def build(self, market_state, position_state, account_state) -> np.ndarray:
+                    """
+                    Baut 1D Observationsvector, identisch dem RLTradingEnv Observation.
+                    """
+  - Datei: src/afts_pro/core/rl_hook_integration.py
+    Inhalt: >
+      Integration Hook für SIM Engine:
+        - Funktion integrate_rl_inference(sim_config, agents) -> callable_hook
+        - Diese Funktion erzeugt RLInferenceHook und liefert eine Callable zurück:
+              def on_decision(state, decision, account_state, position_state):
+                  agent_actions = rl_hook.compute_actions(...)
+                  rl_hook.apply_to_decision(decision, agent_actions)
+        - Diese Callable wird in core/engine.py oder mode_dispatcher.py registriert 
+          und zwischen RiskManager und OrderBuilder aufgerufen.
+
+  - Änderung: src/afts_pro/core/engine.py
+    Inhalt: >
+      SIM-Pipeline:
+        Before: StrategyBridge → RiskManager → Guards → OrderBuilder
+        After:
+          StrategyBridge → RiskManager → RLInferenceHook → Guards → OrderBuilder
+      Anforderung:
+        - Integration optional (abschaltbar via config: sims.use_agents: true/false)
+        - wenn risk_agent=None → kein risk_pct
+        - wenn exit_agent=None → keine exit_action
+        - Logging:
+            INFO: "RL inference applied: risk_pct=..., exit_action=..."
+            DEBUG: full obs vector dim, action raw values.
+
+  - Änderung: configs/modes/sim.yaml
+    Inhalt: >
+      Neue Flags:
+        use_risk_agent: true
+        use_exit_agent: true
+        agent_paths:
+          risk_agent: "models/risk_agent/latest/"
+          exit_agent: "models/exit_agent/latest/"
+
+  - Datei: tests/test_agent_inference_integration.py
+    Inhalt: >
+      Strikte Tests (CRITICAL PATH), die sicherstellen:
+        1) test_risk_agent_influence_on_decision:
+            - Dummy SIM event
+            - Dummy RiskAgent.act returns fixed 0.5
+            - After pipeline:
+                decision.update["risk_pct"] == 0.5
+
+        2) test_exit_agent_influence_on_decision:
+            - Dummy ExitAgent.act returns action=3
+            - decision.meta["exit_action"] == 3
+
+        3) test_rl_inference_disabled_does_nothing:
+            - config: use_risk_agent=false, use_exit_agent=false
+            - decision bleibt unverändert
+
+        4) test_observation_builder_matches_env_shapes:
+            - ObservationBuilder.build(...) must produce same shape as RLTradingEnv.reset() obs
+            - ensures SIM and TRAIN use same obs structure
+
+        5) test_rl_inference_hook_position_state_none:
+            - Wenn position_state=None (kein aktiver Trade):
+                - exit_action=None
+                - risk_pct trotzdem gesetzt möglich
+                - keine Exceptions
+
+        6) test_sim_pipeline_with_agents_runs_full_cycle:
+            - Dummy SIM Pipeline mit minimalen Komponenten
+            - ein Bar durchläuft die gesamte Pipeline ohne Exceptions
+            - decision enthält RL-Felder
+
+acceptance:
+  - 100% deterministische Inference:
+      Beschreibung: >
+        RiskAgent.act(deterministic=True) + ExitAgent.act(deterministic=True)
+        muss bei gleicher Observation exakt gleiche Actions liefern.
+        Keine Explorationslogik, keine Randomness im SIM-Modus.
+
+  - Konsistente Observation-Matching:
+      Beschreibung: >
+        OBS muss identisch strukturiert sein wie im TRAIN-Mode.
+        Formate, Dimensionen, Normalisierung müssen stimmen.
+        Test 4 prüft das explizit.
+
+  - Pipeline darf NICHT brechen:
+      Beschreibung: >
+        SIM mit aktivierten Agents darf:
+          - keine Exceptions werfen,
+          - kein „NoneType has no attribute X“ erzeugen,
+          - keine leeren Actions erzeugen.
+        Test 6 prüft dieses Verhalten.
+
+  - Agents beeinflussen StrategyDecision:
+      Beschreibung: >
+        RLInferenceHook muss:
+          - risk_pct in decision.update setzen,
+          - exit_action in decision.meta setzen,
+          - agent_version in meta speichern.
+        Fehlende Werte (keine Position) müssen sauber behandelt werden.
+
+  - Logging und Transparenz:
+      Beschreibung: >
+        Wenn Agenten aktiv sind:
+          - INFO-Log: applied inference
+          - DEBUG-Log: obs shape, raw agent outputs
+        Keine stillen Fails.
+
+  - SIM-Modus bleibt korrekt:
+      Beschreibung: >
+        Wenn Agents deaktiviert:
+          - SIM-Pipeline identisch wie zuvor,
+          - Keine Veränderung der Ergebnisse.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Keine Hardcodings in engine.py
+      - RLInferenceHook und ObservationBuilder müssen unabhängig testbar sein.
+  - Struktur:
+      - ObservationBuilder separat halten
+      - RLInferenceHook als CRITICAL PATH Klasse,
+        klar dokumentiert und testgetrieben
+  - Tests:
+      - Tests MÜSSEN existieren
+      - Tests MÜSSEN grün sein
+      - Tests MÜSSEN kritische Liefereinheit sicherstellen:
+          * ActionPropagation
+          * No-Action-Case
+          * Determinism
+  - Logs:
+      - Keine Debug-Spam, aber klare Logs zur Aktivierung
+
+notes:
+  - strategische Bedeutung:
+      - 019 ist der Übergang von "RL existiert theoretisch" → "RL beeinflusst real Entscheidungen".
+      - Damit beginnt AFTS-PRO echtes RL-Trading-Verhalten zu simulieren.
+      - 019 legt die Basis für:
+          * Task 020: RL Reward Shaping (MFE/MAE)
+          * Task 021: RL-based execution enhancements
+          * Task 022: LIVE RL Inference
+  - später:
+      - Die gleiche Inference-Pipeline wird später im LIVE-Modus genutzt.
+      - Deshalb ist saubere Abstraktion und keine Engine-Verunreinigung extrem wichtig.

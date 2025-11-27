@@ -36,5 +36,22 @@ class ModelFeatureVector(BaseModel):
 class FeatureBundle(BaseModel):
     raw: RawFeatureState
     model: Optional[ModelFeatureVector] = None
+    extras: Optional["ExtrasSnapshot"] = None
 
     model_config = {"populate_by_name": True}
+
+
+class ExtrasSnapshot(BaseModel):
+    """
+    Per-bar snapshot of extras datasets: dataset -> {value_name: value}
+    """
+
+    values: Dict[str, Dict[str, float]] = Field(default_factory=dict)
+
+    model_config = {"populate_by_name": True}
+
+    def get_dataset(self, name: str) -> Dict[str, float]:
+        return self.values.get(name, {})
+
+
+FeatureBundle.model_rebuild()

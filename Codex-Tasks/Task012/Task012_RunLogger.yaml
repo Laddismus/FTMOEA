@@ -1,0 +1,390 @@
+title: "AF_Task_012_RunLogger_StorageLayer"
+summary: >
+  Implementiere einen zentralen RunLogger- und Storage-Layer für AFTS-PRO,
+  der jeden SIM-/TRAIN-Run strukturiert in runs/{run_id}/ persistiert.
+  Pro Run werden Config-Snapshot, Logs, Trades, Equity-Kurve und Basis-KPIs
+  gespeichert. Der Logger arbeitet 100% event-driven innerhalb des bestehenden
+  Bar-Loops, ohne jede Beeinflussung von Entscheidungen (retrotrade-safe),
+  und bildet die Grundlage für spätere Quant-Analyse (LAB-Mode, Monte-Carlo,
+  Parameter-Sweeps, Web-UI).
+
+inputs:
+  - project_root: "afts_pro/"
+  - engine_module: "src/afts_pro/engine/engine.py"
+  - exec_models_module: "src/afts_pro/exec/position_models.py"
+  - exec_events_module: "src/afts_pro/exec/__init__.py"   # PositionEvent etc.
+  - risk_modules:
+      - "src/afts_pro/risk/manager.py"
+      - "src/afts_pro/risk/base_policy.py"
+  - behaviour_modules:
+      - "src/afts_pro/behaviour/manager.py"
+      - "src/afts_pro/behaviour/base_guard.py"
+  - feature_modules:
+      - "src/afts_pro/features/engine.py"
+      - "src/afts_pro/features/state.py"
+  - config_modules:
+      - "src/afts_pro/config/global_config.py"
+      - "src/afts_pro/config/profile_config.py"
+      - "src/afts_pro/config/loader.py"
+      - "src/afts_pro/config/validator.py"
+  - cli_main: "afts_pro/main.py"
+  - existing_configs:
+      - "configs/environment.yaml"
+      - "configs/assets.yaml"
+      - "configs/execution.yaml"
+      - "configs/strategy.yaml"
+      - "configs/risk/*.yaml"
+      - "configs/behaviour/*.yaml"
+      - "configs/features.yaml"
+      - "configs/extras.yaml"
+      - "configs/profiles/*.yaml"
+
+outputs:
+  # ---------------------------------------------------------------------------
+  # 1) RunLogger-Config: YAML + Pydantic-Modell + Profile-Einbindung
+  # ---------------------------------------------------------------------------
+  - new_config_file: "configs/runlogger.yaml"
+    description: >
+      Definiert, ob und wie Runs persistiert werden: Basis-Dir, Naming, welche
+      Artefakte geschrieben werden (trades, equity, metrics etc.). Default:
+      in SIM aktiv, in TRAIN optional, in LIVE initial deaktiviert.
+
+    contents_spec:
+      - top_level_key: "runlogger"
+      - fields:
+          enabled_default: true        # für sim; Profile dürfen das überschreiben
+          base_dir: "runs"             # relativ zum Projektroot
+          filename_patterns:
+            config_snapshot: "config_used.yaml"
+            log_capture: "logs.txt"    # optional: später als Symlink/Copy realer Logs
+            trades: "trades.parquet"
+            equity_curve: "equity_curve.parquet"
+            positions: "positions.parquet"
+            metrics: "metrics.json"
+          retention:
+            keep_last_n_runs: null     # v1: nur Platzhalter, noch keine Auto-Cleanup-Logik
+          include:
+            config_snapshot: true
+            trades: true
+            equity_curve: true
+            positions: true
+            metrics: true
+
+  - new_config_model: "src/afts_pro/config/runlogger_config.py"
+    description: >
+      Pydantic-v2-Modell RunLoggerConfig, das configs/runlogger.yaml parst und
+      von GlobalConfig referenziert wird.
+
+    model_spec:
+      - class_name: "RunLoggerConfig"
+      - fields:
+          enabled: bool
+          base_dir: str
+          filename_patterns: Dict[str, str]
+          retention: Dict[str, Optional[int]]
+          include: Dict[str, bool]
+      - loader_function:
+          name: "load_runlogger_config(path: str) -> RunLoggerConfig"
+
+  - profile_integration:
+      - extend_profile_includes: true
+      - profile_includes_field: "runlogger"
+      - profiles_update:
+          description: >
+            In allen bestehenden Profilen (sim/ftmo/apex/equity/live_stub)
+            wird der includes-Block um runlogger ergänzt, z. B.:
+              runlogger: "configs/runlogger.yaml"
+
+  - global_config_integration:
+      - extend_global_config: true
+      - global_config_field:
+          name: "runlogger"
+          type: "RunLoggerConfig"
+      - loader_changes:
+          description: >
+            load_global_config_from_profile(...) lädt zusätzlich runlogger.yaml
+            über ProfileIncludes.runlogger und hängt RunLoggerConfig an
+            GlobalConfig an.
+      - summary_extension:
+          keys:
+            - "runlogger_enabled": "global_config.runlogger.enabled"
+            - "runlogger_base_dir": "global_config.runlogger.base_dir"
+
+  # ---------------------------------------------------------------------------
+  # 2) RunLogger-Datenmodelle (Events & Storage Records)
+  # ---------------------------------------------------------------------------
+  - new_module: "src/afts_pro/runlogger/models.py"
+    description: >
+      Enthält schlanke, Pydantic-basierte Datenmodelle für Run-Metadaten,
+      Trade-/Equity-Records und Metrik-Snapshots. Diese Modelle dienen nur der
+      in-memory-Repräsentation; Persistenz erfolgt als Parquet/JSON.
+
+    models_spec:
+      - RunMeta:
+          fields:
+            run_id: str            # z. B. "2025-11-26T21-15-03_sim_ftmo"
+            mode: str              # sim/train/live/lab (lab später)
+            profile_name: str
+            started_at: datetime
+            finished_at: Optional[datetime]
+            symbol: str
+            timeframe: str         # z. B. "5T"
+            seed: Optional[int]    # falls Random-Seed gesetzt wurde
+      - TradeRecord:
+          description: >
+            Aggregierte Trade-Sicht, basierend auf Position-Open/Close-Events
+            aus PositionManager / PositionEvent, NICHT direkt auf jedem Fill.
+            Jeder Record beschreibt einen abgeschlossenen Trade.
+          fields:
+            trade_id: str
+            symbol: str
+            side: str              # long/short
+            entry_timestamp: datetime
+            exit_timestamp: datetime
+            entry_price: float
+            exit_price: float
+            size: float
+            realized_pnl: float
+            fees: float
+            max_favourable_excursion: Optional[float]
+            max_adverse_excursion: Optional[float]
+            tags: Dict[str, Any]   # z. B. Strategie, Regime, Session, Meta
+      - EquityPoint:
+          description: >
+            Bar-basierter Equity-Snapshot aus dem Engine-Loop, 100% event-driven,
+            pro Zeitschritt nur auf Basis bereits bekannter Fills/RiskDecisions.
+          fields:
+            timestamp: datetime
+            equity: float
+            balance: float
+            unrealized_pnl: float
+            realized_pnl_cum: float
+            max_equity_to_date: float
+            drawdown_abs: float
+            drawdown_pct: float
+      - MetricsSnapshot:
+          description: >
+            Basis-KPIs, die am Ende eines Runs aus EquityPoints und TradeRecords
+            abgeleitet werden. Dient als Grundlage für spätere, reichere
+            Analysen in LAB/GUI.
+          fields:
+            profit_factor: Optional[float]
+            winrate: Optional[float]
+            avg_win: Optional[float]
+            avg_loss: Optional[float]
+            expectancy_per_trade: Optional[float]
+            num_trades: int
+            max_drawdown_abs: Optional[float]
+            max_drawdown_pct: Optional[float]
+            cagr_simulated: Optional[float]
+            sharpe_like_basic: Optional[float]
+            additional: Dict[str, Any]
+
+  # ---------------------------------------------------------------------------
+  # 3) RunLogger-Klasse (event-driven, retrotrade-safe)
+  # ---------------------------------------------------------------------------
+  - new_module: "src/afts_pro/runlogger/run_logger.py"
+    description: >
+      Implementiert eine RunLogger-Klasse, die im Engine-Loop pro Bar mitläuft,
+      aber niemals Entscheidungen beeinflusst. Sie sammelt Metadaten, Trade-
+      Abschlüsse und EquityPoints und schreibt am Ende die Artefakte in das
+      Run-Verzeichnis. Alle Berechnungen, die die gesamte Equity-Historie
+      brauchen (z. B. MaxDD), werden erst NACH dem Run auf Basis der
+      gespeicherten EquityPoints berechnet (Analyse, nicht Trading).
+
+    class_spec:
+      - class_name: "RunLogger"
+      - initialization:
+          args:
+            - run_meta: RunMeta
+            - config: RunLoggerConfig
+            - project_root_path: Path
+          responsibilities:
+            - Erzeugt run_dir: base_dir/run_id unterhalb des Projektroots.
+            - Hält In-Memory-Listen für:
+                - trades: List[TradeRecord]
+                - equity_points: List[EquityPoint]
+                - positions_records: optional
+      - methods:
+          - on_bar_equity_snapshot(bar_ts, account_state, unrealized_pnl, risk_meta) -> None
+            description: >
+              Wird pro Bar vom Engine-Loop aufgerufen, nachdem Fills verarbeitet
+              und AccountState aktualisiert wurden. Berechnet EquityPoint auf Basis
+              aktueller Equity, Balance und bisherigen EquityPoints, inkl.
+              drawdown_abs/drawdown_pct. Keine Änderung von Trading-Entscheidungen.
+          - on_trade_close(position_event, extra_tags) -> None
+            description: >
+              Wird aufgerufen, wenn PositionManager eine Position vollständig
+              schließt. Erstellt einen TradeRecord aus dem PositionEvent und
+              ggf. weiteren Metadaten (Strategie-Name, Regime, Session etc.),
+              soweit verfügbar.
+          - finalize_and_persist(global_config_snapshot) -> MetricsSnapshot
+            description: >
+              Am Ende des Runs:
+                - erstellt config_used.yaml aus GlobalConfig/Profil inklusive
+                  Profilnamen und Pfaden (keine Secrets wie API-Keys).
+                - schreibt trades.parquet (falls include.trades=true und es Trades gibt).
+                - schreibt equity_curve.parquet (falls include.equity_curve=true).
+                - schreibt positions.parquet optional (falls gewünscht).
+                - berechnet Basis-KPIs (profit_factor, winrate etc.) aus Trades
+                  und EquityPoints und schreibt metrics.json.
+              Alle Pfade basieren auf RunLoggerConfig.filename_patterns.
+
+  # ---------------------------------------------------------------------------
+  # 4) Engine-Integration: RunLogger im SIM-/TRAIN-Loop
+  # ---------------------------------------------------------------------------
+  - engine_integration:
+      description: >
+        Der bestehende Engine-SIM-Loop wird so erweitert, dass er RunLogger
+        optional mitführt. Der RunLogger bekommt seine Hooks NUR aus dem
+        realen Event-Flow (Fills, Positions, RiskDecisions, Behaviour)
+        und hat KEINEN Einfluss auf Entscheidungen, Orders oder Risiken.
+
+      requirements:
+        - RunMeta-Erzeugung:
+            - Beim Start von SIM/TRAIN:
+                - run_id aus Datum/Uhrzeit + mode + profil_name generieren.
+                - RunMeta mit mode, profile_name, symbol, timeframe, started_at etc.
+        - RunLogger-Erzeugung:
+            - Falls global_config.runlogger.enabled:
+                - Instanziere RunLogger(run_meta, runlogger_config, project_root).
+                - Logge INFO, dass RunLogging aktiv ist und welches run_id benutzt wird.
+        - Hook im Bar-Loop:
+            - Reihenfolge (vereinfacht):
+                1. PriceValidator / Aktivierung Pending Orders
+                2. Fills über SimFillEngine
+                3. PositionManager apply_fills → PositionEvents
+                4. Risk- & Behaviour-Checks
+                5. Strategy-Decisions → Orders for next bar
+                6. **RunLogger.on_bar_equity_snapshot(...)**:
+                    - equity, balance, unrealized_pnl, realized_pnl_cum aus AccountState.
+                    - risk_meta: z. B. aktueller DD, PolicyName, Flags.
+            - Bei Positionsschließungen:
+                - Wenn PositionManager einen PositionEvent mit event_type „closed“
+                  liefert:
+                    - RunLogger.on_trade_close(...) aufrufen.
+        - Run-Ende:
+            - Bei normalem Ende oder „hard stop“ durch Risk/Behaviour:
+                - RunMeta.finished_at setzen.
+                - RunLogger.finalize_and_persist(global_config_snapshot) aufrufen,
+                  sofern RunLogger aktiv ist.
+                - MetricsSnapshot kurz im Log zusammenfassen (PF, MaxDD, #Trades).
+
+  # ---------------------------------------------------------------------------
+  # 5) Basis-Metrik-Berechnung (PF, Winrate, MaxDD, Expectancy, Sharpe-like)
+  # ---------------------------------------------------------------------------
+  - metrics_computation:
+      location: "src/afts_pro/runlogger/metrics.py"  # neues Modul
+      description: >
+        Enthält reine Funktionslogik zur Berechnung der Basis-KPIs aus
+        TradeRecords und EquityPoints. Diese Funktionen werden nur von
+        RunLogger.finalize_and_persist verwendet (Analyse-Phase).
+
+      requirements:
+        - Eingabedaten:
+            - trades: List[TradeRecord]
+            - equity_points: List[EquityPoint]
+        - Basisfunktionen:
+            - compute_profit_factor(...)
+            - compute_winrate(...)
+            - compute_avg_win_loss(...)
+            - compute_expectancy_per_trade(...)
+            - compute_max_drawdown(...)
+            - compute_basic_sharpe_like(...)
+        - Alle Funktionen sind rein lesend, benutzen nur abgeschlossene Daten
+          und greifen NICHT in den Trading-Prozess ein.
+        - Ergebnisse werden in MetricsSnapshot geschrieben und als JSON serialisiert.
+
+  # ---------------------------------------------------------------------------
+  # 6) CLI-Unterstützung: Runs auflisten & Metriken inspizieren (v1)
+  # ---------------------------------------------------------------------------
+  - cli_extensions:
+      description: >
+        Ergänze im main.py Typer-CLI einen neuen Command-Namespace 'runs', um
+        die vorhandenen Runs zu inspizieren. Dies dient nur der Auswertung,
+        ändert keine Run-Daten.
+
+      commands:
+        - name: "runs list"
+          behaviour:
+            - Listet die vorhandenen Run-Verzeichnisse unter base_dir auf.
+            - Gibt für jeden Run mindestens aus:
+                - run_id
+                - mode
+                - profile
+                - symbol
+                - started_at / finished_at (falls im config/metrics vorhanden).
+        - name: "runs metrics --run-id <id>"
+          behaviour:
+            - Lädt metrics.json eines angegebenen Run-Ordners.
+            - Gibt PF, Winrate, MaxDD, num_trades etc. in einer kurzen Tabelle aus.
+            - Exit-Code 1, falls der Run nicht existiert oder keine metrics.json gefunden wird.
+
+  # ---------------------------------------------------------------------------
+  # 7) Validator-Erweiterung: RunLogger-Konfiguration
+  # ---------------------------------------------------------------------------
+  - validator_extension:
+      description: >
+        validate_runlogger(global_config) prüft, ob die RunLogger-Konfiguration
+        formal valide ist und die Pfade plausibel sind. Keine harten Fehler,
+        solange Konfiguration syntaktisch korrekt ist.
+
+      checks:
+        - Wenn runlogger.enabled=true:
+            - Prüfen, ob base_dir angelegt werden kann (kein Runtime-Fehler,
+              nur Pfadprüfung).
+            - WARN, falls base_dir außerhalb des Projektverzeichnisses liegt
+              (optional, nur Hinweis).
+        - Wenn bestimmte Artefakte auf include=false stehen (z. B. trades/equity),
+          keine ERRORs, da dies bewusste Konfigurationsentscheidung sein kann.
+
+acceptance:
+  - `python main.py config validate`:
+      - läuft ohne ERROR.
+      - Summary/Dump zeigt runlogger_enabled und runlogger_base_dir.
+  - `python main.py --mode sim --log-level INFO`:
+      - startet Engine normal.
+      - Logs enthalten:
+          - bei enabled:
+              - RUNLOGGER_INIT ... run_id=...
+          - bei disabled:
+              - RUNLOGGER_DISABLED
+      - am Ende des Runs (mit enabled):
+          - wird ein Run-Verzeichnis unter runs/ angelegt.
+          - config_used.yaml, trades.parquet, equity_curve.parquet und metrics.json
+            existieren (sofern jeweils include=true).
+  - `python main.py runs list`:
+      - listet vorhandene Runs auf, inklusive Basis-Metadaten.
+  - `python main.py runs metrics --run-id <id>`:
+      - liest metrics.json und zeigt PF, Winrate, MaxDD, num_trades an.
+  - Retrotrade-Sicherheit:
+      - RunLogger wird ausschließlich:
+          - nach Fills/Positions-Updates,
+          - nach Risk-/Behaviour-Checks,
+          - pro Bar im bestehenden Event-Loop aufgerufen.
+      - Es existiert kein Pfad, bei dem Logger-Output Entscheidungen,
+        Orders oder RiskPolicies beeinflusst.
+      - MaxDD und andere Pfad-abhängige Metriken werden ausschließlich
+        in finalize_and_persist am Run-Ende aus EquityPoints berechnet.
+
+coding_standards:
+  - Keine konkreten Code-Snippets, nur saubere Interfaces/Klassen/Strukturen.
+  - Pydantic v2 für alle neuen Config- und State-Modelle (RunMeta, TradeRecord, etc.).
+  - logging.getLogger(__name__) in allen neuen Modulen verwenden.
+  - Vollständige Typannotationen in neuen Public-APIs.
+  - RunLogger bleibt strikt „passiv“:
+      - Er beobachtet den Event-Flow, mutiert aber keine Engine-/Risk-/Strategy-
+        Zustände.
+  - Parquet-Schreibvorgänge über pandas/pyarrow, aber in einer klar gekapselten
+    Schicht (runlogger.run_logger bzw. runlogger.storage).
+  - Alle Pfade sind relativ zum Projektroot und werden aus RunLoggerConfig
+    abgeleitet, keine Hardcodes im Engine-Code.
+
+notes: >
+  Mit diesem Task wird AFTS-PRO vom reinen „Engine-System“ zu einem
+  quantitativen Forschungs-Framework: Jeder Run ist sauber nachvollziehbar,
+  historisch reproduzierbar und mit Basis-KPIs auswertbar. Alle Berechnungen
+  bleiben strikt von der Trading-Logik getrennt und verletzen niemals die
+  Event-/Lookahead-Sicherheit. Später können LAB-Mode, Monte-Carlo, Parameter-
+  Sweeps, RL-Analyse und GUI auf diesen Run-Artefakten aufbauen, ohne den
+  Engine-Code nochmals anfassen zu müssen.

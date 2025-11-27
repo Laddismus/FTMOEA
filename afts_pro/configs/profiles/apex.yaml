@@ -9,3 +9,5 @@ profile:
     risk: "configs/risk/apex.yaml"
     behaviour: "configs/behaviour/default.yaml"
     features: "configs/features.yaml"
+    extras: "configs/extras.yaml"
+    runlogger: "configs/runlogger.yaml"

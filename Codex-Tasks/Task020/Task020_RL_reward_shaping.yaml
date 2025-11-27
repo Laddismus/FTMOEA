@@ -1,0 +1,240 @@
+title: AF_TASK_020_RL_REWARD_SHAPING_ADVANCED
+
+summary: >
+  Erweitere das RL-Reward-System von AFTS-PRO deutlich:
+    - explizite Nutzung von MFE/MAE pro Trade/Position,
+    - Belohnung für gutes Gewinn-Management (MFE genutzt, nicht verschenkt),
+    - Strafe für tiefe/unnötige Drawdowns (MAE, Time-under-Water),
+    - Stage-aware Reward-Komponenten (Risk-Stufen, DD-Stufen),
+    - saubere, konfigurierbare Reward-Funktionen für RiskAgent und ExitAgent.
+  Ziel:
+    - Statt nur ΔEquity/ΔDD zu nutzen, entsteht ein Reward, der
+      wirklich das Verhalten fördert, das du willst:
+        * aggressiv, aber DD-bewusst,
+        * Gewinne laufen lassen, Overstay vermeiden,
+        * RL lernt, „schöne“ Equity-Kurven zu produzieren.
+
+inputs:
+  - Name: RLTradingEnv (current)
+    Beschreibung: >
+      Bisherige Reward-Logik in RLTradingEnv ist relativ simpel
+      (ΔEquity, ΔDrawdown, optional Stage-Fortschritt).
+      Diese muss nun erweitert / refaktorisiert werden, sodass:
+        - Reward-Berechnung in eine eigene Klasse/Modul ausgelagert wird,
+        - pro Step Zugriff auf:
+            * Equity_t, Equity_{t-1}
+            * Drawdown_t, Drawdown_{t-1}
+            * PositionState (Entry, SL, TP, MFE, MAE, Unrealized)
+            * Stage-Infos (Stage-Index, Stage-Progress),
+        - unterschiedliche Reward-Profile (risk/exit) via Config nutzbar.
+
+  - Name: PositionState & TradeTracking
+    Beschreibung: >
+      Für MFE/MAE brauchst du pro Position:
+        - maximaler Favorable Excursion (höchster Buchgewinn seit Entry),
+        - maximaler Adverse Excursion (größter Buchverlust seit Entry).
+      Das System hat bereits MFE/MAE-Infos oder kann sie im PositionManager
+      berechnen (ansonsten Task 020: minimal MFE/MAE-Tracking implementieren).
+
+  - Name: Stage/RiskState
+    Beschreibung: >
+      Stage-System (Risk-Stufen, DD-Zonen) aus Risk-Layer:
+        - stage_index, stage_progress,
+        - aktuelle DD-Zone (z.B. <2%, 2–4%, >4%).
+      Diese Infos sollen in den Reward eingehen:
+        - Belohnung, wenn du DD-Zonen vermeidest oder verlässt,
+        - Strafe, wenn Agent in „hoher DD“ aggressiv bleibt.
+
+  - Name: RL-Configs (env.yaml, risk_agent.yaml, exit_agent.yaml)
+    Beschreibung: >
+      Müssen erweitert werden, um:
+        - Reward-Gewichte für neue Komponenten,
+        - unterschiedliche Reward-Profile für RiskAgent vs ExitAgent
+      zu definieren.
+
+outputs:
+  - Datei: src/afts_pro/rl/reward.py
+    Inhalt: >
+      Neues Modul mit einer klar strukturierten Reward-Architektur:
+        - RewardConfig (pydantic/dataclass):
+            * weight_equity_delta: float
+            * weight_drawdown_delta: float
+            * weight_stage_progress: float
+            * weight_mfe_usage: float
+            * weight_mae_penalty: float
+            * weight_time_under_water: float
+            * clip_min: float | None
+            * clip_max: float | None
+        - RewardContext:
+            * equity_t, equity_prev
+            * dd_t, dd_prev
+            * mfe_t, mae_t
+            * unrealized_pnl_t
+            * stage_index, stage_progress
+            * position_open: bool
+            * step_index_in_trade: int | None
+        - RewardCalculator:
+            class RewardCalculator:
+                def __init__(self, cfg: RewardConfig):
+                    ...
+
+                def compute(self, ctx: RewardContext) -> float:
+                    """
+                    Berechnet:
+                      r = w_eq * ΔEquity_norm
+                        + w_dd * ΔDD_norm
+                        + w_stage * ΔStage
+                        + w_mfe * mfe_usage_score
+                        + w_mae * mae_penalty_score
+                        + w_tuw * time_under_water_score
+                    und clipt das Ergebnis (optional).
+                    """
+      - Hilfsfunktionen:
+            * compute_mfe_usage_score(...)
+            * compute_mae_penalty_score(...)
+            * compute_time_under_water_score(...)
+
+  - Änderung: src/afts_pro/rl/env.py (RLTradingEnv)
+    Inhalt: >
+      RLTradingEnv benutzt nun RewardCalculator:
+        - hält pro Env-Instanz eine RewardCalculator-Instanz,
+        - baut pro step() einen RewardContext:
+            * Equity/Drawdown aus AccountState
+            * MFE/MAE/Unrealized aus PositionState
+            * Stage-Infos aus RiskState
+        - ruft calculator.compute(ctx) und nutzt das Ergebnis als reward.
+      Zusätzlich:
+        - env_type-spezifische RewardConfig:
+            * risk_env: mehr Gewicht auf DD und Equity
+            * exit_env: mehr Gewicht auf MFE/MAE, Time-under-Water
+
+  - Änderungen: configs/rl/env.yaml
+    Inhalt: >
+      Erweiterung um Rewardprofile:
+        reward_profiles:
+          risk:
+            weight_equity_delta: 1.0
+            weight_drawdown_delta: -2.0
+            weight_stage_progress: 0.5
+            weight_mfe_usage: 0.3
+            weight_mae_penalty: -0.5
+            weight_time_under_water: -0.2
+            clip_min: -5.0
+            clip_max: 5.0
+          exit:
+            weight_equity_delta: 0.5
+            weight_drawdown_delta: -1.5
+            weight_stage_progress: 0.3
+            weight_mfe_usage: 1.0
+            weight_mae_penalty: -1.0
+            weight_time_under_water: -0.8
+            clip_min: -5.0
+            clip_max: 5.0
+      - RLTradingEnv liest je nach env_type das passende Profil.
+
+  - Optionale Änderung: configs/rl/risk_agent.yaml & configs/rl/exit_agent.yaml
+    Inhalt: >
+      Optionaler Hinweis auf RewardProfile:
+        reward_profile: "risk"
+        # bzw. "exit"
+      Falls gesetzt, kann RLTradingEnv oder TrainController den passenden
+      RewardConfig wählen.
+
+  - Datei: tests/test_reward_shaping.py
+    Inhalt: >
+      Tests ONLY für RewardCalculator – high coverage:
+        - test_equity_delta_positive_reward:
+            * ctx: equity_t > equity_prev, keine DD
+            * reward > 0
+        - test_drawdown_penalized:
+            * ctx: dd_t > dd_prev (mehr Drawdown)
+            * reward < 0, wenn weight_drawdown_delta < 0
+        - test_mfe_usage_reward:
+            * Szenario 1: Position mit hohem MFE und realisiertem Gewinn nahe MFE
+                → hoher mfe_usage_score → reward größer
+            * Szenario 2: Position mit hohem MFE, aber Exit nahezu bei BE
+                → mfe_usage_score niedrig → reward deutlich kleiner
+        - test_mae_penalty:
+            * tiefe MAE → starker negativer Beitrag
+        - test_time_under_water_penalty:
+            * lange TUW → negativer Reward
+        - test_clipping:
+            * sehr extreme Equity-Delta → reward wird auf clip_max begrenzt.
+
+  - Datei: tests/test_env_reward_integration.py
+    Inhalt: >
+      Integrationstests RLTradingEnv + RewardCalculator:
+        - test_risk_env_uses_risk_profile:
+            * env_type="risk"
+            * RewardConfig aus env.yaml.risk profile
+        - test_exit_env_uses_exit_profile:
+            * env_type="exit"
+        - test_reward_signals_in_synthetic_trade:
+            * Synthetischer Verlauf:
+                1) Trade öffnet, läuft stark in Gewinn (MFE hoch)
+                2) Exit früh: High MFE usage
+                3) Exit spät bzw. Reversal: MFE verschenkt, MAE hoch
+              Erwartung:
+                - Reward-Pfade unterscheiden sich signifikant:
+                    * früher Exit bringt höheren kumulativen Reward
+                    * später Exit wird bestraft.
+
+acceptance:
+  - Klar getrennte RewardLogik:
+      Beschreibung: >
+        Reward-Berechnung ist NICHT mehr „inline“ in RLTradingEnv,
+        sondern in RewardCalculator kapsuliert.
+        RLTradingEnv beschränkt sich auf das Bauen von RewardContext
+        und das Aufrufen von calculator.compute(ctx).
+
+  - MFE/MAE wirklich benutzt:
+      Beschreibung: >
+        Tests zeigen:
+          - Szenario „MFE gut genutzt“ → signifikant höherer Reward
+          - Szenario „MFE verschenkt“ → schlechterer Reward
+        Reward hängt nicht nur von ΔEquity ab, sondern von der Qualität
+        des Exits bezogen auf MFE/MAE.
+
+  - Stage-Awareness:
+      Beschreibung: >
+        Wenn stage_index / stage_progress verfügbar sind:
+          - Reward honoriert Moves aus höheren DD-Zonen heraus
+          - und/oder bestraft aggressives Verhalten bei hoher DD.
+        Test kann minimal sein: Δstage_progress > 0 → positive Reward-Komponente.
+
+  - Konfigurierbarkeit:
+      Beschreibung: >
+        Alle Gewichte und Clipping-Grenzen sind über env.yaml konfigurierbar.
+        Keine Hardcodings im Code.
+
+  - Kompatibilität:
+      Beschreibung: >
+        Bestehende Tests für RLTradingEnv, RiskAgent, ExitAgent bleiben grün.
+        Neue RewardLogik bricht nichts und führt zu keiner Exception.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - RewardCalculator sauber dokumentiert (Docstrings erklären alle Komponenten)
+      - Keine „magischen Zahlen“ – alles aus Config.
+  - Numerik:
+      - Normierungen defensiv (Vermeidung Division durch 0)
+      - Optionale Clipping-Funktion (nach Config)
+  - Tests:
+      - Tests decken positive/negative Fälle und Edge Cases ab,
+      - Synthetische Daten, keine echten Parquet-Files.
+
+notes:
+  - Intuition:
+      - RiskAgent soll lernen:
+          * Risk hochfahren, wenn Edge stark & DD niedrig,
+          * Risk runterfahren, wenn Edge schwach oder DD hoch.
+      - ExitAgent soll lernen:
+          * „nice exits“ nahe MFE,
+          * nicht in MAE rein zu grinden,
+          * Time-under-Water zu minimieren.
+      - Dafür ist RewardShaping der entscheidende Hebel.
+  - Zukunft:
+      - Später können wir:
+          * RewardProfile für verschiedene Strategien/Assets definieren,
+          * LAB nutzen, um Reward-Kombinationen systematisch auszutesten.

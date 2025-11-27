@@ -2,18 +2,18 @@ import logging
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
-import uuid
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from afts_pro.config import (
     load_all_configs_into_global,
     load_global_config_from_profile,
+    load_yaml,
 )
 from afts_pro.config.loader import get_file_mtimes
 from afts_pro.config.profile_config import get_profile_include_paths
 from afts_pro.core import MarketState, StrategyDecision
 from afts_pro.core.mode_dispatcher import Mode
-from afts_pro.data import MarketStateBuilder, ParquetFeed
+from afts_pro.data import MarketStateBuilder, ParquetFeed, ExtrasLoader
 from afts_pro.exec import (
     AccountState,
     Fill,
@@ -33,6 +33,10 @@ from afts_pro.risk import (
 )
 from afts_pro.behaviour import BehaviourManager
 from afts_pro.config.behaviour_config import create_guards
+from afts_pro.core.rl_hook_integration import integrate_rl_inference
+from afts_pro.rl.types import RLObsSpec
+from afts_pro.runlogger import RunLogger
+from afts_pro.runlogger.models import RunMeta
 from afts_pro.sim.price_validator import PriceValidator
 from afts_pro.strategies import DummyMLStrategy, OrbStrategy, StrategyBridge, StrategyRegistry
 from afts_pro.features import FeatureEngine
@@ -100,7 +104,7 @@ async def start(mode: Mode, profile_path: Optional[str] = None) -> None:
     if mode == Mode.SIM:
         await _run_simulation()
     elif mode == Mode.TRAIN:
-        logger.info("TRAIN mode stub - no implementation yet.")
+        logger.info("TRAIN mode selected. Use CLI-based TrainController entrypoint for now.")
     elif mode == Mode.LIVE:
         logger.info("LIVE mode stub - no implementation yet.")
 
@@ -109,6 +113,7 @@ async def _run_simulation() -> None:
     _sanity_check_exec_models()
 
     profile_path = _PROFILE_PATH
+    profile_name = Path(profile_path).stem if profile_path else "default"
     if profile_path is not None:
         global_config = load_global_config_from_profile(profile_path)
         logger.info("PROFILE_SELECTED | name=%s | path=%s", Path(profile_path).stem, profile_path)
@@ -120,6 +125,11 @@ async def _run_simulation() -> None:
     builder = MarketStateBuilder(feed)
     asset_specs = global_config.assets.assets
     symbol = next(iter(asset_specs.keys()), "ETHUSDT_5T")
+    sim_mode_cfg_path = PROJECT_ROOT / "configs" / "modes" / "sim.yaml"
+    sim_mode_cfg = load_yaml(str(sim_mode_cfg_path)) if sim_mode_cfg_path.exists() else {}
+    use_risk_agent = bool(sim_mode_cfg.get("use_risk_agent", False))
+    use_exit_agent = bool(sim_mode_cfg.get("use_exit_agent", False))
+    agent_paths = sim_mode_cfg.get("agent_paths", {})
 
     risk_config_path = Path(global_config.risk.policy_path)
     if not risk_config_path.is_absolute():
@@ -148,6 +158,21 @@ async def _run_simulation() -> None:
     fill_engine = _build_fill_engine(execution_cfg)
     price_validator = PriceValidator()
     risk_manager = RiskManager(risk_policy)
+    run_logger: RunLogger | None = None
+    if global_config.runlogger.enabled:
+        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + f"_{global_config.environment.mode}_{profile_name}"
+        run_meta = RunMeta(
+            run_id=run_id,
+            mode=global_config.environment.mode,
+            profile_name=profile_name,
+            started_at=datetime.now(timezone.utc),
+            finished_at=None,
+            symbol=symbol,
+            timeframe="unknown",
+        )
+        run_logger = RunLogger(run_meta, global_config.runlogger, PROJECT_ROOT)
+    else:
+        logger.info("RUNLOGGER_DISABLED")
     behaviour_manager: BehaviourManager | None = None
     behaviour_guards = create_guards(global_config.behaviour, initial_balance=starting_balance)
     if behaviour_guards:
@@ -160,11 +185,43 @@ async def _run_simulation() -> None:
         logger.info("Behaviour layer disabled or no guards configured.")
     strategies = _instantiate_strategies(symbol, global_config.strategy.enabled_strategies)
     bridge = StrategyBridge(strategies, asset_specs=asset_specs)
+    extras_loader: ExtrasLoader | None = None
+    extras_map = {}
+    if global_config.extras.enabled:
+        extras_loader = ExtrasLoader(global_config.extras)
+        logger.info(
+            "EXTRAS_LOADER_ENABLED | datasets=%s",
+            [d.name for d in global_config.extras.get_enabled_datasets()],
+        )
+        extras_map = extras_loader.load_for_symbol(symbol)
+        if extras_map:
+            logger.info("EXTRAS_ATTACHED | symbol=%s | datasets=%s", symbol, list(extras_map.keys()))
+        else:
+            logger.info("EXTRAS_ENABLED_BUT_EMPTY | symbol=%s", symbol)
+    else:
+        logger.info("EXTRAS_LOADER_DISABLED")
     feature_engine: FeatureEngine | None = None
     if global_config.features.enabled:
         feature_engine = FeatureEngine(global_config.features)
+        if extras_map:
+            feature_engine.attach_extras(extras_map)
     else:
         logger.info("FEATURE_ENGINE_DISABLED")
+    # RL inference hook (optional)
+    raw_feature_count = len(global_config.features.raw_features) if global_config.features else 0
+    obs_length = raw_feature_count + 5  # features + position/risk block
+    obs_spec = RLObsSpec(shape=(obs_length,), dtype="float32", as_dict=False)
+    rl_hook = integrate_rl_inference(
+        use_risk_agent=use_risk_agent,
+        use_exit_agent=use_exit_agent,
+        risk_agent_path=agent_paths.get("risk_agent"),
+        exit_agent_path=agent_paths.get("exit_agent"),
+        obs_spec=obs_spec,
+    )
+    if rl_hook:
+        logger.info("RL inference hook enabled (risk=%s, exit=%s)", use_risk_agent, use_exit_agent)
+    else:
+        logger.info("RL inference hook disabled.")
 
     tracked_paths: List[Path] = []
     config_mtimes: Dict[Path, float] = {}
@@ -255,6 +312,8 @@ async def _run_simulation() -> None:
                     ts=state.timestamp,
                     account_state=account_state,
                 )
+            if run_logger is not None and event.event_type == "CLOSED":
+                run_logger.on_trade_close(event, ts=state.timestamp)
             reason = "SL" if fill.meta.get("is_sl") else "TP" if fill.meta.get("is_tp") else "FILL"
             logger.info(
                 "FILL | ts=%s | symbol=%s | side=%s | qty=%.4f | price=%.4f | reason=%s | fee=%.4f",
@@ -281,6 +340,8 @@ async def _run_simulation() -> None:
         logger.debug("RISK_META | %s", risk_decision.meta)
         if risk_decision.hard_stop_trading:
             logger.info("RISK HARD STOP | trading halted by FTMO policy")
+            if run_logger is not None:
+                run_logger.finalize_and_persist(global_config.model_dump())
             return
 
         behaviour_decision = None
@@ -297,6 +358,8 @@ async def _run_simulation() -> None:
             )
             if behaviour_decision.hard_block_trading:
                 logger.info("BEHAVIOUR HARD BLOCK | trading halted by guards")
+                if run_logger is not None:
+                    run_logger.finalize_and_persist(global_config.model_dump())
                 return
         feature_bundle = feature_engine.update(state) if feature_engine is not None else None
         if feature_bundle and logger.isEnabledFor(logging.DEBUG) and bar_index < 5:
@@ -321,12 +384,24 @@ async def _run_simulation() -> None:
                 decision.confidence,
                 meta_short,
             )
+        if rl_hook is not None:
+            try:
+                pos_state = account_state.positions.get(state.symbol)
+                actions = rl_hook.compute_actions(state, account_state, pos_state, feature_bundle)
+                rl_hook.apply_to_decision(decision, actions)
+                logger.info(
+                    "RL inference applied | risk_pct=%s | exit_action=%s",
+                    actions.get("risk_pct"),
+                    actions.get("exit_action"),
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("RL inference failed: %s", exc)
 
-            new_orders: List[Order] = []
-            if risk_decision.allow_new_orders:
-                new_orders.extend(order_builder.build_entry_orders(decision, state, account_state))
-                new_orders.extend(order_builder.build_manage_orders(decision, state, account_state))
-                new_orders.extend(order_builder.build_exit_orders(decision, state, account_state))
+        new_orders: List[Order] = []
+        if risk_decision.allow_new_orders:
+            new_orders.extend(order_builder.build_entry_orders(decision, state, account_state))
+            new_orders.extend(order_builder.build_manage_orders(decision, state, account_state))
+            new_orders.extend(order_builder.build_exit_orders(decision, state, account_state))
 
                 if not new_orders and not account_state.open_orders and not account_state.positions and not demo_entry_sent:
                     demo_decision = StrategyDecision(action="entry", side="long", confidence=1.0)
@@ -377,9 +452,14 @@ async def _run_simulation() -> None:
                 )
             else:
                 logger.info("POSITION | symbol=%s | no open position", state.symbol)
+        if run_logger is not None:
+            run_logger.on_bar_equity_snapshot(state.timestamp, account_state, risk_meta=risk_decision.meta)
 
         last_bar = state
         bar_index += 1
+
+    if run_logger is not None:
+        run_logger.finalize_and_persist(global_config.model_dump())
 
 
 def _sanity_check_exec_models() -> None:

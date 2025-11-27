@@ -1,0 +1,239 @@
+title: AF_TASK_013_RL_ENV_SKELETON
+
+summary: >
+  Implementiere ein generisches, gym-ähnliches RL-Environment für AFTS-PRO,
+  das auf dem bestehenden event-driven Core aufsetzt und einen einheitlichen
+  State/Observation-, Action- und Reward-Frame bereitstellt.
+  Dieses Environment bildet die Basis für RiskAgent, ExitAgent und spätere
+  Entry/RL-Modelle im TRAIN-Mode.
+
+inputs:
+  - Name: MarketStateStream
+    Beschreibung: >
+      Sequenz von MarketState-Objekten (aus data/market_state_builder.py),
+      wie sie im SIM-Mode im Event-Loop erzeugt werden.
+  - Name: AccountState
+    Beschreibung: >
+      Aktueller Kontozustand inkl. Equity, Realized/Unrealized PnL,
+      Max DD, Stage-Infos etc. (aus risk/ bzw. exec/Position/Risk-Logik).
+  - Name: PositionState
+    Beschreibung: >
+      Aktuelle offene Position(en) inkl. Size, Direction, Entry, SL, TP,
+      MFE/MAE, RR usw.
+  - Name: RiskState
+    Beschreibung: >
+      Ableitungen aus AccountState und RiskPolicies:
+      current_dd, daily_dd_remaining, stage_index, stage_progress etc.
+  - Name: FeatureBundle
+    Beschreibung: >
+      Vom FeatureEngine-Layer erzeugtes Feature-Paket
+      (raw_features, model_features, extras, regime_id).
+  - Name: EnvConfig
+    Beschreibung: >
+      Neue RL-spezifische Config-Datei (z.B. configs/rl/env.yaml) mit:
+      - env_type (risk, exit, entry)
+      - observation_layout (dict)
+      - reward_config (weights für ΔEquity, ΔDD, Stage-Progress, MFE/MAE)
+      - episode_config (max_steps, episode_type: daily, fixed_bars, by_runs)
+      - normalization (obs_scaling: on/off; equity/dd Normierung)
+  - Name: CoreHooks
+    Beschreibung: >
+      Abstrakte Schnittstellen/Callables, um aus dem Env heraus Aktionen
+      auf die Engine zu mappen:
+      - apply_action_to_pipeline(action, ctx)
+      - get_current_state(ctx)
+      - advance_one_event(ctx)
+      Diese Hooks werden in Task 013 nur als Interface definiert,
+      die konkrete Implementierung erfolgt in späteren Tasks.
+
+outputs:
+  - Datei: src/afts_pro/rl/env.py
+    Inhalt: >
+      Zentrales Modul für RL-Umgebungen mit:
+      - RLBaseEnv (ABC, gym-ähnliches Interface)
+      - RLTradingEnv (konkrete Implementierung für AFTS-PRO)
+      - RLObservation / RLStepResult Modelle
+      - Action/Observation-Normalisierung
+      - Reward-Berechnungsfunktion(en)
+  - Datei: src/afts_pro/rl/types.py
+    Inhalt: >
+      Getrennte, wiederverwendbare Typhilfen:
+      - RLObsSpec, ActionSpec, RewardSpec
+      - RLContext (Run-Kontext, z.B. run_id, episode_id, seed)
+  - Datei: configs/rl/env.yaml
+    Inhalt: >
+      Konfigurationsdatei für das Env mit mind.:
+      - env_type: "risk"
+      - episode:
+          max_steps: 2000
+          mode: "daily"
+      - reward:
+          weight_equity_delta: 1.0
+          weight_drawdown_delta: -2.0
+          weight_stage_progress: 0.5
+          weight_mfe_mae: 0.3
+      - observation:
+          include_features: true
+          include_position_state: true
+          include_risk_state: true
+          equity_norm_mode: "start_equity"
+  - Datei: tests/test_rl_env.py
+    Inhalt: >
+      Unit- und Integrationstests für:
+      - reset/step-API
+      - Observation-Formate
+      - Reward-Berechnung auf Basis künstlicher Mini-Episode
+      - Determinismus bei fixem Seed und identischem Event-Stream
+
+acceptance:
+  - API_Compatibility:
+      Beschreibung: >
+        RLTradingEnv implementiert eine gymnasium-ähnliche API:
+        - reset(seed: int | None = None, options: dict | None = None)
+          -> (obs, info)
+        - step(action)
+          -> (obs, reward, terminated, truncated, info)
+        Die Signaturen sind kompatibel zu gängigen RL-Frameworks
+        (Stable-Baselines3, RLlib) – auch wenn diese nicht direkt
+        eingebunden werden.
+  - Observation_Structure:
+      Beschreibung: >
+        Observation ist ein numpy array (1D) ODER ein dict aus numpy arrays,
+        wie in configs/rl/env.yaml definiert.
+        Tests prüfen:
+        - gleiche Shape zwischen reset() und step()
+        - keine NaNs/inf in der Obs (nach optionaler Normalisierung)
+  - Reward_Definition:
+      Beschreibung: >
+        Es existiert eine zentrale Reward-Funktion:
+        reward_t =
+          w_eq * (equity_t - equity_{t-1}) / equity_norm +
+          w_dd * (dd_t - dd_{t-1}) / dd_norm +
+          w_stage * Δstage_progress +
+          w_mfe_mae * f(MFE, MAE)
+        wobei die Gewichte aus der Config kommen und Normierungen robust
+        gegen 0-Division implementiert sind.
+        Tests validieren:
+        - Vorzeichenlogik (Drawdown wird negativ belohnt)
+        - Stage-Fortschritt wird positiv gewertet
+  - Episode_Handling:
+      Beschreibung: >
+        Das Env unterstützt mind. zwei Episode Modi:
+        - "daily": Episode umfasst einen Handelstag
+        - "fixed_bars": Episode endet nach max_steps Bars
+        terminated/truncated werden korrekt gesetzt.
+  - Determinismus:
+      Beschreibung: >
+        Bei fixem Seed und identischem Event-Stream liefert
+        RLTradingEnv identische Folgen von (obs, reward, terminated, truncated)
+        für dieselbe Action-Sequenz.
+        Ein Unit-Test deckt diesen Fall explizit ab.
+  - Integration_Readiness:
+      Beschreibung: >
+        RLTradingEnv kann im TRAIN-Mode von der Core-Engine instanziert
+        und Schritt für Schritt mit Events versorgt werden.
+        Dafür existiert eine klar dokumentierte Schnittstelle
+        (CoreHooks), ohne dass der Core in Task 013 selbst geändert
+        werden muss.
+  - Error_Handling:
+      Beschreibung: >
+        Ungültige Actions (außerhalb des ActionSpaces) werden sauber
+        behandelt (Clipping oder ValueError, je nach Config).
+        Keine stillen Fehler, saubere Logging-Meldungen.
+
+coding_standards:
+  - General:
+      - Nutze Python 3.11 Type Hints konsequent.
+      - Keine harten Pfade; verwende das bestehende Config-System.
+      - Logging über das bestehende Logging-Setup von AFTS-PRO.
+      - Alle öffentlichen Klassen/Methoden mit Docstrings (deutsch oder englisch, aber konsistent).
+  - Dependencies:
+      - Keine harte Abhängigkeit von gym/gymnasium in Task 013.
+      - Stattdessen eine interne ABC (RLBaseEnv) mit gym-ähnlicher API.
+      - Wenn gymnasium-Typen genutzt werden, nur optional (type-only imports).
+  - Struktur:
+      - RLBaseEnv als abstrakte Basisklasse mit reset/step/close/render.
+      - RLTradingEnv erbt von RLBaseEnv und implementiert die Logik
+        für AFTS-PRO (Mapping MarketState/AccountState → Obs/Reward).
+      - Reward-Logik in eigene Funktion(en) oder Klasse (RewardCalculator),
+        um später leicht austauschbar zu sein.
+      - Observation-Mapping in klar getrennte Hilfsfunktionen:
+        - build_observation(...)
+        - normalize_observation(...)
+  - Tests:
+      - pytest verwenden.
+      - Tests klein halten, aber klar trennbar:
+        - test_rl_env_reset_step_shapes
+        - test_rl_env_determinism_with_seed
+        - test_rl_env_reward_signs
+      - Künstliche Dummy-States/Events in den Tests verwenden,
+        kein echter Parquet-Load in Task 013.
+
+notes:
+  - Zielbild:
+      - Dieses Task liefert den "Contract" zwischen AFTS-PRO Core
+        und allen RL-Agenten.
+        Spätere Tasks (RiskAgent, ExitAgent, LAB) bauen ausschließlich
+        auf dieser Schnittstelle auf.
+  - State_Design:
+      - RLObservation sollte aus drei logischen Blöcken bestehen:
+        1) Market/Features Block:
+           - z.B. bereits aggregierte Feature-Vektoren aus FeatureEngine
+             (returns, atr, rsi, trend_slope, regime_id one-hot etc.)
+        2) Position Block:
+           - pos_side (one-hot oder {-1,0,1})
+           - pos_size_normed
+           - unrealized_pnl_normed
+           - realized_pnl_session_normed
+           - rr_current (tp_distance/sl_distance)
+        3) Risk Block:
+           - equity_normed (gegen Startkapital oder Tagesequity)
+           - current_drawdown_normed
+           - daily_dd_remaining_normed
+           - stage_index / stage_progress
+      - Ob diese Blöcke concatenated werden (1D-Vector) oder als
+        Dict of Arrays repräsentiert werden, wird über die Env-Config
+        gesteuert. Für Task 013 genügt 1D-Vector als Default.
+  - Action_Space:
+      - In Task 013 nur generisch modellieren, z.B.:
+        - continuous: np.ndarray[float32] mit shape (n_actions,)
+        - discrete/int: int in [0, n_actions-1]
+      - Die konkrete Semantik (z.B. Risk-Stufe 0.25–3 %) wird in
+        den jeweiligen Agent-Tasks definiert.
+      - Wichtig: ActionSpec im Env dokumentieren (z.B. in env.action_space_spec).
+  - Reward_Shaping:
+      - In Task 013 nur Basis-Shaping implementieren:
+        - ΔEquity (positiv erwünscht)
+        - ΔDrawdown (negativ)
+        - optional Stage-Progress (wenn stage_index/stage_progress verfügbar)
+      - MFE/MAE-Reward nur vorbereiten (Platzhalter-Funktion), die später
+        beim ExitAgent stärker genutzt werden kann.
+  - Core_Integration:
+      - Das Env selbst sollte NICHT den Event-Loop neu erfinden.
+        Stattdessen:
+        - RLTradingEnv besitzt Referenzen auf:
+          - Event-Iterator oder Callback: next_event()
+          - Callback: apply_action_to_pipeline(...)
+        - In step(action):
+          - action → apply_action_to_pipeline(action, ctx)
+          - ein Event/Timestep vom Core ziehen → next_event()
+          - neuen State/Reward berechnen.
+      - In Task 013 genügt es, diese Schnittstellen als abstrakte
+        Callables/CoreHooks zu definieren, mit klaren Docstrings und
+        TODO-Kommentaren für spätere Implementierung.
+  - Performance:
+      - Observation-Building und Reward-Berechnung müssen vectorisierbar
+        sein, aber in Task 013 reicht eine saubere, verständliche
+        Implementierung.
+      - Keine premature Optimization; Fokus auf Klarheit und
+        saubere Schnittstellen.
+  - Erweiterbarkeit:
+      - RLBaseEnv/ RLTradingEnv so designen, dass später leicht
+        unterschiedliche Env-Varianten ableitbar sind:
+        - RiskEnv (RiskAgent)
+        - ExitEnv (ExitAgent)
+        - EntryEnv (EntryAgent)
+      - Daher sauber trennen:
+        - State/Obs-Berechnung
+        - Reward-Berechnung
+        - Action-Mapping

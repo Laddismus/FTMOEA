@@ -1,0 +1,256 @@
+title: AF_TASK_018_TRAIN_MODE_INTEGRATION
+
+summary: >
+  Integriere den TRAIN-Mode als first-class citizen in den AFTS-PRO Core.
+  Ziel:
+    - ModeDispatcher kann nun neben SIM/LIVE auch TRAIN ausführen.
+    - TRAIN-Mode baut RLTradingEnv + gewünschten Agent (RiskAgent oder ExitAgent),
+      lädt passende Configs, ruft den jeweiligen Training-Loop auf und speichert
+      Checkpoints und Trainings-Summary.
+    - Es entsteht ein zentrales TrainController-Modul, das TRAIN-Runs steuert
+      (ähnlich wie der SIM-Runner für Backtests).
+  Fokus:
+    - Keine neuen RL-Algorithmen, sondern saubere Verdrahtung:
+      Core → TRAIN-Mode → Env → Agent → Training-Loop → Artefakte.
+
+inputs:
+  - Name: ModeDispatcher / main.py
+    Beschreibung: >
+      Es existiert bereits ein Mode-Dispatcher (TRAIN/SIM/LIVE geplant),
+      der aktuell SIM und evtl. LIVE behandelt.
+      Dieser Dispatcher soll erweitert werden, sodass:
+        - mode="TRAIN" unterstützt wird,
+        - auf einen neuen TrainController verweist,
+        - CLI/Config-Gesteuert (z.B. `--mode train --train-profile risk_agent_v1`).
+  - Name: RLTradingEnv
+    Beschreibung: >
+      Die bereits implementierte RL-Umgebung (Task 013), die:
+        - reset()/step(action) implementiert,
+        - verschiedene env_type (z.B. "risk", "exit") via Config unterstützt.
+      TRAIN-Mode muss:
+        - EnvConfig laden (configs/rl/env.yaml),
+        - env_type abhängig vom Agent setzen (z.B. risk/exit),
+        - Env instanzieren.
+  - Name: RiskAgent & ExitAgent
+    Beschreibung: >
+      Bereits implementierte Agenten:
+        - RiskAgent (Task 016)
+        - ExitAgent (Task 017)
+      Beide haben:
+        - Config (configs/rl/risk_agent.yaml / exit_agent.yaml),
+        - Act/Train/Save/Load.
+      TRAIN-Mode muss:
+        - auf Basis einer TRAIN-Config entscheiden, welchen Agenten er baut,
+        - Agent-Config laden,
+        - Training-Loop (risk_training.py/exit_training.py) aufrufen.
+  - Name: Training-Loops
+    Beschreibung: >
+      Bereits vorhandene Training-Loops:
+        - train_risk_agent(env, agent, train_cfg)
+        - train_exit_agent(env, agent, train_cfg)
+      TRAIN-Mode soll diese Loops nutzen, nicht neu erfinden.
+      Optional kann ein generischer Wrapper eingeführt werden, der
+      Agent-Typ unabhängig ist (z.B. TrainJob).
+  - Name: LAB / Quant Analyzer (optional)
+    Beschreibung: >
+      Optional: Nach einem TRAIN-Run kann ein Analyse- oder LAB-Job
+      gestartet werden (z.B. evaluate policy).
+      In Task 018 reicht es, die Schnittstelle vorzubereiten (z.B. Hook),
+      ohne es schon auszuführen.
+
+outputs:
+  - Datei: src/afts_pro/core/train_controller.py
+    Inhalt: >
+      Neues Modul, das die Logik für TRAIN-Mode kapselt:
+        - Datenklassen:
+            * TrainJobConfig:
+                - agent_type: "risk" | "exit"
+                - env_config_path: str
+                - agent_config_path: str
+                - output_dir: str
+                - seed: int | None
+                - resume_from: str | None  # optional Checkpoint
+                - post_analysis: bool      # optional Hook für später
+            * TrainJobResult:
+                - agent_type: str
+                - output_dir: str
+                - episodes: int
+                - mean_return: float | None
+                - best_return: float | None
+                - extra: dict
+        - Klasse TrainController:
+            class TrainController:
+                def __init__(self, core_config: CoreConfig):
+                    """
+                    core_config kann globalen Kontext enthalten
+                    (z.B. Pfade, Logging, Profile).
+                    """
+
+                def run_train_job(self, job_cfg: TrainJobConfig) -> TrainJobResult:
+                    """
+                    High-Level:
+                      - EnvConfig laden (job_cfg.env_config_path)
+                      - env_type abhängig von job_cfg.agent_type setzen ("risk"/"exit")
+                      - RLTradingEnv instanzieren
+                      - AgentConfig laden (job_cfg.agent_config_path)
+                      - entsprechenden Agent bauen (RiskAgent oder ExitAgent)
+                      - Training-Loop aufrufen:
+                          train_risk_agent(...) oder train_exit_agent(...)
+                      - Artefakte unter job_cfg.output_dir speichern:
+                          * configs (Env/Agent/TrainJob)
+                          * training_summary.json
+                          * Checkpoints
+                      - TrainJobResult zurückgeben.
+                    """
+  - Datei: src/afts_pro/config/train_profiles.yaml
+    Inhalt: >
+      Neue Config-Datei für „Train-Profile“, z.B.:
+        profiles:
+          risk_default:
+            agent_type: "risk"
+            env_config: "configs/rl/env.yaml"
+            agent_config: "configs/rl/risk_agent.yaml"
+            output_root: "models/risk_agent"
+          exit_default:
+            agent_type: "exit"
+            env_config: "configs/rl/env.yaml"
+            agent_config: "configs/rl/exit_agent.yaml"
+            output_root: "models/exit_agent"
+      Der ModeDispatcher/CLI kann so mit `--train-profile risk_default`
+      arbeiten, ohne jedes Mal Pfade angeben zu müssen.
+  - Datei: Anpassung: src/afts_pro/core/mode_dispatcher.py
+    Inhalt: >
+      Erweiterung des bestehenden ModeDispatchers:
+        - Unterstützt neuen Mode "TRAIN".
+        - Pseudocode:
+            if mode == "TRAIN":
+                train_profile = cli_args.train_profile or core_cfg.default_train_profile
+                job_cfg = build_train_job_config_from_profile(train_profile, train_profiles.yaml, cli_overrides)
+                controller = TrainController(core_cfg)
+                result = controller.run_train_job(job_cfg)
+        - CLI-Argumente berücksichtigen:
+            * --mode train
+            * --train-profile NAME
+            * optional Overrides (--env-config, --agent-config, --output-dir).
+  - Datei: cli/afts_train_cli.py
+    Inhalt: >
+      Optional eigenständiger CLI-Wrapper für TRAIN-Mode
+      (analog zu lab/quant/risk/exit):
+        - `afts-train --train-profile risk_default`
+        - Argumente:
+            --mode-agent risk|exit (optional override)
+            --env-config ...
+            --agent-config ...
+            --output-dir ...
+        - Intern:
+            * lädt core-config + train_profiles.yaml
+            * baut TrainJobConfig
+            * ruft TrainController.run_train_job() auf.
+      Hinweis: Falls schon ein generischer main-CLI existiert, kann dieser
+      Command auch dort als Subcommand integriert werden.
+  - Datei: configs/modes/train.yaml
+    Inhalt: >
+      Mode-spezifische Einstellungen für TRAIN:
+        - default_train_profile: "risk_default"
+        - logging:
+            level: "INFO"
+        - seed: 42
+        - gpu: false  # später nutzbar, wenn GPU-Support hinzukommt
+  - Datei: tests/test_train_mode_integration.py
+    Inhalt: >
+      pytest-Modul mit:
+        - DummyEnv/DummyAgent Setup:
+            * RLTradingEnv kann als Stub verwendet werden (oder vereinfachte FakeEnv),
+              solange reset/step vorhanden sind.
+            * RiskAgent/ExitAgent können mit minimalen Configs geladen werden.
+        - test_train_controller_runs_risk_job:
+            * erstellt eine TrainJobConfig für agent_type="risk"
+            * ruft TrainController.run_train_job()
+            * prüft:
+                - output_dir wurde angelegt,
+                - training_summary.json existiert,
+                - TrainJobResult.agent_type == "risk"
+        - test_train_controller_runs_exit_job:
+            * analog, aber mit agent_type="exit"
+        - test_mode_dispatcher_train_mode:
+            * simuliert CLI/Config-Aufruf mit mode="TRAIN" und train_profile="risk_default"
+            * prüft, dass TrainController aufgerufen wird (z.B. via Mock)
+            * keine Exceptions.
+
+acceptance:
+  - TRAIN_Mode_Vollständig_Aktiv:
+      Beschreibung: >
+        AFTS-PRO unterstützt jetzt offiziell einen TRAIN-Mode:
+          - Spätestens über einen CLI-Entry-Point (z.B. `afts-train` oder
+            `python -m afts_pro.main --mode train --train-profile risk_default`)
+            kann ein RL-Training-Run gestartet werden.
+          - Die richtige Kombination aus Env + Agent + Training-Loop wird
+            automatisch aufgebaut.
+  - Artefakte_Sauber:
+      Beschreibung: >
+        Ein TRAIN-Run erzeugt:
+          - ein Output-Verzeichnis (z.B. models/risk_agent/{timestamp_or_name}),
+          - darin:
+              * risk_agent_config.yaml / exit_agent_config.yaml Kopie
+              * env_config.yaml Kopie
+              * train_job_config.yaml
+              * training_summary.json (episodische Stats)
+              * mindestens einen Checkpoint (z.B. risk_agent_weights.*).
+  - Profile_Basiert:
+      Beschreibung: >
+        Train-Profiles in train_profiles.yaml erlauben:
+          - Einfaches Umschalten zwischen verschiedenen Train-Setups
+            (z.B. risk_default, risk_experiment2, exit_default),
+          - Ohne den Code anzupassen.
+        ModeDispatcher & CLI können ein Profil per Namen wählen.
+  - Tests_Grün:
+      Beschreibung: >
+        Alle neuen Tests in test_train_mode_integration.py laufen grün
+        und es gibt keine Regressionen in bestehenden Tests.
+        Dummy-Setup darf leichte Vereinfachungen nutzen (z.B. Fake-Env),
+        solange die Schnittstellen korrekt sind.
+  - Logging_Transparenz:
+      Beschreibung: >
+        Während eines TRAIN-Runs gibt das Logging auf INFO-Level:
+          - Start des Jobs (Agent-Typ, Profile, Output-Path),
+          - Episoden-Fortschritt (z.B. alle N Episoden),
+          - Ende des Jobs inkl. Summary (mean_return etc.).
+        Keine spammigen DEBUG-Logs im Normalbetrieb.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen.
+      - Konfigurationswerte nicht hardcoden:
+          * Pfade & Agent-Typen über train_profiles.yaml / train.yaml.
+      - Saubere Trennung:
+          * TrainController = Orchestrierung
+          * mode_dispatcher = High-Level Routing
+          * CLI = User-Fassade
+      - Logging konsistent mit bestehendem Core.
+  - Fehlerbehandlung:
+      - Klare Fehlermeldungen, wenn:
+          * train_profile unbekannt ist,
+          * Config-Pfade fehlen,
+          * Agent-Typ nicht "risk"/"exit" ist.
+      - Keine stillen Fails.
+  - Tests:
+      - pytest, schnell ausführbar.
+      - Mocks/Stubs nutzen, um keine echten Langzeit-Trainings anzustoßen.
+
+notes:
+  - Strategische Bedeutung:
+      - Mit Task 018 wird AFTS-PRO von einem Research-Framework zu einem
+        echten „AI-Trainings-Hub“:
+          * Du kannst RL-Policies wie normale Backtests/Strategien starten,
+          * alles läuft über denselben Run-/Config-/Storage-Standard.
+      - Ab hier können wir:
+          * RL-Trainings über LAB oder Scheduler triggern,
+          * Policies versionieren,
+          * Quant Analyzer auf Trainings-Runs anwenden.
+  - Später:
+      - AF_TASK_019_AGENT_INFERENCE_IN_LIVE/SIM:
+          * RiskAgent/ExitAgent in den SIM/LIVE-Execution-Flow integrieren.
+      - AF_TASK_020_ADVANCED_REWARD_SHAPING:
+          * MFE/MAE-intelligente Rewards, Stage-aware Shaping.
+      - AF_TASK_021_TRAINING_DASHBOARD:
+          * Web-UI für Train-Runs, Checkpoints, Lernkurven.

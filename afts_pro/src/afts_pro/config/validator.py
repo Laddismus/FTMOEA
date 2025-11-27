@@ -6,6 +6,7 @@ from typing import List, Tuple
 
 from afts_pro.config.global_config import GlobalConfig
 from afts_pro.strategies import StrategyRegistry
+from afts_pro.config.extras_config import ExtrasConfig
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,67 @@ def validate_features(global_config: GlobalConfig) -> List[str]:
     return messages
 
 
+def validate_extras(global_config: GlobalConfig) -> List[str]:
+    messages: List[str] = []
+    cfg = getattr(global_config, "extras", None)
+    if cfg is None:
+        return messages
+    if not cfg.enabled:
+        messages.append(_as_warn("extras.enabled=false -> Extras not loaded."))
+        return messages
+    if not cfg.datasets:
+        messages.append(_as_error("extras.enabled=true but no datasets configured."))
+        return messages
+
+    names = [d.name for d in cfg.datasets]
+    if len(names) != len(set(names)):
+        messages.append(_as_error("Duplicate extras dataset names configured."))
+
+    for ds in cfg.get_enabled_datasets():
+        if not ds.value_columns:
+            messages.append(_as_error(f"Extras dataset '{ds.name}' has no value_columns defined."))
+        path = Path(cfg.base_dir) / Path(cfg.final_pattern.format(symbol="TEST", dataset=ds.name))
+        if not path.exists():
+            messages.append(_as_warn(f"Extras file may be missing for datasets like {ds.name}: expected pattern {path}"))
+    # Soft check against first asset if available
+    asset_symbols = list(global_config.assets.assets.keys())
+    if cfg.enabled and asset_symbols:
+        symbol = asset_symbols[0]
+        for ds in cfg.get_enabled_datasets():
+            path = Path(cfg.base_dir) / Path(cfg.final_pattern.format(symbol=symbol, dataset=ds.name))
+            if not path.exists():
+                messages.append(
+                    _as_warn(
+                        f"extras enabled but no extras file found for symbol={symbol} dataset={ds.name} "
+                        "(ok if data will be added later)"
+                    )
+                )
+
+    return messages
+
+
+def validate_runlogger(global_config: GlobalConfig) -> List[str]:
+    messages: List[str] = []
+    cfg = getattr(global_config, "runlogger", None)
+    if cfg is None:
+        return messages
+    if not cfg.enabled:
+        messages.append(_as_warn("RunLogger disabled in configuration."))
+        return messages
+
+    base_dir = Path(cfg.base_dir)
+    if not base_dir.is_absolute():
+        base_dir = (Path(__file__).resolve().parents[3] / base_dir).resolve()
+    if not base_dir.exists():
+        messages.append(_as_warn(f"RunLogger base_dir does not exist yet (will be created): {base_dir}"))
+
+    include_map = cfg.include or {}
+    for key, flag in include_map.items():
+        if not isinstance(flag, bool):
+            messages.append(_as_error(f"RunLogger include flag for {key} must be boolean."))
+    return messages
+
+
 def run_all_validations(global_config: GlobalConfig, data_root: Path) -> Tuple[bool, List[str]]:
     messages: List[str] = []
     messages.extend(validate_paths(global_config))
@@ -152,6 +214,8 @@ def run_all_validations(global_config: GlobalConfig, data_root: Path) -> Tuple[b
     messages.extend(validate_strategies(global_config))
     messages.extend(validate_behaviour(global_config))
     messages.extend(validate_features(global_config))
+    messages.extend(validate_extras(global_config))
+    messages.extend(validate_runlogger(global_config))
 
     has_error = any(msg.startswith("ERROR") for msg in messages)
     return (not has_error, messages)

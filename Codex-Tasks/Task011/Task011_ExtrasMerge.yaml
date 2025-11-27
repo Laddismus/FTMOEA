@@ -1,0 +1,290 @@
+title: "AF_Task_011_FeatureEngine_AsofMerge_Extras"
+summary: >
+  Integriere die per ExtrasLoader geladenen Binance-Extras (Funding, Premium,
+  Open Interest etc.) asof/ffill in den FeatureEngine-Flow. Für jeden Bar wird
+  eine Extras-Snapshot-Struktur erzeugt, die zeitlich korrekt (<= Bar-Timestamp,
+  ohne Lookahead) aus den Extras-Zeitreihen abgeleitet wird. Die Extras werden
+  FeatureEngine und FeatureCalculators zur Verfügung gestellt, ohne die
+  MarketState-Definition aufzubrechen. Bei fehlenden Daten (z. B. nur BTC
+  für Oktober 2025) soll das System stabil bleiben, Extras bleiben dann einfach leer.
+
+inputs:
+  - project_root: "afts_pro/"
+  - global_config_module: "src/afts_pro/config/global_config.py"
+  - extras_config_module: "src/afts_pro/config/extras_config.py"
+  - extras_loader_module: "src/afts_pro/data/extras_loader.py"
+  - feature_engine_module: "src/afts_pro/features/engine.py"
+  - feature_state_module: "src/afts_pro/features/state.py"
+  - feature_base_calculator: "src/afts_pro/features/base_calculator.py"
+  - feature_simple_calculators: "src/afts_pro/features/simple_calculators.py"
+  - engine_module: "src/afts_pro/engine/engine.py"
+  - validator_module: "src/afts_pro/config/validator.py"
+  - cli_main: "afts_pro/main.py"
+  - existing_configs:
+      - "configs/extras.yaml"
+      - "configs/features.yaml"
+      - "configs/profiles/*.yaml"
+
+outputs:
+  # ---------------------------------------------------------------------------
+  # 1) Extras-Snapshot-Modell für die FeatureEngine
+  # ---------------------------------------------------------------------------
+  - Erweiterung: src/afts_pro/features/state.py
+      description: >
+        Ergänze ein leichtgewichtiges Modell/Typschema, das den Zustand der
+        Extras pro Bar beschreibt und von der FeatureEngine zu den Calculators
+        durchgereicht werden kann, ohne die MarketState-Definition umzubauen.
+
+      requirements:
+        - Füge eine neue Struktur hinzu, z. B.:
+            - Name: ExtrasSnapshot
+            - Inhalt: Mapping von dataset_name -> Mapping von value_name -> float
+            - Beispieleintrag:
+                - "funding": { "funding_rate": -0.00025 }
+                - "premium": { "premium_index": 0.0015 }
+                - "oi": { "open_interest": 123456.0 }
+        - ExtrasSnapshot soll:
+            - einfach serialisierbar/loggbar sein (Dict-ähnlich)
+            - None/fehlende Werte robust behandeln (z. B. durch Leermapping)
+        - Ergänze FeatureBundle um ein optionales Feld:
+            - extras: Optional[ExtrasSnapshot] = None
+        - RawFeatureState und ModelFeatureVector bleiben unverändert.
+
+  # ---------------------------------------------------------------------------
+  # 2) FeatureCalculators-Interface auf Extras vorbereiten
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/features/base_calculator.py
+      description: >
+        Die FeatureCalculators sollen Extras-Snapshots optional entgegennehmen
+        können. Bisher erhält update nur MarketState; jetzt wird ein zusätzliches,
+        optionales Extras-Argument eingeführt, damit spätere Extras-basierte
+        Features (z. B. funding_normalized) darauf zugreifen können.
+
+      requirements:
+        - Erweitere die Signatur von BaseFeatureCalculator.update:
+            - bisher: update(self, bar: MarketState) -> None
+            - neu:   update(self, bar: MarketState, extras: Optional[ExtrasSnapshot] = None) -> None
+        - Implementiere den Default so, dass bestehende Calculatoren,
+          die Extras nicht nutzen, diese einfach ignorieren.
+        - Stelle sicher, dass alle existierenden Calculatoren in
+          simple_calculators.py die neue Signatur übernehmen, aber ihr
+          Verhalten unverändert bleibt:
+            - Sie sollen extras-Argument akzeptieren, aber v1 nicht verwenden.
+
+  # ---------------------------------------------------------------------------
+  # 3) FeatureEngine: asof/ffill-Merge der Extras-Zeitreihen
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/features/engine.py
+      description: >
+        Die FeatureEngine soll optional eine Menge von ExtrasSeries pro Symbol
+        entgegennehmen, daraus interne Cursor/Indizes aufbauen und bei jedem
+        update(bar) einen konsistenten ExtrasSnapshot (asof/ffill, ohne Lookahead)
+        erzeugen. Dieser Snapshot fließt in FeatureBundle.extras und als Argument
+        in alle FeatureCalculators.update(..., extras=...).
+
+      requirements:
+        - FeatureEngine soll eine Möglichkeit erhalten, Extras-Series zu erhalten:
+            - z. B. im Konstruktor oder via separater Methode:
+              - attach_extras(extras_by_dataset: Dict[str, ExtrasSeries])
+            - extras_by_dataset-Key: dataset_name wie in ExtrasConfig.datasets.name
+        - Intern soll die FeatureEngine:
+            - für jedes Dataset eine sortierte Zeitreihe (DataFrame oder ähnlich)
+              mit Timestamp-Spalte nutzen (bereits durch ExtrasLoader sichergestellt).
+            - pro Dataset einen Cursor/Index halten, der über die Zeit vorwärts
+              bewegt wird (SIM-Bars sind monoton steigend).
+        - AsOf-/ffill-Logik pro Bar:
+            - Für jeden Bar mit Timestamp t:
+                - Für jedes Dataset:
+                    - Cursor solange weiter schieben, bis extras_timestamp <= t
+                      und der nächste Extras-Timestamp > t (klassischer asof).
+                    - Wenn es noch keinen Extras-Punkt <= t gibt:
+                        - Für dieses Dataset werden keine Werte gesetzt (oder Default 0.0,
+                          Entscheidung: siehe nächster Punkt).
+            - Resultierende ExtrasSnapshot:
+                - Für jedes Dataset:
+                    - Verwende die Konfiguration value_columns aus ExtrasConfig:
+                        - Werte aus der letzten gültigen Zeile <= t lesen.
+                        - Fehlende Werte können:
+                            - entweder ausgelassen werden (Dataset nicht im Snapshot),
+                            - oder auf 0.0 gesetzt werden, je nach einfacher,
+                              klar dokumentierter Entscheidung (z. B. „nicht vorhanden = kein Eintrag“).
+        - FeatureEngine.update:
+            - Ablauf:
+                1) ExtrasSnapshot für den aktuellen Bar erzeugen (oder None, falls
+                   keine Extras vorhanden oder extras.enabled=false).
+                2) Alle FeatureCalculators mit:
+                     update(bar=bar, extras=extras_snapshot)
+                   aufrufen.
+                3) RawFeatureState wie bisher aus Calculatoren bauen.
+                4) ModelFeatureVector wie bisher skalieren.
+                5) FeatureBundle(raw=..., model=..., extras=extras_snapshot) zurückgeben.
+        - Logging:
+            - Bei init:
+                - INFO-Log, ob Extras angeschlossen wurden und welche Datasets verfügbar sind.
+            - Bei den ersten wenigen Bars (z. B. bar_index < 5) auf DEBUG:
+                - Kurzes Summary:
+                    - "EXTRAS_SNAPSHOT | ts=... | datasets=['funding', 'premium']"
+                    - Optional: ein paar Beispielwerte.
+
+  # ---------------------------------------------------------------------------
+  # 4) Engine-Integration: ExtrasLoader → FeatureEngine
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/engine/engine.py
+      description: >
+        Der SIM-Engine-Startup soll die bereits existierende ExtrasLoader-
+        Initialisierung verwenden, um Extras-Series pro Symbol zu laden und
+        diese sauber an die FeatureEngine zu übergeben, sofern extras.enabled=true
+        und Daten vorhanden sind. Es gibt keine Engine-Verhaltensänderung, wenn
+        extras.disabled ist oder keine Dateien existieren.
+
+      requirements:
+        - Beim Engine-Startup (SIM-Mode):
+            - GlobalConfig ist bereits geladen.
+            - ExtrasLoader wird bereits in Task_010 initialisiert.
+        - Ergänze den Setup-Flow:
+            - Wenn global_config.extras.enabled und ExtrasLoader vorhanden:
+                - für das aktuell konfigurierte Asset-Symbol:
+                    - extras_map = ExtrasLoader.load_for_symbol(symbol)
+                    - extras_map ist ggf. leer, wenn keine Dateien existieren.
+            - FeatureEngine-Instanziierung:
+                - Falls FeatureEngine existiert:
+                    - Wenn extras.enabled=false:
+                        - FeatureEngine ohne Extras aufsetzen (wie bisher).
+                    - Wenn extras.enabled=true:
+                        - FeatureEngine nach Instanzierung die Extras übergeben
+                          (z. B. feature_engine.attach_extras(extras_map)).
+        - Logging:
+            - INFO:
+                - "EXTRAS_ATTACHED | symbol=... | datasets=[...]"
+                  falls Extras verbunden wurden.
+                - "EXTRAS_ENABLED_BUT_EMPTY | symbol=... " falls enabled, aber keine
+                  Serien geladen werden konnten.
+                - "EXTRAS_DISABLED" wenn extras.enabled=false.
+
+  # ---------------------------------------------------------------------------
+  # 5) Validator: Extras vs. Assets/Features sanity-check
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/config/validator.py
+      description: >
+        Der Validator soll sicherstellen, dass die Extras-Konfiguration
+        konsistent ist und im Zusammenspiel mit Assets/Features keine
+        offensichtlichen Fallen entstehen. Da Extras noch nicht zwingend
+        überall vorhanden sind (z. B. nur BTC Oktober 2025), sollen die Checks
+        eher warnend als blockierend sein.
+
+      requirements:
+        - Erweitere validate_extras(global_config) um zusätzliche, nicht-blockierende Checks:
+            - Wenn extras.enabled=true:
+                - Prüfen, ob für mindestens ein Profil-Asset das finale Extras-
+                  Path-Schema plausibel ist:
+                    - Pfad-Konstruktion (base_dir + final_pattern) für das
+                      aktuelle Hauptsymbol (z. B. ETHUSDT).
+                    - Wenn Pfad nicht existiert:
+                        - WARN:
+                            - "WARN: extras enabled but no extras file found for symbol=... (this is OK if data will be added later)"
+            - Keine zusätzlichen ERRORs einführen, solange die Konfiguration
+              formal gültig ist (datasets, value_columns etc. wie in Task_010).
+        - Optional: Hinweis-Log, dass Extras in FeatureEngine asof/ffill gemerged
+          werden, sobald Daten vorhanden sind.
+
+  # ---------------------------------------------------------------------------
+  # 6) CLI-Unterstützung: Debug-Sicht auf Extras-Merge (optional)
+  # ---------------------------------------------------------------------------
+  - Erweiterung: afts_pro/main.py (Typer-CLI)
+      description: >
+        Ergänze ein kleines Diagnose-Kommando, um das Zusammenspiel aus
+        ExtrasLoader und FeatureEngine-AsOf-Merge zu prüfen, ohne einen
+        kompletten SIM-Run durchlaufen zu müssen. Dieses Kommando ist
+        optional, soll aber helfen, später Extras-Daten punktuell zu testen.
+
+      requirements:
+        - Neues Subcommand:
+            - `python main.py extras preview --symbol BTCUSDT --bars 5`
+        - Verhalten:
+            - Lädt Profile/GlobalConfig wie `config validate`.
+            - Initialisiert ExtrasLoader und FeatureEngine.
+            - Lädt die ersten N Bars des Parquet-Feeds für das Symbol
+              (z. B. via bestehenden ParquetFeed).
+            - Für die ersten `bars` Bars:
+                - FeatureEngine.update(bar) mit Extras-Merge aufrufen.
+                - Für jeden Bar eine kompakte INFO/DEBUG-Zeile loggen:
+                    - "EXTRAS_PREVIEW | ts=... | datasets=... "
+            - Kein separates Reporting nötig; es genügt, dass das Kommando
+              ohne Exception läuft und sinnvolle Logs liefert.
+        - Wenn keine Extras vorhanden sind:
+            - Ausgabe:
+                - INFO: "EXTRAS_PREVIEW | no extras available for symbol=..."
+              und Exit-Code 0.
+
+  # ---------------------------------------------------------------------------
+  # 7) Verhalten bei fehlenden/teilweisen Extras-Daten
+  # ---------------------------------------------------------------------------
+  - Anforderungen an Robustheit:
+      - Wenn extras.enabled=false:
+          - System verhält sich exakt wie vor Task_011:
+              - FeatureEngine erstellt Bundle ohne Extras
+              - Strategies laufen unverändert.
+      - Wenn extras.enabled=true, aber für das aktuelle Symbol keine Dateien existieren:
+          - Keine Exceptions
+          - Logs:
+              - WARN im Validator / Engine-Startup
+              - FeatureEngine erzeugt ExtrasSnapshot=None oder leeren Snapshot.
+      - Wenn Extras nur in Teilintervallen existieren (z. B. nur Oktober 2025):
+          - Vor dem ersten Extras-Timestamp:
+              - ExtrasSnapshot leer/None.
+          - Zwischen Extras-Timestamps:
+              - Ffill-AsOf: letzter bekannter Wert wird fortgeführt.
+          - Nach dem letzten Extras-Timestamp:
+              - Letzter Wert bleibt gültig (typisches ffill), sofern in Task so
+                spezifiziert; alternativ kann ab diesem Zeitpunkt kein Extras-Wert
+                mehr geliefert werden – Entscheidung im Code klar kommentieren.
+
+acceptance:
+  - `python main.py config validate`:
+      - läuft ohne ERROR.
+      - Bei extras.enabled=false:
+          - ggf. WARN, dass Extras deaktiviert sind, aber keine Fehler.
+      - Bei extras.enabled=true und fehlenden Dateien:
+          - WARN über fehlende Files, aber keine ERRORs.
+  - `python main.py --mode sim --log-level INFO`:
+      - läuft wie zuvor ohne Exceptions, mit Logs:
+          - "EXTRAS_LOADER_DISABLED" oder
+          - "EXTRAS_ATTACHED ..." bzw. "EXTRAS_ENABLED_BUT_EMPTY ..."
+      - Bei extras.enabled=false:
+          - FeatureBundle.extras bleibt None; Strategien verhalten sich unverändert.
+  - `python main.py extras check --symbol BTCUSDT`:
+      - funktioniert weiterhin, lädt ggf. Extras für BTC (wenn vorhanden).
+  - `python main.py extras preview --symbol BTCUSDT --bars 5` (wenn Daten für BTC existieren):
+      - läuft ohne Exception.
+      - Logs zeigen je Bar eine kompakte EXTRAS_PREVIEW/EXTRAS_SNAPSHOT-Zeile
+        mit Datasets und ggf. Beispieldaten.
+  - Bei aktiviertem Extras-Merge, aber fehlenden Daten für das aktuell getestete
+    Symbol (z. B. ETHUSDT ohne Extras-Files):
+      - preview-Kommando loggt "no extras available" und endet erfolgreich.
+  - FeatureCalculators:
+      - laufen weiter stabil, auch wenn extras=None oder leer ist, weil die
+        update-Signatur Extras optional macht und Standard-Calculatoren Extras
+        ignorieren.
+
+coding_standards:
+  - Keine konkreten Code-Snippets; nur saubere, modular umsetzbare Spezifikation.
+  - Pydantic v2 für neue/erweiterte State-Modelle (ExtrasSnapshot, FeatureBundle).
+  - logging.getLogger(__name__) in allen betroffenen Modulen verwenden.
+  - Vollständige Typannotationen für neue/erweiterte Methoden.
+  - Strict Lookahead-Safety:
+      - Extras-Snapshot für Bar t darf nur Werte aus Extras-Timestamps <= t verwenden.
+      - AsOf-/ffill-Logik muss mit monotoner Zeitentwicklung des SIM-Loops harmonieren.
+  - Kein Eingriff in die Risk-/Behaviour-/Execution-Logik in diesem Task:
+      - Nur FeatureEngine, ExtrasLoader-Integration und Config/Validator.
+
+notes: >
+  Dieser Task schließt den in der Detailplanung vorgesehenen Extras-Merge:
+  Funding, Premium/Basis und Open Interest werden jetzt asof/ffill mit den
+  OHLCV-Bars verknüpft und stehen der FeatureEngine als ExtrasSnapshot zur
+  Verfügung – ohne die MarketState-Struktur zu brechen. Da deine aktuellen
+  Extras-Daten nur teilweise (z. B. BTC Oktober 2025) vorhanden sind, ist
+  Robustheit bei fehlenden Daten essenziell: das System soll immer laufen,
+  selbst wenn später weitere Extras-Dateien erst nachträglich hinzugefügt
+  werden. Echte Extras-basierte Features (z. B. funding_normalized,
+  premium_divergence, oi_trend) können in einem nachfolgenden Task als
+  zusätzliche FeatureCalculators implementiert werden.

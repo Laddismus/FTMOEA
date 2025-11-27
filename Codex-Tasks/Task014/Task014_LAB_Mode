@@ -1,0 +1,345 @@
+title: AF_TASK_014_LAB_MODE
+
+summary: >
+  Implementiere einen dedizierten LAB-Modus für AFTS-PRO, der systematisch
+  Strategie- und Parameter-Experimente auf dem bestehenden SIM-Core ausführt.
+  Der LAB-Mode soll Parameter-Sweeps (grid/random), KPI-Matrix-Erzeugung und
+  reproduzierbare Experiment-Runs ermöglichen. Ergebnisse (KPIs, Equity-Kurven,
+  Konfigurations-Snapshots) werden zentral unter runs/lab/... gespeichert.
+  LAB nutzt den existierenden Backtest/SIM-Core (event-driven Engine + StrategyBridge
+  + Risk/Behaviour + RunLogger) und verpackt ihn in eine saubere Orchestrierungsschicht
+  für Quant-Research.
+
+inputs:
+  - Name: SIM_Backtest_API
+    Beschreibung: >
+      Es existiert bereits eine Funktion/Schicht im Projekt, die für eine gegebene
+      Config einen Backtest ausführt und am Ende Artefakte wie trades.parquet,
+      equity_curve.parquet, metrics.json und config_used.yaml erzeugt.
+      Falls diese API noch nicht als Funktion gekapselt ist, soll im Rahmen von 014
+      zumindest ein minimales Interface geschaffen werden, z.B.:
+        def run_backtest(profile_name: str, overrides: dict | None = None) -> RunResult:
+            """
+            Startet einen SIM-Run mit gegebener Basis-Config (Profile) und optionalen
+            Param-Overrides (z.B. Strategy-Parameter).
+            Gibt ein RunResult-Objekt zurück mit:
+              - run_id
+              - run_path
+              - metrics (dict)
+            """
+  - Name: StrategyConfigTemplates
+    Beschreibung: >
+      Strategie-Config-Basis (z.B. ORB, EMA, ML-Strategie), die aus YAML-Files
+      oder Python-Dicts geladen wird. LAB soll diese Templates nehmen, zielgerichtet
+      Parameter überschreiben (z.B. orb.box_length, ema.fast_period) und daraus
+      Experiment-Konfigurationen ableiten. Die Templates liegen typischerweise unter
+      configs/strategies/*.yaml oder werden aus den globalen Configs herausgelesen.
+  - Name: SweepDefinitions
+    Beschreibung: >
+      Beschreibung der zu variierenden Hyperparameter. Mindestens zwei Modi:
+        - grid: kartesischer Produkt-Sweep über alle Parameterlisten
+        - random: zufällige Ziehung von Parameterkombinationen aus den definierten
+                  Wertebereichen (z.B. min/max, diskrete Sets)
+      Beispielstruktur (als YAML gedacht, aber in Python als Dict):
+        sweep:
+          type: grid
+          params:
+            orb.box_length: [10, 15, 20]
+            orb.volatility_gate: [1.0, 1.5]
+            risk.r_per_trade: [0.25, 0.5, 1.0]
+          max_experiments: 50
+  - Name: LabConfig
+    Beschreibung: >
+      Neue zentrale LAB-Konfiguration in configs/lab/lab.yaml. Definiert:
+        - default_mode: "strategy_backtest" | "risk_profile" | "rl_eval"
+        - base_profile: z.B. "sim_ftmo" oder "sim_equity"
+        - run:
+            start_date: "2024-01-01"
+            end_date: "2025-01-01"
+            symbols: ["BTCUSDT"]
+        - sweep:
+            type: "grid" oder "random"
+            params: {...}
+            max_experiments: 50
+        - metrics:
+            - "pf"
+            - "winrate"
+            - "mdd"
+            - "avg_r"
+            - "trades"
+        - output:
+            root_dir: "runs/lab"
+            save_equity: true
+            save_trades: false
+            save_kpi_matrix: true
+  - Name: MetricsCalculator
+    Beschreibung: >
+      Bereits vorhandene Metrik-Berechnungen (PF, Winrate, MDD, AvgWin/Loss, etc.)
+      aus dem RunLogger/Storage-Layer. LAB soll diese nicht neu implementieren,
+      sondern die bereits vorhandenen metrics.json / metrics-Objekte der normalen
+      Runs verwenden. Falls nötig, wird eine kleine Helper-Funktion gebaut:
+        def load_metrics(run_path: Path) -> dict: ...
+  - Name: RLTradingEnv (optional)
+    Beschreibung: >
+      Optionaler Hook: LAB soll perspektivisch nicht nur klassische Backtests
+      (Strategy-only) ausführen, sondern auch RL-Policies evaluieren können.
+      Für Task 014 reicht es, die Struktur so zu bauen, dass später ein "mode: rl_eval"
+      ergänzt werden kann, bei dem RLTradingEnv und ein Agent-Wrapper als Backend dienen.
+      Es muss aber noch kein RL-spezifischer Code implementiert werden.
+
+outputs:
+  - Datei: src/afts_pro/lab/__init__.py
+    Inhalt: >
+      Initialisiert das lab-Package und exportiert zentrale Klassen/Funktionen:
+      - LabRunner
+      - LabExperiment
+      - LabResult
+  - Datei: src/afts_pro/lab/models.py
+    Inhalt: >
+      Enthält Datenmodelle (pydantic oder dataclasses) für:
+        - LabExperiment:
+            id: str
+            name: str
+            mode: str  # "strategy_backtest", "risk_profile", ...
+            base_profile: str
+            params: dict  # flache Param-Map, z.B. {"orb.box_length": 15, "risk.r_per_trade": 0.5}
+            seed: int | None
+            meta: dict  # z.B. {"strategy": "orb", "tag": "lab_v1"}
+        - LabResult:
+            experiment_id: str
+            run_id: str
+            run_path: str
+            metrics: dict
+            params: dict
+            meta: dict
+        - LabSweepDefinition:
+            id: str
+            type: str  # "grid" | "random"
+            params: dict
+            max_experiments: int | None
+  - Datei: src/afts_pro/lab/runner.py
+    Inhalt: >
+      Implementiert die Klasse LabRunner mit mindestens:
+        class LabRunner:
+            def __init__(self, lab_config: LabConfig, sim_api: SIM_Backtest_API):
+                ...
+
+            def run_experiment(self, experiment: LabExperiment) -> LabResult:
+                """
+                - baut aus base_profile und experiment.params eine vollständige
+                  Run-Config (z.B. durch Mergen eines Override-Dicts),
+                - ruft die SIM_Backtest_API (run_backtest) mit dieser Config auf,
+                - liest anschließend metrics + Pfade aus RunResult,
+                - legt einen dedizierten LAB-Ordner an:
+                    runs/lab/{sweep_id or "single"}/experiments/{experiment.id}
+                  und schreibt dort:
+                    - experiment_config.yaml (inkl. params und base_profile)
+                    - metrics.json (Kopie aus dem Run)
+                    - symlink oder Kopie von equity.parquet (optional)
+                - gibt ein LabResult-Objekt zurück.
+                """
+
+            def run_sweep(self, sweep: LabSweepDefinition) -> list[LabResult]:
+                """
+                - generiert aus sweep.params und sweep.type eine Liste von
+                  LabExperiment-Objekten (grid oder random),
+                - führt run_experiment() für jede Param-Kombi aus,
+                - sammelt alle LabResult-Objekte in einer Liste,
+                - erzeugt am Ende optional eine KPI-Matrix (siehe kpi_matrix.py),
+                - speichert diese Matrix unter:
+                    runs/lab/{sweep.id}/kpis.parquet bzw. .csv
+                - gibt die Liste von LabResult zurück.
+                """
+  - Datei: src/afts_pro/lab/kpi_matrix.py
+    Inhalt: >
+      Helfer zum Erzeugen einer KPI-Matrix aus einer Liste von LabResult-Objekten:
+        - Funktion: build_kpi_matrix(results: list[LabResult], metrics: list[str]) -> pandas.DataFrame
+          * Jede Zeile: eine Experiment-Param-Kombination
+          * Spalten:
+              - Parameter (flattened, z.B. orb.box_length, risk.r_per_trade)
+              - KPIs: pf, winrate, mdd, trades, etc.
+        - Funktion: save_kpi_matrix(df: DataFrame, path: Path, format: "parquet" | "csv") -> None
+      Die Matrix soll später einfach in der Web-App oder in Notebooks genutzt werden können.
+  - Datei: configs/lab/lab.yaml
+    Inhalt: >
+      Zentrale LAB-Config-Datei, z.B.:
+        default_mode: "strategy_backtest"
+        base_profile: "sim_ftmo"
+        run:
+          start_date: "2024-01-01"
+          end_date: "2025-01-01"
+          symbols: ["BTCUSDT"]
+        sweep:
+          type: "grid"
+          max_experiments: 10
+          params:
+            orb.box_length: [10, 15]
+            risk.r_per_trade: [0.25, 0.5]
+        metrics:
+          - "pf"
+          - "winrate"
+          - "mdd"
+          - "trades"
+        output:
+          root_dir: "runs/lab"
+          save_equity: true
+          save_trades: false
+          save_kpi_matrix: true
+  - Datei: cli/afts_lab_cli.py
+    Inhalt: >
+      Kleiner CLI-Wrapper (argparse oder click) mit Subcommands:
+        - lab run-once
+          Argumente:
+            --config configs/lab/lab.yaml
+            --profile sim_ftmo (optional, überschreibt base_profile)
+            --params 'orb.box_length=15,risk.r_per_trade=0.5'
+          Verhalten:
+            * lädt LabConfig
+            * baut ein LabExperiment mit diesen Parametern
+            * ruft LabRunner.run_experiment()
+        - lab sweep
+          Argumente:
+            --config configs/lab/lab.yaml
+          Verhalten:
+            * lädt LabConfig
+            * extrahiert sweep-Definition
+            * erzeugt LabSweepDefinition
+            * ruft LabRunner.run_sweep()
+            * gibt nach Abschluss eine kurze KPI-Zusammenfassung auf stdout aus.
+  - Datei: tests/test_lab_runner.py
+    Inhalt: >
+      pytest-Testmodul mit:
+        - Dummy-SIM-API (Fake run_backtest), die:
+            * deterministisch eine kleine metrics-Dict zurückgibt
+            * einen "fake" run_path erzeugt
+          (keine echten großen Parquet-Dateien laden, um Tests schnell zu halten)
+        - test_single_experiment_run():
+            * erzeugt ein LabExperiment mit 1-2 Parametern
+            * ruft LabRunner.run_experiment()
+            * prüft:
+                - LabResult enthält die übergebenen params
+                - metrics ist nicht leer
+                - der Zielordner runs/lab/.../experiments/{id} existiert
+        - test_simple_grid_sweep():
+            * definiert eine 2x2 Param-Grid
+            * ruft LabRunner.run_sweep()
+            * erwartet 4 LabResult-Objekte
+            * prüft, dass KPI-Matrix generiert und gespeichert wurde
+        - test_determinism_with_seed():
+            * nutzt Fake-SIM-API mit seed
+            * ruft denselben Sweep zweimal auf (gleiche seeds & params)
+            * vergleicht, ob die KPI-Matrix identisch ist.
+
+acceptance:
+  - Single_Experiment_Run:
+      Beschreibung: >
+        Für ein einzelnes LabExperiment (z.B. ORB mit festen Parametern) muss:
+        - ein SIM-Run ausgelöst werden (über die SIM_Backtest_API),
+        - ein LabResult mit experiment_id, run_id, metrics und params zurückgegeben werden,
+        - unter runs/lab/single/experiments/{experiment_id}/ mindestens
+          experiment_config.yaml und metrics.json liegen.
+        Der Test test_single_experiment_run muss grün sein.
+  - Parameter_Sweep_FullCycle:
+      Beschreibung: >
+        Für eine grid-Sweep-Definition (z.B. 2 Parameter mit jeweils 2 Werten)
+        werden 4 Experimente erzeugt und ausgeführt.
+        Ergebnis:
+          - len(results) == 4
+          - KPI-Matrix-Datei existiert (parquet oder csv)
+          - Jede Zeile der KPI-Matrix korrespondiert zu einem LabResult.params.
+  - KPI_Consistency:
+      Beschreibung: >
+        Für einen Test-Case (mit Fake-SIM-API) sind die KPIs in LabResult.metrics
+        identisch zu dem, was die SIM_Backtest_API (RunResult) liefert.
+        Es findet kein KPI-Drift oder fehlerhafte Transformation im LAB-Layer statt.
+  - Determinismus:
+      Beschreibung: >
+        Bei fixiertem Seed und deterministischem Fake-SIM-Core sind:
+          - results_run1[i].metrics == results_run2[i].metrics
+        für alle i in der gleichen Sweep-Konfiguration.
+        Der Test test_determinism_with_seed muss das verifizieren.
+  - Config_Driven_Behaviour:
+      Beschreibung: >
+        Alle relevanten LAB-Parameter (Zeitraum, Symbole, Sweep-Typ, max_experiments,
+        zu speichernde Artefakte) sind ausschließlich über configs/lab/lab.yaml
+        und optionale Sweep-Files steuerbar.
+        Weder LabRunner noch CLI enthalten harcodierte Werte für diese Aspekte.
+  - CLI_Funktionalität:
+      Beschreibung: >
+        Der CLI-Entry-Point `python -m afts_pro.lab` bzw. ein ähnlicher Mechanismus
+        muss:
+          - `lab run-once --config ...` ohne Fehler ausführen,
+          - `lab sweep --config ...` ohne Fehler ausführen,
+          - bei `--help` sinnvolle Hilfe-Texte anzeigen.
+        Minimaler Smoke-Test (manuell oder automatisiert) ist vorgesehen.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen konsequent.
+      - Docstrings für alle öffentlichen Klassen und Methoden (englisch bevorzugt).
+      - Logging via bestehendes Logger-Setup (kein print).
+      - Keine KPI-Logik duplizieren – immer den zentralen Metrics/RunLogger nutzen.
+  - Architektur:
+      - src/afts_pro/lab/ ist ein eigenständiges Package:
+        - keine zyklischen Importe mit core/ oder sim/
+        - LabRunner spricht nur über eine API/Interface mit dem SIM-Core
+          (z.B. run_backtest-Funktion oder eine kleine Service-Klasse).
+      - Experiment-Spezifika (Params etc.) sind vollständig in LabExperiment/LabResult
+        gekapselt und nicht quer über mehrere Module verteilt.
+  - CLI:
+      - argparse reicht vollkommen; falls im Projekt schon click genutzt wird,
+        kann click verwendet werden – aber konsistent mit restlichem Codebase.
+      - Subcommands sauber strukturieren:
+        - main() -> parse_args() -> dispatch zu run_once/sweep.
+  - Tests:
+      - pytest
+      - Tests dürfen keine echten, großen Parquet-Files laden.
+      - SIM_Backtest_API wird in den Tests als Stub/Mock implementiert, um
+        Laufzeit minimal und deterministisch zu halten.
+
+notes:
+  - High-Level-Ziel:
+      - LAB ersetzt Excel-„Rumprobieren“ und Ad-hoc-Skripte durch eine
+        saubere, wiederholbare Research-Engine:
+          * Du kannst definieren:
+              - "Teste ORB mit Box 10/15/20 und Risk 0.25/0.5/1.0"
+            und LAB liefert dir:
+              - eine Tabelle mit PF, Winrate, MDD, Trades pro Parameter-Kombi
+              - dazu jeweils gespeicherte Runs, die du später im Detail analysieren kannst.
+  - Empfehlener Implementierungs-Flow (für Codex hilfreich):
+      - Schritt 1: models.py
+        * LabExperiment, LabResult, LabSweepDefinition definieren.
+      - Schritt 2: einfache util-Funktionen:
+        * generate_grid_combinations(params_dict) -> list[dict]
+        * generate_random_combinations(params_dict, n) -> list[dict]
+      - Schritt 3: runner.py
+        * LabRunner.__init__(lab_config, sim_api)
+        * LabRunner.run_experiment():
+            - Experiment-ID generieren (UUID oder slug)
+            - Overrides-Dict bauen (params → verschachtelte Config-Keys, z.B. "orb.box_length")
+            - run_backtest(profile, overrides) aufrufen
+            - RunResult verarbeiten
+            - Lab-Ordner anlegen und Files schreiben
+        * LabRunner.run_sweep():
+            - SweepDefinition → Param-Kombinationen generieren
+            - für jede Kombi ein LabExperiment anlegen
+            - run_experiment() callen
+            - Ergebnisse sammeln
+            - KPI-Matrix erstellen & speichern.
+      - Schritt 4: kpi_matrix.py
+        * DataFrame aus LabResult-Liste bauen:
+            - Parameter-Keys sortiert
+            - Metrik-Spalten aus metrics-Dict
+        * Speichern (Parquet bevorzugt).
+      - Schritt 5: CLI
+        * CLI so simpel wie möglich halten:
+            - lädt LabConfig
+            - baut LabRunner
+            - ruft run_experiment oder run_sweep auf.
+  - Zukunft (für spätere Tasks vormerken):
+      - LAB kann später RL-Policies testen:
+        * mode: "rl_eval"
+        * statt run_backtest() ruft LabRunner dann einen RL-Eval-Lauf auf,
+          der RLTradingEnv + Agent nutzt.
+      - LAB kann auch für Feature-Selection/Importance genutzt werden:
+        * Parameter wären dann z.B. Feature-Toggles oder Reward-Gewichte.

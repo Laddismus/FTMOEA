@@ -1,0 +1,11 @@
+profiles:
+  risk_default:
+    agent_type: "risk"
+    env_config: "configs/rl/env.yaml"
+    agent_config: "configs/rl/risk_agent.yaml"
+    output_root: "models/risk_agent"
+  exit_default:
+    agent_type: "exit"
+    env_config: "configs/rl/env.yaml"
+    agent_config: "configs/rl/exit_agent.yaml"
+    output_root: "models/exit_agent"

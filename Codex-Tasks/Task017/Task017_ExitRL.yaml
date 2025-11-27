@@ -1,0 +1,202 @@
+title: AF_TASK_017_EXIT_AGENT_SKELETON
+
+summary: >
+  Implementiere das Skeleton des ExitAgent – ein RL-basierter Agent,
+  der dynamische Exit-Entscheidungen trifft:
+    - SL enger ziehen (tighten)
+    - SL auf Break-even setzen
+    - Trail-Stop anwenden
+    - teilweise schließen
+    - Full Exit
+  Der ExitAgent nutzt RLTradingEnv im "exit_env"-Modus oder denselben Env
+  mit einer geänderten Action-Semantik. Für Task 017 entsteht:
+    - Policy-Skelett für Exit-Entscheidungen,
+    - Action-Space / Action-Mapping (Mehrklassig oder Continuous),
+    - Training-Loop-Integration,
+    - Save/Load-Mechanik,
+    - eine stabile API für späteres „ExitAgent → OrderBuilder“-Routing.
+  Ziel: Ein funktionaler Agent, der SL/TP/Trailing-Aktionen erzeugt,
+  aber noch keine Deep RL-Algorithmen nutzen muss. Fokus: Struktur.
+
+inputs:
+  - Name: RLTradingEnv
+    Beschreibung: >
+      Die RL-Umgebung aus Task 013.
+      Für Exit-Agent Training wird:
+        - env_type = "exit"
+        - Observation enthält mindestens:
+            * Features (ATR, Trend, Momentum, etc.)
+            * PositionState (entry price, SL, TP, MFE/MAE, unrealized PnL)
+            * RiskState (equity, DD, stage)
+        - Reward soll vor allem auf:
+            * ΔEquity (positiv)
+            * Drawdown-Vermeidung
+            * MFE-Nutzung (Belohnung für Gewinne, die man nicht verschenkt)
+            * Strafe für späte Exits (optional)
+        basieren.
+  - Name: Env_ActionSpec
+    Beschreibung: >
+      Für Exit-Agent definieren wir einen diskreten oder hybriden ActionSpace.
+      Vorschlag für v1 diskret (6 Aktionen):
+        0 = nichts tun
+        1 = SL näher setzen
+        2 = SL auf BE setzen
+        3 = SL trailen (ATR/volatility based)
+        4 = partial close (z.B. 30%)
+        5 = full close
+      Oder als continuous Outputs:
+        - tighten_strength in [0,1]
+        - trail_strength in [0,1]
+        - partial_fraction in [0,1]
+        Für Task 017 reicht diskret → simpler zu testen.
+  - Name: ExitAgentConfig
+    Beschreibung: >
+      Neue Config-Datei configs/rl/exit_agent.yaml mit:
+        action_mode: "discrete"
+        n_actions: 6
+        exploration_epsilon: 0.1
+        sl_tighten_factor: 0.2       # z.B. SL -= factor * ATR
+        partial_close_fraction: 0.3  # 30%
+        train:
+          total_episodes: 10
+          max_steps_per_episode: 500
+          batch_size: 32
+          learning_rate: 0.0005
+          gamma: 0.99
+          replay_capacity: 5000
+          log_interval: 1
+  - Name: ReplayBuffer
+    Beschreibung: >
+      ReplayBuffer aus Task 016 kann wiederverwendet werden.
+      Falls nötig, wird ein zweiter Buffer instanziiert.
+  - Name: PositionState / OrderBuilder
+    Beschreibung: >
+      ExitAgent erzeugt "ExitActions".
+      Für Task 017 wird nur das Skeleton benötigt:
+        - keine echte Order-Ausführung,
+        - nur Action-Output, Reward und Training.
+      Ein späterer Task „018 TRAIN-MODE Integration“ wird dann:
+        - ExitAgent-Actions → konkrete OrderBuilder.update() Calls mappen.
+
+outputs:
+  - Datei: src/afts_pro/rl/exit_agent.py
+    Inhalt: >
+      Enthält:
+        - ExitAgentConfig (pydantic/dataclass)
+        - ExitAgentPolicy (Decoder/Netzwerk oder Dummy-Policy)
+        - ExitAgent-Klasse mit:
+            class ExitAgent:
+                def __init__(self, config, obs_spec, action_spec):
+                    ...
+
+                def act(self, obs: np.ndarray, deterministic: bool = False) -> int:
+                    """
+                    Gibt eine diskrete Exit-Aktion zurück:
+                      0 = none
+                      1 = tighten_sl
+                      2 = move_sl_to_be
+                      3 = trail_sl
+                      4 = partial_close
+                      5 = full_close
+                    """
+
+                def train_on_batch(...): ...
+
+                def save(path: Path): ...
+
+                def load(path: Path): ...
+  - Datei: src/afts_pro/rl/exit_training.py
+    Inhalt: >
+      Training-Loop für ExitAgent ähnlich risk_training.py:
+        - train_exit_agent(env, agent, train_config)
+        - episodic returns sammeln
+        - optional Logging
+        - Save Checkpoints
+      Der Unterschied:
+        - Rewards fokussiert auf MFE→MAE Protection:
+            reward = w1*ΔEquity + w2*(MFE_used) - w3*(MAE_penalty)
+        - In Task 017 reicht Dummy-Shaping (ΔEquity – ΔDD).
+  - Datei: configs/rl/exit_agent.yaml
+    Inhalt: >
+      Standard-Konfiguration wie oben beschrieben.
+  - Datei: cli/afts_exit_train_cli.py
+    Inhalt: >
+      CLI ähnlich risk-train:
+        - exit-train --env-config configs/rl/env.yaml --agent-config configs/rl/exit_agent.yaml
+        - Training Summary speichern
+  - Datei: tests/test_exit_agent.py
+    Inhalt: >
+      Tests für:
+        - test_exit_agent_action_range:
+            * act(obs) in {0..n_actions-1}
+        - test_exit_agent_deterministic_vs_exploratory:
+            * wie beim RiskAgent
+        - test_exit_training_runs_one_episode:
+            * Dummy-Env mit fixed reward
+            * Training läuft ohne Exception
+        - test_exit_agent_save_load_roundtrip:
+            * speichern + laden → gleiche Aktion für deterministic=True
+
+acceptance:
+  - Action_Space_Stabil:
+      Beschreibung: >
+        ExitAgent.act liefert immer eine gültige diskrete Aktion.
+        Keine NaNs, keine Out-of-Bounds Werte.
+  - Policy_Semantik_Klar:
+      Beschreibung: >
+        In der Docstring ist sauber dokumentiert, wie die Actions zu interpretieren sind:
+          1 tighten_sl = SL = max(SL, close - sl_tighten_factor*ATR)
+          2 move_sl_to_be = SL = EntryPrice
+          3 trail_sl = SL = close - f(ATR, trailing_factor)
+          4 partial_close = SL/TP unverändert, aber Positionsgröße um x% reduzieren
+          5 full_close = Position komplett schließen
+  - TrainingLoop_Funktional:
+      Beschreibung: >
+        train_exit_agent kann mind. 1 Episode durchlaufen:
+          - Verwendung von env.reset() / env.step()
+          - ReplayBuffer wird befüllt
+          - agent.train_on_batch() wird ohne Fehler ausgeführt
+  - Save_Load_Robust:
+      Beschreibung: >
+        save() speichert policy+config,
+        load() lädt sie und deterministic=True → identische Aktion.
+  - CLI_Funktioniert:
+      Beschreibung: >
+        exit-train CLI läuft ohne Fehler und legt:
+          - checkpoints
+          - training_summary.json
+        im angegebenen Ordner an.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Pydantic/dataclasses für Config
+      - Logging integriert (INFO: Episode; DEBUG: Loss)
+      - Keine zyklischen Abhängigkeiten zwischen RiskAgent und ExitAgent
+  - Policy:
+      - In Task 017 genügt einfache Policy:
+          * Lookup-Table
+          * linear model
+          * Dummy-MLP
+      - Fokus: Interface und Save/Load, nicht algorithmische Perfektion
+  - Action_Mapping:
+      - Für Task 017 nur Integer-Action returnen
+      - Später in Core-Mapping modifizierbar
+  - Tests:
+      - pytest, synthetische Dummy-Envs
+      - sehr schnelle Smoke-Tests
+
+notes:
+  - Strategische Bedeutung:
+      - ExitAgent ist der Haupttreiber für:
+          * Maximierung von R-Multiple,
+          * Minimierung von MAE und Drawdown,
+          * Nutzung von MFE/Trail,
+          * Protection gegen Reversals.
+      - RiskAgent regelt die Entry-Risiko-Höhe.
+        ExitAgent regelt, wie gut wir Gewinne sichern.
+        Beide zusammen → exponentieller Performance-Hebel.
+  - Zukunft:
+      - AF_TASK_018_TRAIN_MODE_INTEGRATION
+      - AF_TASK_019_AGENT_INFERENCE_IN_LIVE_PIPELINE
+      - AF_TASK_020_MFE_AWARE_REWARD_SHAPING

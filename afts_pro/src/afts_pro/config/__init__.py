@@ -15,6 +15,8 @@ from afts_pro.config.risk_config import RiskConfig
 from afts_pro.config.strategy_config import StrategyConfig
 from afts_pro.config.global_config import global_config_summary
 from afts_pro.config.feature_config import FeatureConfig, load_feature_config
+from afts_pro.config.extras_config import ExtrasConfig, load_extras_config
+from afts_pro.config.runlogger_config import RunLoggerConfig, load_runlogger_config
 from afts_pro.config.validator import (
     run_all_validations,
     validate_assets,
@@ -22,6 +24,8 @@ from afts_pro.config.validator import (
     validate_paths,
     validate_strategies,
     validate_features,
+    validate_extras,
+    validate_runlogger,
 )
 
 __all__ = [
@@ -33,6 +37,8 @@ __all__ = [
     "EnvironmentConfig",
     "ExecutionConfig",
     "FeatureConfig",
+    "ExtrasConfig",
+    "RunLoggerConfig",
     "GlobalConfig",
     "load_global_config",
     "load_all_configs_into_global",
@@ -54,5 +60,9 @@ __all__ = [
     "validate_strategies",
     "validate_behaviour",
     "validate_features",
+    "validate_extras",
+    "validate_runlogger",
     "load_feature_config",
+    "load_extras_config",
+    "load_runlogger_config",
 ]

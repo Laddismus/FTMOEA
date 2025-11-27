@@ -1,0 +1,5 @@
+default_train_profile: "risk_default"
+logging:
+  level: "INFO"
+seed: 42
+gpu: false

@@ -1,0 +1,24 @@
+rolling:
+  window_bars: 200
+  step_bars: 50
+  metrics: ["pf", "winrate", "mdd", "avg_r", "volatility"]
+monte_carlo:
+  enabled: true
+  n_scenarios: 1000
+  horizon_trades: 200
+  sampling: "bootstrap"
+drift:
+  enabled: true
+  method: "cusum"
+  threshold_std: 2.5
+regimes:
+  enabled: true
+  n_regimes: 3
+  method: "volatility_quantiles"
+  window: 50
+output:
+  root_dir: "runs/analysis"
+  save_rolling_kpis: true
+  save_monte_carlo: true
+  save_drift: true
+  save_regimes: true

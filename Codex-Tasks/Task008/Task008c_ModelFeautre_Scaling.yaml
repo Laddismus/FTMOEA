@@ -1,0 +1,275 @@
+title: "AF_Task_008c_ModelFeature_Scaling"
+summary: >
+  Erweitere die FeatureEngine um konfigurierbare Skalierung für ModelFeatureVector:
+  'none', 'zscore' und 'minmax'. Die Roh-Features (RawFeatureState) bleiben
+  unverändert und menschenlesbar; nur der ModelFeatureVector wird transformiert.
+  Scaling-Parameter werden vollständig über YAML konfiguriert und durch den
+  Validator geprüft.
+
+inputs:
+  - project_root: "afts_pro/"
+  - feature_config_module: "src/afts_pro/config/feature_config.py"
+  - feature_engine_module: "src/afts_pro/features/engine.py"
+  - feature_state_module: "src/afts_pro/features/state.py"
+  - global_config_module: "src/afts_pro/config/global_config.py"
+  - validator_module: "src/afts_pro/config/validator.py"
+  - features_yaml: "configs/features.yaml"
+  - cli_main: "afts_pro/main.py"
+
+outputs:
+  # ---------------------------------------------------------------------------
+  # 1) FeatureConfig: Scaling klarer typisiert machen
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/config/feature_config.py
+      - import typing (Dict, Any, List, Optional, Literal), pydantic v2, logging
+      - Neue Pydantic-Modelle:
+
+        - class ZScoreScalingParams(BaseModel):
+            means: Dict[str, float] = {}
+            stds: Dict[str, float] = {}
+
+        - class MinMaxScalingParams(BaseModel):
+            mins: Dict[str, float] = {}
+            maxs: Dict[str, float] = {}
+
+        - class ModelScalingConfig(BaseModel):
+            type: Literal["none", "zscore", "minmax"] = "none"
+            params: Dict[str, Any] = {}
+              # v1: params wird im Engine-Code in passende Struktur gegossen.
+              # Optional: Helper-Methoden:
+              #   def as_zscore(self) -> Optional[ZScoreScalingParams]
+              #   def as_minmax(self) -> Optional[MinMaxScalingParams]
+
+        - Bestehende ModelFeaturesConfig anpassen:
+            - Bisher:
+                - scaling: Dict[str, Any]
+            - Neu:
+                - scaling: ModelScalingConfig = ModelScalingConfig()
+
+        - FeatureConfig entsprechend updaten (falls nötig).
+
+      - Helper-Methoden hinzufügen (optional, aber hilfreich):
+        - class ModelFeaturesConfig(BaseModel):
+            ...
+            def get_feature_order(self) -> List[str]:
+                return self.feature_order or []
+
+            def scaling_type(self) -> str:
+                return self.scaling.type
+
+  # ---------------------------------------------------------------------------
+  # 2) YAML: Beispiel-Skalierung in configs/features.yaml ergänzen
+  # ---------------------------------------------------------------------------
+  - Anpassung: configs/features.yaml
+      - model_features:
+          enabled: false         # kann später auf true gesetzt werden
+          feature_order:
+            - "close_return_1"
+            - "rolling_vol_20"
+            - "atr_14"
+            - "ema_21"
+            - "ema_50"
+            - "rsi_14"
+            - "vol_score_14"
+            - "trend_score_20"
+          scaling:
+            type: "none"
+            params:
+              # Platzhalter-Struktur für spätere Trainingspipelines:
+              zscore:
+                means:
+                  close_return_1: 0.0
+                  rolling_vol_20: 0.0
+                  atr_14: 0.0
+                  ema_21: 0.0
+                  ema_50: 0.0
+                  rsi_14: 50.0
+                  vol_score_14: 0.0
+                  trend_score_20: 0.0
+                stds:
+                  close_return_1: 0.01
+                  rolling_vol_20: 0.01
+                  atr_14: 1.0
+                  ema_21: 10.0
+                  ema_50: 10.0
+                  rsi_14: 10.0
+                  vol_score_14: 0.01
+                  trend_score_20: 0.1
+              minmax:
+                mins:
+                  close_return_1: -0.05
+                  rolling_vol_20: 0.0
+                  atr_14: 0.0
+                  ema_21: 0.0
+                  ema_50: 0.0
+                  rsi_14: 0.0
+                  vol_score_14: 0.0
+                  trend_score_20: -1.0
+                maxs:
+                  close_return_1: 0.05
+                  rolling_vol_20: 0.1
+                  atr_14: 50.0
+                  ema_21: 100_000.0
+                  ema_50: 100_000.0
+                  rsi_14: 100.0
+                  vol_score_14: 0.5
+                  trend_score_20: 1.0
+
+      # Hinweis: type bleibt "none". Diese Struktur ist nur ein Scaffold, das
+      # spätere Trainingstools überschreiben/auffüllen können.
+
+  # ---------------------------------------------------------------------------
+  # 3) FeatureEngine: Scaling anwenden auf ModelFeatureVector
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/features/engine.py
+      - In FeatureEngine.update(...):
+          - Bisher:
+              - vec = raw.to_vector(order)
+              - bei scaling.type == "none": model = ModelFeatureVector(values=vec)
+          - Neu:
+              - scaling = self.config.model_features.scaling
+              - order = self.config.model_features.get_feature_order()
+              - vec = raw.to_vector(order)   # List[float]
+
+              - if not self.config.model_features.enabled:
+                    model = None
+                else:
+                    if scaling.type == "none":
+                        scaled = vec
+                    elif scaling.type == "zscore":
+                        # Erwartet Struktur:
+                        # params["zscore"]["means"], params["zscore"]["stds"]
+                        z = scaling.params.get("zscore", {})
+                        means = z.get("means", {})
+                        stds = z.get("stds", {})
+
+                        scaled = []
+                        for i, fname in enumerate(order):
+                            v = vec[i]
+                            mean = means.get(fname, 0.0)
+                            std = stds.get(fname, 1.0)
+                            if std <= 0:
+                                scaled.append(0.0)
+                            else:
+                                scaled.append((v - mean) / std)
+
+                    elif scaling.type == "minmax":
+                        # Erwartet Struktur:
+                        # params["minmax"]["mins"], params["minmax"]["maxs"]
+                        m = scaling.params.get("minmax", {})
+                        mins = m.get("mins", {})
+                        maxs = m.get("maxs", {})
+
+                        scaled = []
+                        for i, fname in enumerate(order):
+                            v = vec[i]
+                            mn = mins.get(fname, 0.0)
+                            mx = maxs.get(fname, 1.0)
+                            if mx <= mn:
+                                scaled.append(0.0)
+                            else:
+                                s = (v - mn) / (mx - mn)
+                                # Optional clamp 0..1
+                                if s < 0.0:
+                                    s = 0.0
+                                elif s > 1.0:
+                                    s = 1.0
+                                scaled.append(s)
+
+                    else:
+                        logger.error("Unknown scaling.type '%s', falling back to raw vec", scaling.type)
+                        scaled = vec
+
+                    model = ModelFeatureVector(values=scaled)
+
+              - FeatureBundle(raw=raw, model=model) wie bisher zurückgeben.
+
+      - Logging (DEBUG):
+          - optional: bei aktivem ModelScaling:
+              - logger.debug(
+                    "MODEL_FEATURES | type=%s | order=%s | first_values=%s",
+                    scaling.type,
+                    order,
+                    scaled[:3] if model is not None else [],
+                )
+
+  # ---------------------------------------------------------------------------
+  # 4) Validator: Scaling-Struktur prüfen
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/config/validator.py
+      - In validate_features(global_config: GlobalConfig):
+          - Bisher: prüft raw_features, feature_order, bekannte calculators.
+          - Ergänze:
+
+            - mf = global_config.features.model_features
+            - order = mf.get_feature_order()
+
+            - wenn mf.enabled und mf.scaling.type == "zscore":
+                - params = mf.scaling.params.get("zscore", {})
+                - means = params.get("means", {})
+                - stds = params.get("stds", {})
+                - Für jeden fname in order:
+                    - wenn fname nicht in means oder stds:
+                        - ERROR: "Missing zscore params for feature '<fname>'"
+                - Für jedes std <= 0:
+                    - WARN: "Non-positive std for feature '<fname>' in zscore scaling"
+
+            - wenn mf.enabled und mf.scaling.type == "minmax":
+                - params = mf.scaling.params.get("minmax", {})
+                - mins = params.get("mins", {})
+                - maxs = params.get("maxs", {})
+                - Für jeden fname in order:
+                    - wenn fname nicht in mins oder maxs:
+                        - ERROR: "Missing minmax params for feature '<fname>'"
+                    - wenn maxs[fname] <= mins[fname]:
+                        - ERROR: "Invalid minmax range for feature '<fname>' (max <= min)"
+
+            - wenn mf.scaling.type == "none":
+                - keine zusätzlichen Checks nötig.
+
+      - Sicherstellen, dass run_all_validations(...) diese Fehler/Warnungen wie gewohnt sammelt und `config validate` mit Exit-Code 1 bei ERROR abbricht.
+
+  # ---------------------------------------------------------------------------
+  # 5) Config-Dump: Scaling-Status anzeigen
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/config/global_config.py
+      - global_config_summary(global_config) erweitern:
+          - "model_features_enabled": global_config.features.model_features.enabled
+          - "model_scaling_type": global_config.features.model_features.scaling.type
+
+  - Anpassung: CLI `config dump` (main.py)
+      - Im Tabellen- oder JSON-Output:
+          - die beiden neuen Keys aus der Summary mit ausgeben.
+
+acceptance:
+  - `python main.py config validate`:
+      - läuft mit default features.yaml ohne ERROR (scaling.type="none").
+  - Ändert man in configs/features.yaml:
+      - `model_features.enabled: true` und `scaling.type: "zscore"`,
+        ohne passende means/stds:
+          - `python main.py config validate` meldet ERRORs zu fehlenden zscore-Params.
+      - Trägt man passende means/stds für alle feature_order-Einträge ein:
+          - `config validate` läuft ohne ERROR.
+  - `python main.py --mode sim --log-level INFO`:
+      - läuft ohne Fehler, auch wenn model_features.enabled=false bleibt.
+  - `python main.py --mode sim --log-level DEBUG` und model_features.enabled=true:
+      - Logs zeigen u. a.:
+          - "MODEL_FEATURES | type=zscore | order=[...]" (oder minmax/none)
+  - RawFeatureState bleibt unverändert (keine Skalierung), nur ModelFeatureVector
+    wird transformiert.
+
+coding_standards:
+  - Pydantic v2 für Config-Modelle beibehalten.
+  - logging.getLogger(__name__) nutzen, keine print-Statements.
+  - Vollständige Typannotationen.
+  - Keine ML/Modell-Logik implementieren – nur Skalierung.
+  - FeatureEngine bleibt strikt lookahead-safe; Scaling verwendet nur aktuelle
+    Feature-Werte plus statische Params aus dem Config-Layer.
+
+notes: >
+  Mit diesem Task wird dein Feature-System ML-ready: Du hast jetzt eine
+  saubere Trennung zwischen RawFeatures für klassische Algo-Strategien und
+  einem ModelFeatureVector, der per zscore/minmax-Skalierung über Config/YAML
+  gesteuert wird. Spätere Trainingspipelines können means/stds oder mins/maxs
+  automatisch berechnen und in configs/features.yaml (oder in ein separates
+  Scaling-Config-File) write-backen, ohne dass du Code anfassen musst.

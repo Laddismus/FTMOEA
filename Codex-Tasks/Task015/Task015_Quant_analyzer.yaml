@@ -1,0 +1,347 @@
+title: AF_TASK_015_QUANT_ANALYZER
+
+summary: >
+  Implementiere ein zentrales Quant-Analysetool für AFTS-PRO, das auf den
+  Run-Artefakten (equity_curve.parquet, trades.parquet, metrics.json) aufsetzt.
+  Ziel ist ein wiederverwendbares Modul, das:
+    - Rolling-KPIs (PF, Winrate, MDD, Volatilität, Avg R) berechnet,
+    - Monte-Carlo-Simulationen auf Basis von Trades/Returns ausführt,
+    - Equity-/KPI-Drift über die Zeit erkennt (z.B. via CUSUM),
+    - einfache Regime-Segmente in der Equity-Kurve identifiziert
+      (z.B. "good regime", "flat", "drawdown"),
+    - Ergebnisse in strukturierter Form speichert (Parquet/JSON),
+    - per CLI und per Python-API nutzbar ist.
+  Der Quant Analyzer bildet die Grundlage fürs spätere Research-Dashboard
+  (Web UI) und für systematische Robustheits- und Stability-Analysen
+  deiner Strategien und LAB-Experimente.
+
+inputs:
+  - Name: RunArtifacts
+    Beschreibung: >
+      Standard-Artefakte eines SIM-/LAB-Runs:
+        - equity_curve.parquet:
+            Eine Tabelle mit mind.:
+              - timestamp (DatetimeIndex oder Spalte)
+              - equity (float)
+            Optional:
+              - drawdown
+              - realized_pnl
+              - unrealized_pnl
+        - trades.parquet:
+            Eine Tabelle mit trade-basierten Daten:
+              - open_time, close_time
+              - pnl (absolut)
+              - r_multiple (falls vorhanden)
+              - side, symbol, etc.
+        - metrics.json:
+            Aggregierte Kennzahlen (PF, Winrate, MDD, AvgWin/Loss, etc.),
+            wie sie bereits vom RunLogger erzeugt werden.
+      Quant Analyzer liest diese Files aus einem gegebenen run_path.
+  - Name: RunSelector
+    Beschreibung: >
+      Eine Möglichkeit, spezifische Runs auszuwählen:
+        - direkt über run_path (z.B. "runs/2025-01-10_12-00-00_orb_v1/")
+        - oder über ein kleines Indexing:
+            * run_id
+            * lab_sweep_id + experiment_id
+      In Task 015 reicht es, eine simple API zu bauen:
+        def load_run_artifacts(run_path: Path) -> RunArtifacts: ...
+      Die Integration mit LAB (z.B. alle Experimente eines Sweeps analysieren)
+      kann vorbereitet werden, muss aber nicht vollendet sein.
+  - Name: QuantConfig
+    Beschreibung: >
+      Neue Configdatei configs/analysis/quant.yaml mit:
+        rolling:
+          window_bars: 200
+          step_bars: 50
+          metrics:
+            - "pf"
+            - "winrate"
+            - "mdd"
+            - "avg_r"
+            - "volatility"
+        monte_carlo:
+          enabled: true
+          n_scenarios: 1000
+          horizon_trades: 200
+          sampling: "bootstrap" # "bootstrap" | "block"
+        drift:
+          enabled: true
+          method: "cusum"
+          threshold_std: 2.5
+        regimes:
+          enabled: true
+          n_regimes: 3
+          method: "volatility_quantiles" # einfacher Ansatz
+        output:
+          root_dir: "runs/analysis"
+          save_rolling_kpis: true
+          save_monte_carlo: true
+          save_drift: true
+          save_regimes: true
+  - Name: ExistingMetricsLogic
+    Beschreibung: >
+      Bereits vorhandene Metrik-Logik im Projekt (PF, Winrate, MDD, etc.).
+      Quant Analyzer soll – soweit möglich – auf die gleiche Logik und/oder
+      die gleichen Formeln zurückgreifen, um Differenzen zu vermeiden.
+      Falls keine dedizierten Helper existieren, können rolling KPIs im
+      Quant-Modul implementiert werden, aber konsistent zu metrics.json.
+
+outputs:
+  - Datei: src/afts_pro/analysis/__init__.py
+    Inhalt: >
+      Initialisiert das analysis-Package und exportiert die zentralen
+      Quant Analyzer Funktionen/Klassen:
+        - QuantAnalyzer
+        - RollingKpiResult, MonteCarloResult, DriftResult, RegimeResult
+  - Datei: src/afts_pro/analysis/quant_analyzer.py
+    Inhalt: >
+      Zentrales Modul mit:
+        - Datenmodelle (pydantic/dataclasses) für:
+            * RollingKpiResult
+            * MonteCarloResult
+            * DriftResult
+            * RegimeResult
+        - Klasse QuantAnalyzer:
+            class QuantAnalyzer:
+                def __init__(self, config: QuantConfig):
+                    ...
+
+                def analyze_run(self, run_path: Path) -> dict[str, Any]:
+                    """
+                    High-level Entry:
+                    - lädt equity_curve, trades, metrics
+                    - ruft rolling_kpis(), monte_carlo_analysis(),
+                      detect_drift(), detect_regimes() je nach Config auf
+                    - speichert Ergebnisse unter runs/analysis/{run_id}/...
+                    - gibt eine Ergebnis-Summary (dict) zurück
+                    """
+
+                def rolling_kpis(self, equity_df: pd.DataFrame, trades_df: pd.DataFrame) -> RollingKpiResult:
+                    """
+                    Berechnet Rolling-Kennzahlen über Fenster (z.B. 200 Bars)
+                    mit einem Schritt (step_bars).
+                    Gibt z.B. ein DataFrame mit:
+                      - start_ts, end_ts
+                      - pf, winrate, mdd, avg_r, volatility
+                    zurück.
+                    """
+
+                def monte_carlo_analysis(self, trades_df: pd.DataFrame) -> MonteCarloResult:
+                    """
+                    Führt Monte-Carlo-Simulationen durch:
+                      - Input: Liste von Trade-Returns oder R-Multiples
+                      - Sampling: bootstrap oder block-bootstrapping
+                      - Output:
+                          * Distribution von End-Equity nach horizon_trades
+                          * Kennzahlen: mean, median, p05, p95, worst_case
+                          * optional: max_dd-Verteilung
+                    """
+
+                def detect_drift(self, equity_df: pd.DataFrame) -> DriftResult:
+                    """
+                    Wendet eine einfache Drift-/Change-Detection an,
+                    z.B. CUSUM auf den Returns oder R-Equity:
+                      - identifies 'drift points' (Zeitpunkte, an denen sich
+                        die Performanz signifikant ändert)
+                      - optional: Segmentiert die Equity in Phasen mit
+                        "normal" vs. "underperforming".
+                    """
+
+                def detect_regimes(self, equity_df: pd.DataFrame) -> RegimeResult:
+                    """
+                    Mathematischer, nicht ML-basierter Regime-Ansatz:
+                      - z.B. Rolling-Volatilität und Rolling-PnL nutzen
+                      - diese Werte in Quantile aufteilen
+                      - N Regime-Klassen erzeugen (z.B. 3:
+                        0=good,1=flat,2=drawdown)
+                      - pro Timestamp einen Regime-Label übergeben.
+                    """
+  - Datei: src/afts_pro/analysis/models.py
+    Inhalt: >
+      Saubere, wiederverwendbare Datenklassen für:
+        - QuantConfig (optional bereits hier oder via pydantic & YAML-Load)
+        - RollingKpiResult:
+            * df: pd.DataFrame
+            * meta: dict
+        - MonteCarloResult:
+            * summary: dict (mean, median, p05, p95, worst_case, ...)
+            * distribution: np.ndarray oder pd.Series
+        - DriftResult:
+            * drift_points: list[pd.Timestamp]
+            * segments: list[dict]  # z.B. [{"start": ts1, "end": ts2, "label": "normal"}, ...]
+        - RegimeResult:
+            * regimes: pd.Series oder df["regime"]
+            * meta: dict (z.B. Schwellen, Methode)
+  - Datei: configs/analysis/quant.yaml
+    Inhalt: >
+      Konfigurationsdatei, wie oben bei QuantConfig beschrieben, mit
+      vernünftigen Defaults (z.B. window_bars=200, n_scenarios=1000).
+  - Datei: cli/afts_quant_cli.py
+    Inhalt: >
+      CLI-Wrapper, der es erlaubt:
+        - `quant analyze-run --run-path runs/2025-01-10_12-00-00_orb_v1`
+        - `quant analyze-lab-sweep --sweep-path runs/lab/{sweep_id}`
+          (zweiter Command darf zunächst nur einfache Dinge machen, z.B. für
+           jedes Experiment analyze_run() aufrufen und ein aggregiertes
+           Summary-File schreiben).
+      Features:
+        - lädt configs/analysis/quant.yaml
+        - baut einen QuantAnalyzer
+        - ruft analyze_run() oder eine Schleife über mehrere Runs auf
+        - schreibt am Ende eine textuelle KPI- und Monte-Carlo-Summary
+          auf stdout (z.B. PF-Bandbreite, MDD-Spanne, etc.).
+  - Datei: tests/test_quant_analyzer.py
+    Inhalt: >
+      pytest Modul mit synthetischen Daten:
+        - Erzeuge kleine equity_df und trades_df per Fixture:
+            * z.B. 1000 Bars, leicht positiv trendende Equity mit
+              ein paar Drawdowns.
+            * trades_df mit ~200 Trades, R-Multiples aus z.B. N(0.3, 1.0),
+              abgeschnitten.
+        - Tests:
+            * test_rolling_kpis_shapes:
+                - Rolling-KPI-DF hat sinnvolle Anzahl Zeilen ( abhängig von window/step)
+                - Spalten enthalten pf, winrate, mdd, avg_r, volatility
+            * test_monte_carlo_basic_stats:
+                - MonteCarloResult.summary enthält mean/median/p05/p95
+                - p05 < median < p95
+            * test_drift_detection_cusum:
+                - Baue Equity-DF mit einem klaren Bruch (z.B. nach 500 Bars
+                  von positivem Trend zu negativem)
+                - DriftResult enthält mind. einen Drift-Punkt nahe diesem Wechsel.
+            * test_regime_detection_labels:
+                - detect_regimes() liefert Label 0..(n_regimes-1)
+                - alle Labels werden verwendet
+                - optional: verify, dass starke Drawdown-Phasen als "schlechtes" Regime erkannt werden.
+
+acceptance:
+  - Rolling_KPIs_Funktional:
+      Beschreibung: >
+        Für einen realistischen Equity- und Trades-Zeitverlauf erzeugt
+        QuantAnalyzer.rolling_kpis():
+          - ein DataFrame mit Rolling-Kennzahlen
+          - diese KPI-Werte sind konsistent (z.B. PF > 1 in profitablen Phasen,
+            PF < 1 in Verlustphasen)
+          - Es gibt keine NaNs/inf in den kritischen Spalten nach Filterung
+            von unvollständigen Fenstern.
+  - Monte_Carlo_Realistisch:
+      Beschreibung: >
+        Monte-Carlo-Simulationen auf einer leicht profitablen Trade-Serie
+        liefern:
+          - median End-Equity > Start-Equity
+          - p05-Szenario nicht grotesk unrealistisch (z.B. nicht +∞, nicht NaN)
+        Die Statistiken werden sauber strukturiert in MonteCarloResult.summary
+        abgelegt und in eine Datei unter runs/analysis/{run_id}/monte_carlo.json
+        geschrieben (oder ähnlich).
+  - DriftDetection_Sensibel:
+      Beschreibung: >
+        Bei einer synthetischen Equity mit eindeutigem Drift (z.B. Wechsel
+        von Gewinn- zu Verlustphase) erkennt detect_drift mindestens einen
+        Drift-Punkt nahe der simulierten Stelle. Die Methode (z.B. CUSUM)
+        ist robust gegen alltägliches Rauschen, aber reagiert auf
+        signifikante, längerfristige Änderungen.
+  - Regime_Segmentation_Simple_But_Useful:
+      Beschreibung: >
+        detect_regimes() segmentiert die Equity-Entwicklung in n_regimes
+        anhand von Rolling-Volatilität und/oder Rolling-PnL:
+          - starke Drawdown-Phasen werden in "schlechtes" Regime gesteckt,
+          - starke Trend-/Gewinnphasen in "gutes" Regime,
+          - flache Phasen dazwischen.
+        Die Ausgabe wird in einem RegimeResult gespeichert und als zusätzliche
+        Spalte (z.B. regime:int) in einer Datei unter
+        runs/analysis/{run_id}/equity_with_regime.parquet persistiert.
+  - Full_Run_Analysis:
+      Beschreibung: >
+        QuantAnalyzer.analyze_run(run_path) ist ein One-Stop-Call, der:
+          - Artefakte lädt
+          - Rolling-KPIs, Monte-Carlo, Drift, Regime je nach Config ausführt
+          - Ergebnisse unter runs/analysis/{run_id}/ speichert
+          - eine Summary (dict) zurückgibt, z.B.:
+              {
+                "run_id": "...",
+                "rolling_kpis_path": "...",
+                "monte_carlo_summary": {...},
+                "n_drift_points": 2,
+                "regime_counts": {0: 400, 1: 300, 2: 300}
+              }
+        Ein einfacher Smoke-Test nutzt synthetische Artefakte und prüft,
+        dass der Ordner angelegt wurde und keine Exceptions fliegen.
+  - CLI_Usability:
+      Beschreibung: >
+        Der CLI-Command:
+          - `quant analyze-run --run-path ...`
+        läuft ohne Fehler durch (bei korrekten Pfaden), lädt Config,
+        erstellt QuantAnalyzer, ruft analyze_run() auf und druckt eine
+        kurze Summary (z.B. "PF=1.8, MDD=-12%, MC median +18%, 1 Drift").
+        Optionaler Command:
+          - `quant analyze-lab-sweep --sweep-path runs/lab/{sweep_id}`
+        iteriert über alle enthaltenen Experimente (subdirs) und erstellt
+        pro Experiment eine Analyse.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen.
+      - Docstrings für alle öffentlichen Methoden (englisch).
+      - Robustheit: defensive Checks (z.B. leere Trades-Liste -> MC abschalten,
+        oder Defaults).
+      - Logging:
+        * INFO: Start/Ende einer Analyse, Pfade.
+        * DEBUG: Details (z.B. Anzahl Szenarien, erkannte Driftpunkte).
+  - Numerics:
+      - Verwendung von numpy/pandas für Rolling und MC.
+      - Achte auf numerische Stabilität:
+        * Vermeide Division durch 0 (z.B. bei kleinen Rolling-Fenstern).
+        * Clipping/Masking für extreme Ausreißer optional einbauen,
+          aber in Task 015 lieber klar dokumentieren, statt aggressiv zu filtern.
+  - Struktur:
+      - src/afts_pro/analysis/avoids zyklische Abhängigkeiten:
+        * quant_analyzer.py nutzt nur IO-Helpers, keine direkten Engine-Aufrufe.
+      - Konfigurationen werden über configs/analysis/quant.yaml geladen;
+        keine Hardcodings für Fenstergrößen etc.
+  - Tests:
+      - pytest.
+      - Synthetische Daten per Fixtures, keine echten großen Run-Files.
+      - Tests sollten in <1 Sek. laufen.
+
+notes:
+  - High-Level-Use-Case:
+      - Nach einem Backtest oder LAB-Sweep sagst du:
+          "Wie stabil ist diese Strategie wirklich?"
+        → Quant Analyzer beantwortet:
+          - Wie sehen Rolling PF/Winrate/MDD aus?
+          - Wie stark variiert das Ergebnis in 1000 MC-Szenarien?
+          - Gibt es Zeitpunkte, an denen die Strategie "kippt" (Drift)?
+          - In welchen Phasen (Regimen) ist sie stark/schwach?
+  - MC-Details (Vorschlag):
+      - Nutze primär R-Multiples (falls vorhanden) statt absoluter PnL.
+      - Simuliere Equity-Pfade, indem du eine Start-Equity annimmst,
+        z.B. 1.0 oder metrics["start_equity"].
+      - Für bootstrap:
+        * ziehe horizon_trades viele R-Werte mit Zurücklegen
+        * baue Equity-Pfad: equity_{t+1} = equity_t * (1 + r_t)
+      - MC-Output:
+        * array of end_equity über alle Szenarien.
+        * optional: per-Szenario max_dd berechnen.
+  - Drift-Detection (CUSUM-Idee):
+      - Arbeite mit log-returns der Equity.
+      - CUSUM-Algorithmus mit Schwellenwert (threshold_std).
+      - Jeder "Reset" ist ein potentieller Drift-Punkt.
+      - Du kannst mit einem Parameter spielen:
+        * höherer threshold_std = weniger, aber signifikantere Drifts.
+  - Regime-Heuristik:
+      - Einfache Variante:
+        1) Berechne Rolling-Return (z.B. über 50 Bars).
+        2) Berechne Rolling-Volatilität.
+        3) Erzeuge einen Score, z.B.: score = rolling_return / rolling_volatility.
+        4) Teile score in Quantile (z.B. 0–33%, 33–66%, 66–100%):
+             - hohe Scores -> "good regime"
+             - mittlere -> "neutral"
+             - niedrige -> "bad/drawdown"
+      - Speichere Regime-Label pro Timestamp.
+  - Zukunft:
+      - Später kann Quant Analyzer:
+        * mit LAB verschränkt werden (Analyse ganzer Sweeps),
+        * ML-basierte Regime-Erkennung bekommen,
+        * Feature-Korrelationen und Sensitivitäten ausgeben.
+      - In Task 015 reicht der saubere, mathematische Grundstein.

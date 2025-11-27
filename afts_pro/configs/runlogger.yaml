@@ -1,0 +1,18 @@
+runlogger:
+  enabled: true
+  base_dir: "runs"
+  filename_patterns:
+    config_snapshot: "config_used.yaml"
+    log_capture: "logs.txt"
+    trades: "trades.parquet"
+    equity_curve: "equity_curve.parquet"
+    positions: "positions.parquet"
+    metrics: "metrics.json"
+  retention:
+    keep_last_n_runs: null
+  include:
+    config_snapshot: true
+    trades: true
+    equity_curve: true
+    positions: true
+    metrics: true

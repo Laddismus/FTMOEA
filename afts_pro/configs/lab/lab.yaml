@@ -1,0 +1,22 @@
+default_mode: "strategy_backtest"
+base_profile: "sim"
+run:
+  start_date: "2024-01-01"
+  end_date: "2025-01-01"
+  symbols: ["BTCUSDT"]
+sweep:
+  type: "grid"
+  max_experiments: 4
+  params:
+    orb.box_length: [10, 15]
+    risk.r_per_trade: [0.25, 0.5]
+metrics:
+  - "pf"
+  - "winrate"
+  - "mdd"
+  - "trades"
+output:
+  root_dir: "runs/lab"
+  save_equity: true
+  save_trades: false
+  save_kpi_matrix: true

@@ -1,0 +1,383 @@
+title: "AF_Task_010_Binance_ExtrasLoader_FullPack"
+summary: >
+  Implementiere einen konfigurierbaren ExtrasLoader für Binance-„Extras“-Daten
+  (Funding, Premium/Mark/Index, Open Interest, etc.), der die in der
+  Detailplanung beschriebenen Parquet-Strukturen liest. Die Extras werden
+  pro Symbol und Dataset als Zeitreihen (timestamp → value(s)) verfügbar
+  gemacht, jedoch noch NICHT mit OHLCV gemerged (das kommt in Task_011).
+  Der Loader hängt sauber im Config-/Profile-System, ist optional aktivierbar
+  und wird vom Validator auf Pfad-/Dataset-Konsistenz geprüft.
+
+inputs:
+  - project_root: "afts_pro/"
+  - data_dir_layout:
+      - "data/stage/{symbol}/ohlcv/YYYY-MM/*.parquet"
+      - "data/stage/{symbol}/extras/{dataset}/YYYY-MM/*.parquet"
+      - "data/final_agg/{symbol}_5T.parquet"        # aktuell genutzt
+      - "data/final/extras/{symbol}_{dataset}.parquet"  # laut Detailplan
+  - existing_data_modules:
+      - "src/afts_pro/data/parquet_feed.py"
+      - "src/afts_pro/data/market_state_builder.py"
+  - config_package: "src/afts_pro/config/"
+  - global_config_module: "src/afts_pro/config/global_config.py"
+  - profile_config_module: "src/afts_pro/config/profile_config.py"
+  - loader_module: "src/afts_pro/config/loader.py"
+  - validator_module: "src/afts_pro/config/validator.py"
+  - cli_main: "afts_pro/main.py"
+  - existing_profiles:
+      - "configs/profiles/*.yaml"
+  - existing_configs:
+      - "configs/environment.yaml"
+      - "configs/assets.yaml"
+      - "configs/execution.yaml"
+      - "configs/strategy.yaml"
+      - "configs/risk/*.yaml"
+      - "configs/behaviour/default.yaml"
+      - "configs/features.yaml"
+
+outputs:
+  # ---------------------------------------------------------------------------
+  # 1) Extras-Config (YAML + Pydantic-Modelle + Profile-Einbindung)
+  # ---------------------------------------------------------------------------
+  - Neue YAML: configs/extras.yaml
+      # Default-Konfiguration: Extras sind vorbereitet, aber noch nicht zwingend aktiv.
+      extras:
+        enabled: false          # v1: default off, um fehlende Dateien nicht zu erzwingen
+
+        base_dir: "data"        # Root-Verzeichnis, relativ zum Projektroot
+
+        # Speicherlayout nach Detailplan:
+        # data/final/extras/{symbol}_{dataset}.parquet
+        final_pattern: "final/extras/{symbol}_{dataset}.parquet"
+
+        # Optional: stage-basierte Inputs (können später für Aggregation genutzt werden)
+        stage_pattern: "stage/{symbol}/extras/{dataset}/{year}-{month}/*.parquet"
+
+        # Globale Optionen für alle Datasets
+        timezone: "UTC"
+        timestamp_column: "timestamp"   # erwartete Spalte in Extras-Parquets
+        symbol_column: "symbol"         # falls vorhanden; sonst symbol aus Config
+
+        # Datasets-Definition: welche Extras es gibt und wie sie heißen
+        datasets:
+          - name: "funding"
+            dataset_type: "funding_rate"
+            enabled: true
+            final_file_template: "{symbol}_funding.parquet"  # wird an final_pattern angehängt
+            value_columns: ["funding_rate"]
+            # optional: Spalten-Mapping von Rohparquet → standardisierte Namen
+            column_map:
+              "fundingRate": "funding_rate"
+
+          - name: "premium"
+            dataset_type: "basis"
+            enabled: true
+            final_file_template: "{symbol}_premium.parquet"
+            value_columns: ["premium_index"]
+            column_map:
+              "markPremium": "premium_index"
+
+          - name: "oi"
+            dataset_type: "open_interest"
+            enabled: true
+            final_file_template: "{symbol}_oi.parquet"
+            value_columns: ["open_interest"]
+            column_map:
+              "openInterest": "open_interest"
+
+        # Pro Symbol kann später gefiltert werden; v1: leer = alle datasets
+        symbol_overrides: {}
+
+
+  - Neue Datei: src/afts_pro/config/extras_config.py
+      - import pydantic v2, typing, logging
+      - logger = logging.getLogger(__name__)
+
+      - class ExtraDatasetConfig(BaseModel):
+            name: str
+            dataset_type: str
+            enabled: bool = True
+            final_file_template: str
+            value_columns: List[str]
+            column_map: Dict[str, str] = {}
+
+      - class ExtrasConfig(BaseModel):
+            enabled: bool = False
+            base_dir: str = "data"
+            final_pattern: str = "final/extras/{symbol}_{dataset}.parquet"
+            stage_pattern: str = "stage/{symbol}/extras/{dataset}/{year}-{month}/*.parquet"
+            timezone: str = "UTC"
+            timestamp_column: str = "timestamp"
+            symbol_column: str = "symbol"
+            datasets: List[ExtraDatasetConfig] = []
+            symbol_overrides: Dict[str, Dict[str, Any]] = {}
+
+            def get_enabled_datasets(self) -> List[ExtraDatasetConfig]:
+                return [d for d in self.datasets if d.enabled]
+
+      - Funktion: load_extras_config(path: str) -> ExtrasConfig
+            - nutzt loader.load_yaml(path)
+            - erwartet top-level key "extras"
+            - ExtrasConfig(**data["extras"])
+
+  - Anpassung: src/afts_pro/config/profile_config.py
+      - ProfileIncludes (oder vergleichbare Struktur) um extras-Feld erweitern:
+            class ProfileIncludes(BaseModel):
+                environment: str
+                execution: str
+                assets: str
+                strategy: str
+                risk: str
+                behaviour: str
+                features: str
+                extras: str          # NEU
+      - Beim Laden der Profiles (sim/ftmo/apex/equity/live_stub) sicherstellen,
+        dass extras-Pfad berücksichtigt wird.
+
+  - Anpassung: configs/profiles/*.yaml
+      # In jedem Profil die includes um extras ergänzen, z. B. sim.yaml:
+      profile:
+        name: "sim"
+        includes:
+          environment: "configs/environment.yaml"
+          execution: "configs/execution.yaml"
+          assets: "configs/assets.yaml"
+          strategy: "configs/strategy.yaml"
+          risk: "configs/risk/ftmo.yaml"
+          behaviour: "configs/behaviour/default.yaml"
+          features: "configs/features.yaml"
+          extras: "configs/extras.yaml"      # NEU
+
+
+  - Anpassung: src/afts_pro/config/global_config.py
+      - Importiere ExtrasConfig und load_extras_config.
+      - GlobalConfig um Feld erweitern:
+            class GlobalConfig(BaseModel):
+                ...
+                features: FeatureConfig
+                extras: ExtrasConfig     # NEU
+      - In load_global_config_from_profile(...):
+            - extras_dict = loader.load_yaml(includes.extras)
+            - extras_config = ExtrasConfig(**extras_dict["extras"])
+            - GlobalConfig(..., extras=extras_config)
+      - global_config_summary(...) erweitern:
+            - z. B. Keys:
+                - "extras_enabled": global_config.extras.enabled
+                - "extras_datasets": [d.name for d in global_config.extras.get_enabled_datasets()]
+
+  # ---------------------------------------------------------------------------
+  # 2) ExtrasLoader-Implementierung (Binance-FullPack aus Parquet)
+  # ---------------------------------------------------------------------------
+  - Neue Datei: src/afts_pro/data/extras_loader.py
+      - import logging, pathlib, typing
+      - import pandas as pd
+      - from . import __init__ falls nötig
+      - from afts_pro.config.extras_config import ExtrasConfig, ExtraDatasetConfig
+
+      - logger = logging.getLogger(__name__)
+
+      - class ExtrasSeries(BaseModel):
+            # Eine normalisierte Extras-Zeitreihe pro Dataset & Symbol
+            symbol: str
+            dataset: str
+            df: Any   # v1: pd.DataFrame mit Spalten: timestamp, value_columns...
+
+            class Config:
+                arbitrary_types_allowed = True
+
+      - Helper-Funktion: _build_final_path(config: ExtrasConfig, symbol: str, dataset_cfg: ExtraDatasetConfig) -> pathlib.Path
+            - nutzt:
+                base_dir = pathlib.Path(config.base_dir)
+                path_rel = config.final_pattern.format(
+                    symbol=symbol,
+                    dataset=dataset_cfg.name,
+                )
+                # falls dataset_cfg.final_file_template genutzt werden soll:
+                # path_rel = pathlib.Path("final/extras") / dataset_cfg.final_file_template.format(symbol=symbol)
+            - return base_dir / path_rel
+
+      - class ExtrasLoader:
+            def __init__(self, config: ExtrasConfig):
+                self.config = config
+
+            def load_for_symbol(self, symbol: str) -> Dict[str, ExtrasSeries]:
+                """
+                Lädt alle aktivierten Datasets für ein Symbol und gibt
+                ein Dict[dataset_name, ExtrasSeries] zurück.
+                Bei fehlenden Dateien: WARN-Log, Dataset wird übersprungen.
+                """
+                result: Dict[str, ExtrasSeries] = {}
+                if not self.config.enabled:
+                    logger.info("ExtrasLoader disabled, returning empty extras for %s", symbol)
+                    return result
+
+                for ds_cfg in self.config.get_enabled_datasets():
+                    path = _build_final_path(self.config, symbol, ds_cfg)
+                    if not path.exists():
+                        logger.warning("Extras file missing for symbol=%s dataset=%s path=%s", symbol, ds_cfg.name, path)
+                        continue
+
+                    try:
+                        df = pd.read_parquet(path)
+                    except Exception as e:
+                        logger.error("Failed to load extras for %s/%s from %s: %s", symbol, ds_cfg.name, path, e)
+                        continue
+
+                    # Spalten-Mapping
+                    if ds_cfg.column_map:
+                        df = df.rename(columns=ds_cfg.column_map)
+
+                    # Timestamp-Spalte vereinheitlichen
+                    ts_col = self.config.timestamp_column
+                    if ts_col not in df.columns:
+                        # versuche 'time' -> ts_col
+                        if "time" in df.columns:
+                            df = df.rename(columns={"time": ts_col})
+                        else:
+                            logger.error("No timestamp column found in extras %s (expected '%s')", path, ts_col)
+                            continue
+
+                    # nach Timestamp sortieren
+                    df = df.sort_values(ts_col).reset_index(drop=True)
+
+                    series = ExtrasSeries(symbol=symbol, dataset=ds_cfg.name, df=df)
+                    result[ds_cfg.name] = series
+
+                return result
+
+            def has_dataset(self, symbol: str, dataset_name: str) -> bool:
+                # einfacher Check, ob konfiguriert und Datei existiert
+                ...
+
+      - Export in src/afts_pro/data/__init__.py:
+            from .extras_loader import ExtrasLoader, ExtrasSeries
+
+
+  # ---------------------------------------------------------------------------
+  # 3) Integration in Engine/Config (noch ohne Merge in MarketState)
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/engine/engine.py
+      - Importiere ExtrasLoader und ExtrasConfig (indirekt via GlobalConfig).
+      - Beim Engine-Startup, nach Laden von GlobalConfig:
+            extras_loader = None
+            if global_config.extras.enabled:
+                extras_loader = ExtrasLoader(global_config.extras)
+                logger.info(
+                    "EXTRAS_LOADER_ENABLED | datasets=%s",
+                    [d.name for d in global_config.extras.get_enabled_datasets()],
+                )
+            else:
+                logger.info("EXTRAS_LOADER_DISABLED")
+
+      - v1: ExtrasLoader wird nur initialisiert und geloggt.
+        Es findet noch KEIN merge mit MarketState statt (das ist Task_011).
+        Optional:
+          - Für SIM-Mode: einmalig versuchen, extras für das aktuelle Asset zu laden:
+                symbol = asset_spec.symbol
+                extras_map = extras_loader.load_for_symbol(symbol) if extras_loader else {}
+                logger.debug(
+                    "EXTRAS_LOADER_SIM_INIT | symbol=%s | datasets_loaded=%s",
+                    symbol,
+                    list(extras_map.keys()),
+                )
+          - Die resultierenden ExtrasSeries können in einem Attribut geparkt werden
+            (z. B. self._extras_series), aber noch nicht benutzt.
+
+  # ---------------------------------------------------------------------------
+  # 4) Validator für Extras-Config
+  # ---------------------------------------------------------------------------
+  - Anpassung: src/afts_pro/config/validator.py
+      - Neue Funktion: validate_extras(global_config: GlobalConfig) -> List[str]
+            - msgs: List[str] = []
+            - cfg = global_config.extras
+
+            - wenn cfg.enabled is False:
+                - msgs.append("WARN: extras.enabled=false → Extras werden aktuell nicht geladen.")
+                - return msgs
+
+            - Wenn keine cfg.datasets:
+                - msgs.append("ERROR: extras.enabled=true aber keine datasets konfiguriert.")
+                - return msgs
+
+            - Namen der Datasets eindeutig?
+                - wenn Duplikate: ERROR
+
+            - Für jeden ds in cfg.get_enabled_datasets():
+                - Prüfen, ob value_columns nicht leer sind:
+                    - sonst: ERROR
+                - Optional: prüfen, ob final_path (base_dir + final_pattern/template) existieren könnte:
+                    - Wenn Pfad nicht existiert:
+                        - WARN (kein harter Fehler, da User evtl. erst später Daten bereitstellt)
+
+            - msgs zurückgeben
+
+      - In run_all_validations(...) validate_extras(global_config) aufrufen
+        und Messages wie gewohnt einbetten.
+
+  # ---------------------------------------------------------------------------
+  # 5) CLI-Unterstützung (optional, leichtgewichtiger Check)
+  # ---------------------------------------------------------------------------
+  - Anpassung: afts_pro/main.py
+      - Im bestehenden Typer-CLI eine neue Subcommand-Gruppe 'extras' ergänzen:
+
+        - `python main.py extras check --symbol ETHUSDT`
+            - Lädt Profil (sim, ftmo, ...) analog zu config validate.
+            - Baut GlobalConfig.
+            - Wenn extras.enabled=false:
+                - logge INFO und beende.
+            - sonst:
+                - ExtrasLoader initialisieren.
+                - load_for_symbol(symbol) aufrufen.
+                - INFO-Logs ausgeben:
+                    - "EXTRAS_CHECK | symbol=ETHUSDT | datasets_loaded=[...]"
+                - Exit-Code 0, auch wenn keine Dateien gefunden wurden (aber WARN in Logs).
+
+  # ---------------------------------------------------------------------------
+  # 6) Zusammenfassung / Doku-Hooks
+  # ---------------------------------------------------------------------------
+  - Optional: README/Kommentar im Code
+      - Kurz dokumentieren:
+          - Task_010 liefert NUR das Laden der Extras-Parquets (Funding, Premium, OI, ...)
+          - Task_011 wird die asof/ffill-Merge-Logik in der FeatureEngine implementieren
+            und die Daten in MarketState.extras bzw. FeatureBundle überführen.
+
+acceptance:
+  - `python main.py config validate`:
+      - läuft ohne Exceptions und ohne ERROR; extras.enabled=false → nur WARN.
+  - `python main.py config dump --format json`:
+      - gibt u. a. "extras_enabled" und "extras_datasets" in der Summary aus.
+  - `python main.py --mode sim --log-level INFO`:
+      - läuft wie zuvor durch.
+      - Logs enthalten:
+          - "EXTRAS_LOADER_DISABLED" (mit default extras.enabled=false).
+  - Wenn der User in configs/extras.yaml `extras.enabled=true` setzt und mindestens
+    einen Dataset aktiviert:
+      - `python main.py config validate`:
+          - keine ERRORs (solange value_columns gesetzt sind);
+          - ggf. WARN für fehlende Dateien.
+      - `python main.py extras check --symbol ETHUSDT`:
+          - läuft ohne Exception;
+          - loggt INFO mit geladenen Datasets (oder WARN, wenn Dateien fehlen).
+  - Engine-SIM-Run mit extras.enabled=true:
+      - startet weiterhin sauber;
+      - lädt ExtrasLoader;
+      - optionaler Debug-Log über datasets_loaded, aber KEINE Änderung an
+        MarketState/FeatureEngine (das kommt erst mit Task_011).
+
+coding_standards:
+  - Pydantic v2 für ExtrasConfig und ExtrasSeries.
+  - logging.getLogger(__name__) in allen neuen Modulen.
+  - Vollständige Typannotationen.
+  - Keine Merge-/FeatureLogik in diesem Task: ExtrasLoader kümmert sich nur um
+    das Laden und Normalisieren der Parquet-Daten (timestamp + value_columns).
+  - Speicherlayout und Namen orientieren sich streng am Detailplan
+    (data/stage/... und data/final/extras/...).
+
+notes: >
+  Dieser Task schließt die Lücke "Binance_ExtrasLoader_FullPack" aus dem
+  Detailplan: wir haben jetzt einen konfigurierbaren Loader für Funding,
+  Premium/Basis und Open Interest, der in das bestehende Config-/Profile-/CLI-
+  System eingehängt ist. Die eigentliche Integration in MarketState und die
+  FeatureEngine (asof/ffill-Merge) folgt in Task_011_FeatureEngine_asof_merge,
+  sodass du ab dann Extras direkt als Features (z. B. funding_normalized,
+  premium_percent, oi_trend) in Strategien und ML/RL nutzen kannst.

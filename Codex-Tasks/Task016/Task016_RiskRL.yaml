@@ -1,0 +1,336 @@
+title: AF_TASK_016_RISK_AGENT_SKELETON
+
+summary: >
+  Implementiere den ersten echten RL-Agenten für AFTS-PRO: den RiskAgent.
+  Der RiskAgent nimmt Observations aus dem RLTradingEnv entgegen und gibt
+  eine kontinuierliche Risk-Kontrolle zurück (z.B. Risk-Prozent des Kapitals,
+  optional Risk-On/Risk-Off-Switch).
+  In Task 016 entsteht:
+    - das Policy-Skelett (Netzwerk-Wrapper),
+    - die Action-Semantik (Mapping von continuous Action → Risk-Level),
+    - ein einfacher Training-Loop (offline, auf einem Replay-Buffer der Env),
+    - eine saubere Save/Load-Mechanik,
+    - ein Inference-Interface, das später in die Order-/Risk-Pipeline integriert
+      werden kann.
+  Ziel: Ein vollständiger, aber zunächst "dummer" (z.B. random/linear oder
+  sehr einfacher MLP) RiskAgent, der funktional alles kann:
+    train(), act(), save(), load() – aber noch nicht optimiert ist.
+
+inputs:
+  - Name: RLTradingEnv
+    Beschreibung: >
+      Die in Task 013 implementierte RL-Umgebung (RLTradingEnv),
+      die:
+        - reset()/step(action) unterstützt,
+        - Observations (Features + Position + RiskState) liefert,
+        - Reward = ΔEquity + ΔDD, etc. berechnet,
+        - Episoden im "risk_env"-Modus fahren kann.
+      RiskAgent nutzt diese Env für Training und optional Evaluation.
+  - Name: RL_Env_Config
+    Beschreibung: >
+      Der bisherige Env-Config (configs/rl/env.yaml).
+      Für den RiskAgent benötigen wir:
+        - einen Modus "env_type: risk",
+        - eine Definition des ActionSpaces für Risk:
+            * z.B. continuous in [0.0, 1.0] → später in % des Kapitals gemappt
+        - evtl. spezielle Reward-Gewichte für Risk-Training
+          (z.B. Drawdown stärker gewichten).
+  - Name: ReplayData / Trajectories (optional)
+    Beschreibung: >
+      Für Task 016 reicht es, einen simple "On-Policy"-Loop zu machen:
+        - Agent interagiert mit Env,
+        - Übergänge (s, a, r, s') werden in einer einfachen Replay-Struktur
+          gesammelt (in-memory).
+      Später können wir das auf echte Replay-Files oder persistente Buffers
+      ausbauen. Es ist aber sinnvoll, den Code schon so zu designen, dass
+      ein ReplayBuffer-Interface existiert.
+  - Name: RL_Library (approach)
+    Beschreibung: >
+      In Task 016 soll KEINE harte Abhängigkeit von einer externen RL-Bibliothek
+      wie Stable-Baselines3 oder RLlib eingebaut werden.
+      Stattdessen bauen wir:
+        - ein generisches Policy-Skelett,
+        - eine einfache interne "Algo"-Klasse, die:
+            * entweder Random Policy,
+            * oder ein sehr einfaches MLP mit z.B. PyTorch/TF (optional),
+              aber so gekapselt, dass wir später externe Algorithmen wrappen können.
+      Falls du aktuell im Projekt ohnehin PyTorch/TF verwendest, kann Codex
+      sich daran orientieren – aber in Task 016 reicht auch eine Dummy-Policy,
+      solange die Schnittstelle steht.
+
+outputs:
+  - Datei: src/afts_pro/rl/risk_agent.py
+    Inhalt: >
+      Implementiert den RiskAgent und die zugehörigen Klassen:
+        - RiskAgentConfig (pydantic/dataclass):
+            * action_mode: "continuous" | "discrete"
+            * min_risk_pct: float  # z.B. 0.1 (%)
+            * max_risk_pct: float  # z.B. 3.0 (%)
+            * exploration_epsilon: float  # für epsilon-greedy o.ä.
+            * train:
+                - total_episodes: int
+                - max_steps_per_episode: int
+                - batch_size: int
+                - learning_rate: float (falls MLP)
+                - gamma: float
+        - RiskAgent:
+            class RiskAgent:
+                def __init__(self, config: RiskAgentConfig, obs_spec: RLObsSpec, action_spec: ActionSpec):
+                    """
+                    Initialisiert den RiskAgent mit gegebener Config.
+                    Hält:
+                      - policy (Netzwerk oder einfache Funktion)
+                      - optimizer (falls nötig)
+                      - exploration-Parameter
+                    """
+
+                def act(self, obs: np.ndarray, deterministic: bool = False) -> float:
+                    """
+                    Nimmt eine Observation (1D-Array) und gibt eine Risk-Aktion
+                    zurück, z.B. in [min_risk_pct, max_risk_pct].
+                    - Bei deterministic=True: reine Policy (ohne Exploration).
+                    - Bei deterministic=False: kann Exploration (epsilon-greedy)
+                      hinzufügen.
+                    """
+
+                def train_on_batch(self, batch: dict) -> dict:
+                    """
+                    Optionaler Training-Schritt:
+                      - Input: batch mit Arrays für obs, actions, rewards, next_obs, dones.
+                      - Output: Training-Stats (loss, grad_norm, etc.) als dict.
+                    In Task 016 darf die Implementation minimal sein oder sogar
+                    ein TODO, solange die Schnittstelle stimmt.
+                    """
+
+                def save(self, path: Path) -> None:
+                    """
+                    Speichert Policy-Weights, Config und evtl. Normalizer.
+                    Z.B. als:
+                      - path / "risk_agent_config.yaml"
+                      - path / "risk_agent_weights.npz" (oder Torch/TF-File)
+                    """
+
+                def load(self, path: Path) -> None:
+                    """
+                    Lädt Policy-Weights und Config.
+                    """
+  - Datei: src/afts_pro/rl/risk_training.py
+    Inhalt: >
+      Einfacher Training-Loop, der RLTradingEnv und RiskAgent verbindet:
+        - Funktion:
+            def train_risk_agent(env: RLTradingEnv, agent: RiskAgent, train_config: TrainLoopConfig) -> TrainSummary:
+                """
+                Pseudocode:
+                  for episode in range(total_episodes):
+                      obs, info = env.reset(seed=...)
+                      for step in range(max_steps_per_episode):
+                          action = agent.act(obs)
+                          next_obs, reward, terminated, truncated, info = env.step(action)
+                          - Transition (obs, action, reward, next_obs, done) in Replay speichern
+                          - optional: agent.train_on_batch(minibatch) aufrufen
+                          obs = next_obs
+                          if terminated or truncated:
+                              break
+                  - Am Ende TrainSummary (z.B. episodic_return, episodic_dd, ...).
+                """
+        - TrainLoopConfig:
+            * total_episodes: int
+            * max_steps_per_episode: int
+            * replay_capacity: int
+            * batch_size: int
+            * log_interval: int
+            * save_every_n_episodes: int
+        - TrainSummary:
+            * episodes: int
+            * returns: list[float]
+            * mean_return: float
+            * best_return: float
+            * maybe: path_to_checkpoint_dir: str
+  - Datei: src/afts_pro/rl/replay_buffer.py
+    Inhalt: >
+      Ein einfacher ReplayBuffer für Off/On-Policy Training:
+        - Felder:
+            * obs: np.ndarray
+            * actions: np.ndarray
+            * rewards: np.ndarray
+            * next_obs: np.ndarray
+            * dones: np.ndarray
+        - Methoden:
+            * add(obs, action, reward, next_obs, done)
+            * sample(batch_size) -> dict
+        - Optional: ring-buffer Logik.
+  - Datei: configs/rl/risk_agent.yaml
+    Inhalt: >
+      Konfiguration für RiskAgent und Training:
+        action_mode: "continuous"
+        min_risk_pct: 0.1
+        max_risk_pct: 3.0
+        exploration_epsilon: 0.1
+        train:
+          total_episodes: 10        # klein halten für erste Smoke-Tests
+          max_steps_per_episode: 500
+          batch_size: 32
+          learning_rate: 0.0005
+          gamma: 0.99
+          replay_capacity: 10000
+          log_interval: 1
+          save_every_n_episodes: 5
+  - Datei: cli/afts_risk_train_cli.py
+    Inhalt: >
+      CLI-Wrapper für RiskAgent-Training:
+        - Command: `risk-train`
+          Argumente:
+            --env-config configs/rl/env.yaml
+            --agent-config configs/rl/risk_agent.yaml
+            --output-dir models/risk_agent/exp001
+          Verhalten:
+            * lädt Env-Config, baut RLTradingEnv (im "risk"-Modus),
+            * lädt Agent-Config, baut RiskAgent,
+            * ruft train_risk_agent(...) auf,
+            * speichert Checkpoints in output-dir,
+            * schreibt eine Trainings-Summary (z.B. JSON) dorthin.
+  - Datei: tests/test_risk_agent.py
+    Inhalt: >
+      pytest-Tests für:
+        - test_risk_agent_action_range:
+            * RiskAgent.act(obs) gibt einen Wert in [min_risk_pct, max_risk_pct].
+        - test_risk_agent_deterministic_vs_exploratory:
+            * Bei deterministic=True ist die Aktion für gleiche Obs stabil
+              (z.B. identisch), bei deterministic=False darf Variation auftreten
+              (z.B. durch epsilon-greedy).
+        - test_train_loop_runs_one_episode:
+            * Nutzt eine Dummy-RLTradingEnv (oder eine stark vereinfachte Stub-Env),
+              ruft train_risk_agent(...) mit wenigen Episoden/Steps auf
+              und prüft, dass:
+                - keine Exceptions fliegen
+                - TrainSummary plausible Werte enthält
+              (z.B. episodes == total_episodes).
+        - test_risk_agent_save_load_roundtrip:
+            * Agent.save(path)
+            * neuer Agent.load(path)
+            * Bei deterministic=True, gleicher Obs → gleiche Aktion (innerhalb
+              einer Toleranz, falls float-basiert).
+
+acceptance:
+  - Action_Semantik_Klar:
+      Beschreibung: >
+        RiskAgent.act(obs) liefert eine skalare Risk-Prozentzahl, die:
+          - in der Config definierten Grenzen [min_risk_pct, max_risk_pct]
+            nicht verletzt,
+          - später direkt in die Positionsgrößen-Berechnung einfließen kann
+            (z.B. risk_pct * account_equity / SL_distance).
+        Diese Logik ist dokumentiert (Docstring + Kommentare) und getestet.
+  - Env_Integration_Basic:
+      Beschreibung: >
+        train_risk_agent(...) kann mit einer RLTradingEnv-Instanz (oder Stub)
+        ausgeführt werden:
+          - env.reset() / env.step(action) werden korrekt aufgerufen,
+          - Actions des Agents werden korrekt an env.step() übergeben
+            (z.B. als float oder 1D-Array, je nach ActionSpec),
+          - Episoden enden sauber bei terminated oder truncated.
+        Ein einfacher Integrationstest (mit Dummy-Env) muss erfolgreich sein.
+  - ReplayBuffer_Funktional:
+      Beschreibung: >
+        ReplayBuffer.add(...) und .sample(batch_size) funktionieren:
+          - sample liefert Batches der erwarteten Shapes,
+          - kein IndexError, keine NaNs durch uninitialisierte Speicher,
+          - bei weniger Einträgen als batch_size wird entweder:
+              * eine Exception geworfen (klar dokumentiert),
+              * oder der Buffer passt batch_size an (Config-abhängig).
+  - Save_Load_Stabil:
+      Beschreibung: >
+        RiskAgent.save(path)/load(path) stellen sicher, dass:
+          - mindestens Config und Policy-Parameter persistiert werden,
+          - ein nach load() erzeugter Agent bei deterministic=True
+            dieselben Aktionen wie vorher liefert.
+  - TrainLoop_Usable:
+      Beschreibung: >
+        Der Training-Loop ist zwar noch kein „SOTA“-RL-Training,
+        aber:
+          - er kann mehrere Episoden durchlaufen,
+          - sammelt Transitions,
+          - ruft train_on_batch() ohne Exceptions auf (auch wenn diese
+            in Task 016 nur rudimentär implementiert ist),
+          - produziert eine sinnvolle TrainSummary.
+  - CLI_Smoke_Test:
+      Beschreibung: >
+        `risk-train --env-config ... --agent-config ... --output-dir ...`
+        läuft durch:
+          - Checkpoints im Output-Verzeichnis,
+          - eine Trainings-Summary-Datei.
+        (Für Task 016 reicht ein manueller Smoke-Test, Tests können
+         den Trainings-CLI stubben.)
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen.
+      - Pydantic oder dataclasses für Config-Objekte (RiskAgentConfig, TrainLoopConfig).
+      - Klare Trennung von:
+          * Policy-Logik (Forward-Pass)
+          * Training-Loop / Replay-Management
+          * I/O (Save/Load)
+      - Logging:
+          * INFO: Episode Start/Ende, grobe Stats,
+          * DEBUG: Batch-Loss, Weights-Updates (wenn implementiert).
+  - Policy_Implementation:
+      - In Task 016 reicht eine simple Policy:
+          * z.B. linearer Mapper: action = f(w · obs + b) → sigmoid → [0,1]
+          * und dann skaliert auf [min_risk_pct, max_risk_pct].
+      - Optional darf Codex ein kleines MLP in PyTorch/TF bauen,
+        aber sauber gekapselt:
+          - keine direkte Hard-Coupling an die Engine,
+          - spätere Austauschbarkeit gewährleistet.
+      - Wichtig: Auch ohne ML-Lib (rein NumPy) muss der Code
+        "lauffähig" bleiben (zur Not mit TODO-Kommentaren).
+  - RL_Algo:
+      - In Task 016 kannst du Q-Learning, Policy Gradient etc. noch
+        sehr simpel halten oder sogar "pseudo-training" machen.
+      - Der Fokus liegt auf:
+          * Infrastructure: act()/train()/save()/load()
+          * Schnittstelle zum Env
+          * ReplayBuffer und Training-Loop
+      - Ein späterer Task kann dann "echtes" SAC/PPO etc. nachziehen.
+  - Tests:
+      - pytest.
+      - Tests nutzen Dummy-Obs (z.B. np.zeros(obs_dim)) und eine Dummy-Env,
+        damit nichts von echten Parquet-Daten abhängt.
+      - Tests sollen schnell durchlaufen.
+
+notes:
+  - Strategisches Ziel:
+      - RiskAgent ist DER Kern für:
+          * dynamic position sizing,
+          * DD-Avoidance,
+          * Stage-Aware Risk-Control.
+      - In Task 016 geht es um:
+          * Gerüst und Integration
+          * nicht um perfekte Policy-Performance.
+      - Sobald dieser Skeleton sauber steht, können wir:
+          * echte RL-Algorithmen andocken (SAC, PPO),
+          * Hyperparameter via LAB variieren,
+          * RiskAgent-Policies per Quant Analyzer auswerten.
+  - Action-Design (Vorschlag):
+      - Continuous Output a_raw ∈ ℝ
+      - via squashing: a_norm = sigmoid(a_raw) ∈ (0,1)
+      - risk_pct = min_risk_pct + a_norm * (max_risk_pct - min_risk_pct)
+      - So kannst du später:
+          * risk_pct direkt als Prozent vom Account Equity interpretieren.
+      - Optional:
+          * discrete Mode: risk_index ∈ {0,...,N-1} → feste Stufen.
+  - Integration in AFTS-Core (später):
+      - Die Risk-Schicht kann später pro Trade:
+          * risk_pct vom Agent holen
+          * risk_pct in Positionsgröße umrechnen
+          * in die OrderBuilder-Logik durchreichen.
+      - Dafür ist wichtig, dass:
+          * RiskAgent.act(...) schnell und zustandslos (außer Policy-Params)
+            aufgerufen werden kann.
+  - Weiterer Plan (Preview):
+      - AF_TASK_017_EXIT_AGENT_SKELETON:
+          * ähnliches Pattern wie RiskAgent, aber für SL/TP/Trailing.
+      - AF_TASK_018_TRAIN_MODE_INTEGRATION:
+          * Mode "TRAIN" im Core, der:
+              - Env + Agent baut
+              - training läuft
+              - Artefakte speichert
+              - Analyse via Quant Analyzer ermöglicht.

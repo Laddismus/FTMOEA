@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 from typing import Dict, Optional
 
-from afts_pro.config.feature_config import FeatureConfig, RawFeatureDef
+from afts_pro.config.feature_config import FeatureConfig
 from afts_pro.core import MarketState
+from afts_pro.data.extras_loader import ExtrasSeries
 from afts_pro.features.base_calculator import BaseFeatureCalculator
 from afts_pro.features.simple_calculators import (
     ATRCalculator,
@@ -15,7 +16,7 @@ from afts_pro.features.simple_calculators import (
     TrendScoreCalculator,
     VolatilityScoreCalculator,
 )
-from afts_pro.features.state import FeatureBundle, ModelFeatureVector, RawFeatureState
+from afts_pro.features.state import ExtrasSnapshot, FeatureBundle, ModelFeatureVector, RawFeatureState
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,8 @@ class FeatureEngine:
     def __init__(self, config: FeatureConfig) -> None:
         self.config = config
         self.calculators: Dict[str, BaseFeatureCalculator] = {}
+        self._extras: Dict[str, ExtrasSeries] = {}
+        self._extras_cursors: Dict[str, int] = {}
         for feature_def in config.raw_features:
             calculator_cls = CALCULATOR_REGISTRY.get(feature_def.calculator)
             if not calculator_cls:
@@ -47,9 +50,50 @@ class FeatureEngine:
             self.config.model_features.enabled,
         )
 
+    def attach_extras(self, extras_by_dataset: Dict[str, ExtrasSeries]) -> None:
+        self._extras = extras_by_dataset or {}
+        self._extras_cursors = {name: 0 for name in self._extras.keys()}
+        if self._extras:
+            logger.info("FeatureEngine extras attached | datasets=%s", list(self._extras.keys()))
+        else:
+            logger.info("FeatureEngine extras attached | no datasets")
+
+    def _snapshot_extras(self, bar: MarketState) -> Optional[ExtrasSnapshot]:
+        if not self._extras:
+            return None
+        snapshot: Dict[str, Dict[str, float]] = {}
+        for ds_name, series in self._extras.items():
+            df = series.df
+            ts_column = df.columns[0]
+            cursor = self._extras_cursors.get(ds_name, 0)
+            while cursor < len(df) and pd.to_datetime(df.iloc[cursor][ts_column], utc=True) <= bar.timestamp:
+                cursor += 1
+            if cursor == 0:
+                self._extras_cursors[ds_name] = cursor
+                continue
+            use_idx = cursor - 1
+            self._extras_cursors[ds_name] = cursor
+            row = df.iloc[use_idx]
+            values: Dict[str, float] = {}
+            for col in df.columns:
+                if col == ts_column:
+                    continue
+                try:
+                    values[col] = float(row[col])
+                except Exception:
+                    continue
+            if values:
+                snapshot[ds_name] = values
+
+        if not snapshot:
+            return None
+        return ExtrasSnapshot(values=snapshot)
+
     def update(self, bar: MarketState) -> FeatureBundle:
+        extras_snapshot = self._snapshot_extras(bar)
+
         for calc in self.calculators.values():
-            calc.update(bar)
+            calc.update(bar, extras=extras_snapshot)
 
         raw_values: Dict[str, float] = {}
         for name, calc in self.calculators.items():
@@ -107,4 +151,4 @@ class FeatureEngine:
                     scaled[:3],
                 )
 
-        return FeatureBundle(raw=raw_state, model=model_vector)
+        return FeatureBundle(raw=raw_state, model=model_vector, extras=extras_snapshot)

@@ -19,6 +19,8 @@ class ProfileIncludes(BaseModel):
     risk: str
     behaviour: str
     features: str
+    extras: str
+    runlogger: str
 
     model_config = {"populate_by_name": True}
 
@@ -67,6 +69,8 @@ def get_profile_include_paths(profile_path: str) -> List[Path]:
         profile.includes.risk,
         profile.includes.behaviour,
         profile.includes.features,
+        profile.includes.extras,
+        profile.includes.runlogger,
     ]
     resolved_paths: List[Path] = []
     for inc in includes:
