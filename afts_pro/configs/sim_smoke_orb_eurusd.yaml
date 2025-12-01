@@ -1,0 +1,13 @@
+mode: "sim"
+description: "Smoke SIM run for ORB EURUSD with RL hook"
+data:
+  symbol: "EURUSD"
+  timeframe: "15m"
+  start: "2024-01-01"
+  end: "2024-01-05"
+strategy_profile_path: "configs/strategy/orb_15m_v1.yaml"
+rl:
+  use_production_models: false
+  risk_agent_path: "models/dev_smoke_train/risk/latest"
+  exit_agent_path: "models/dev_smoke_train/exit/latest"
+output_root: "artifacts/dev_smoke_sim/orb_eurusd"

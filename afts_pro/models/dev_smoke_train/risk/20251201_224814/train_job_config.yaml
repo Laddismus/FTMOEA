@@ -1,0 +1,5 @@
+agent_config_path: configs/rl/risk_agent_orb_eurusd_v1.yaml
+agent_type: risk
+env_config_path: configs/rl/env_orb_eurusd_ftmo_risk.yaml
+output_dir: models\dev_smoke_train\risk\20251201_224814
+seed: 42

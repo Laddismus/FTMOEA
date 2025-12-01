@@ -1,0 +1,10 @@
+{
+  "episodes": 2,
+  "returns": [
+    0.0,
+    0.0
+  ],
+  "mean_return": 0.0,
+  "best_return": 0.0,
+  "checkpoint_dir": "models\\dev_smoke_train\\risk\\20251201_224814"
+}

@@ -1,0 +1,34 @@
+title: "Task M0.9e – Live-Skeleton Smoke Run mit FakeBroker"
+summary: |
+  Implementiere einen kurzen Live-Skeleton-Sanity-Run auf Basis des
+  bestehenden LiveRunners und FakeBrokers. Ziel ist es, die Live-Loop
+  (Event -> Strategy/Risk -> Orders) mit einer kleinen fixen Anzahl
+  an Steps laufen zu lassen, ohne echte Broker-Anbindung.
+inputs:
+  - "Bestehende Tests: tests/test_live_mode_skeleton.py"
+  - "Kernlogik: src/afts_pro/live_runner.py (LiveRunner, o.ä.)"
+  - "Fake-Broker: src/afts_pro/broker/fake.py (FakeBroker, falls vorhanden)"
+  - "Kernmodelle/Strategie: src/afts_pro/core/models.py, src/afts_pro/core/strategy_profile.py (je nach LiveRunner-Implementierung)"
+outputs:
+  - "Neues Dev-Script: dev/smoke_live_fake.py, das:
+      1) einen LiveRunner mit FakeBroker initialisiert,
+      2) eine kleine Konfiguration für Symbol, Timeframe, Anzahl Steps etc. setzt,
+      3) die Live-Loop für z. B. 20–50 Ticks laufen lässt,
+      4) dabei wesentliche Ereignisse (Price Ticks, Decisions, Orders) im Log ausgibt"
+  - "Optional: kleines JSON/CSV-Log der simulierten Orders im dev-/smoke-Verzeichnis (z. B. artifacts/dev_smoke_live/orders.json)"
+acceptance:
+  - "pytest -q läuft weiterhin komplett grün (inkl. test_live_mode_skeleton.py)"
+  - "python dev/smoke_live_fake.py läuft durch, ohne RecursionError oder sonstige Exceptions"
+  - "Die Live-Schleife endet deterministisch nach einer fixen Anzahl von Schritten (kein Endloslauf)"
+  - "Im Log ist erkennbar, dass:
+      - der FakeBroker Ticks liefert,
+      - die Strategie/Risk-Engine Entscheidungen trifft,
+      - Orders (zumindest als Simulation) generiert/verarbeitet werden"
+coding_standards:
+  - "Keine echte Broker-Anbindung, nur Fake/Sandbox-Komponenten verwenden"
+  - "Live-Skeleton-Sanity-Run klar als DEV/SMOKE gekennzeichnet (keine Verwechslungsgefahr mit Live-Trading)"
+  - "Konfiguration im Script so kapseln, dass spätere Erweiterung (echte Broker, andere Symbole) leicht möglich ist"
+notes: |
+  Dieser Task ist der letzte Baustein für M0.9: Er zeigt, dass unser
+  Live-System von außen betrachtet „atmet“, ohne echte Orders zu senden.
+  Fokus liegt auf Stabilität und Durchgängigkeit, nicht auf Trading-Qualität.

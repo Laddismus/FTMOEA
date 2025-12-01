@@ -1,0 +1,37 @@
+title: "Task M0.9c – E2E Sim Smoke Run mit RL-Hook"
+summary: |
+  Implementiere einen End-to-End Simulations-Sanity-Run, der den e2e-Sim-Pfad
+  inklusive RL-Hook (Risk/Exit-Agent) verwendet. Der Run soll mit einer kleinen,
+  überschaubaren Config laufen und eine Equity-Kurve sowie eine einfache
+  Trade-Liste produzieren – als Basis für manuelle Checks.
+inputs:
+  - "Bestehende Tests: tests/test_e2e_acceptance_sim_rl.py"
+  - "Bestehende Tests: tests/test_interface_sim_to_storage.py"
+  - "Kernlogik: src/afts_pro/core/e2e_runner.py (E2ESimConfig, run_e2e_sim)"
+  - "Kernlogik: src/afts_pro/core/rl_hook_integration.py (integrate_rl_inference)"
+  - "Modell-Registry / Production-Model-Handling: src/afts_pro/core/model_registry_loader.py (falls vorhanden)"
+outputs:
+  - "Neue Sim-Config: configs/sim_smoke_orb_eurusd.yaml (kleines Zeitfenster, wenige Trades, referenziert ORB+RL, etablierte Profile verwenden)"
+  - "Neues Dev-Script: dev/smoke_sim_orb_eurusd.py, das:
+      1) sim_smoke_orb_eurusd.yaml lädt,
+      2) E2ESimConfig erstellt,
+      3) run_e2e_sim ausführt,
+      4) Ergebnisse (Equity-Kurve, Trades) in ein dev-/smoke-Verzeichnis schreibt"
+  - "Output-Dateien: z. B. artifacts/dev_smoke_sim/orb_eurusd/equity.csv und trades.csv (oder vergleichbares Format)"
+acceptance:
+  - "pytest -q läuft weiterhin komplett grün"
+  - "python dev/smoke_sim_orb_eurusd.py läuft durch, ohne Exception"
+  - "Nach dem Run existieren mindestens:
+      - eine Datei mit Equity-Verlauf (Zeitreihe),
+      - eine Datei mit Trade-Liste (Entry/Exit, PnL, ggf. Symbol)"
+  - "Der Sim-Run nutzt den RL-Hook (integrate_rl_inference) gemäß den Patterns in tests/test_sim_prod_mode.py"
+  - "Config und Skript sind so aufgebaut, dass sie leicht auf andere Profile/Assets erweiterbar sind (keine hartcodierten Magic-Werte, wo vermeidbar)"
+coding_standards:
+  - "Kein Überschreiben von bestehenden Backtest-/Research-Artefakten; Smoke-Sim-Ergebnisse in dedizierten dev-/smoke-Pfad schreiben"
+  - "Lesbare Struktur in sim_smoke_orb_eurusd.yaml, Kommentare zulässig, um semantische Bedeutung zu erklären"
+  - "Fehlermeldungen und Exceptions im Dev-Script möglichst abgefangen und mit verständlichen Hinweisen geloggt"
+notes: |
+  Ziel ist ein klickbarer End-to-End-Simulationslauf, der die komplette
+  Signal/Risk/Exec-Kette (in Miniatur) durchläuft. Die genauen Details der
+  Sim-Config können sich an den bestehenden Tests orientieren, müssen aber
+  möglichst stabil und reproduzierbar sein.

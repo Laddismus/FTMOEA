@@ -1,0 +1,33 @@
+title: "Task M0.9d – QA-Report und System-Gate Smoke Run"
+summary: |
+  Baue eine kleine, manuell ausführbare QA-/Gate-Sanity-Pipeline,
+  die die bestehende QA-Logik (QAReport, run_qa_suite, System Gate)
+  für einen echten Dev-Lauf verfügbar macht. Ziel ist: ein QA-Report-File
+  und ein klarer Exit-Code, um zu prüfen, ob das System für Live/Sim bereit ist.
+inputs:
+  - "Bestehende Tests: tests/test_qa_report.py"
+  - "Bestehende Tests: tests/test_system_gate.py"
+  - "Kernlogik: src/afts_pro/core/qa_report.py (run_qa_suite, QAReport)"
+  - "Kernlogik: src/afts_pro/core/system_gate.py (GatePolicy, evaluate_gate, run_gate_from_scratch)"
+outputs:
+  - "Neues Dev-Script: dev/smoke_qa_gate.py, das:
+      1) eine QAConfig mit sinnvollen Defaults erstellt (oder lädt),
+      2) run_qa_suite ausführt,
+      3) optional das Gate über GatePolicy + run_gate_from_scratch evaluiert,
+      4) einen QA-Report (z. B. qa_report.json und qa_report.html) in ein dev-/smoke-Verzeichnis schreibt"
+  - "Optional: kleiner CLI-Eintragspunkt (z. B. python -m afts_pro.tools.qa_smoke), der intern dev/smoke_qa_gate.py-Logik verwendet"
+  - "Ausgabe im Terminal: Zusammenfassung der Sections inkl. Pass/Fail-Status"
+acceptance:
+  - "pytest -q läuft weiterhin komplett grün"
+  - "python dev/smoke_qa_gate.py läuft ohne Exception durch und erzeugt QA-Report-Dateien"
+  - "Wenn alle internen Sections OK sind, beendet sich das Script mit Exit-Code 0"
+  - "Wenn mindestens eine Section bewusst simuliert fehlschlägt (z. B. über einen optionalen dev-Flag), kann ein Non-0-Exit-Code erzeugt werden (nur wenn leicht implementierbar)"
+  - "Die Struktur und Semantik der QA-Reports entspricht den Erwartungen der bestehenden Tests (test_qa_report.py, test_system_gate.py)"
+coding_standards:
+  - "QA-Smoke-Outputs klar von produktiven QA-Läufen getrennt (z. B. artifacts/dev_smoke_qa/...)"
+  - "Kein Umbau der QA-Kernlogik, nur Wiring/Glue-Code, der bestehende APIs nutzt"
+  - "Log-Ausgaben mit klaren Prefixen wie [QA-SMOKE] und [GATE] für bessere Lesbarkeit"
+notes: |
+  Dieser Task macht die QA-/Gate-Mechanik für manuelle Runs verwendbar.
+  Wichtig: Wir wollen keinen alternativen QA-Mechanismus bauen, sondern nur
+  einen benutzerfreundlichen Entry-Point für die bestehende QA- und Gate-Logik.

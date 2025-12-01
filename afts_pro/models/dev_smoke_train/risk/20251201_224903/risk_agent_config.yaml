@@ -1,0 +1,13 @@
+action_mode: continuous
+exploration_epsilon: 0.1
+max_risk_pct: 3.0
+min_risk_pct: 0.1
+train:
+  batch_size: 16
+  gamma: 0.99
+  learning_rate: 0.0005
+  log_interval: 1
+  max_steps_per_episode: 50
+  replay_capacity: 1000
+  save_every_n_episodes: 2
+  total_episodes: 2

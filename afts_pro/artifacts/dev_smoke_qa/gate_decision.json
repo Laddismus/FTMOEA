@@ -1,0 +1,5 @@
+{
+  "ready_for_live": true,
+  "failed_sections": [],
+  "report": "QAReport(sections=[QASectionResult(name='e2e_sim_rl', checks=[QACheckResult(name='e2e_sim_run_completed', passed=True, details={'num_trades': 1, 'equity_start': 10000.0, 'equity_end': 10010.0, 'run_dir': 'runs\\\\e2e_acceptance\\\\run_e2e'}), QACheckResult(name='e2e_has_trades', passed=True, details={'num_trades': 1}), QACheckResult(name='e2e_has_rl_signals', passed=True, details={'has_rl_signals': True})]), QASectionResult(name='train_smoke', checks=[QACheckResult(name='train_run_completed', passed=True, details={'episodes': 10, 'mean_return': 0.0}), QACheckResult(name='train_output_dir', passed=True, details={'output_dir': 'runs\\\\qa_train_smoke\\\\out'})]), QASectionResult(name='lab_smoke', checks=[QACheckResult(name='lab_experiment_completed', passed=True, details={'run_id': 'run_0'}), QACheckResult(name='lab_metrics_written', passed=True, details={})]), QASectionResult(name='quant_smoke', checks=[QACheckResult(name='quant_rolling_non_empty', passed=True, details={})])], generated_at=datetime.datetime(2025, 12, 1, 22, 11, 0, 828295), commit_ref=None, notes=None)"
+}
