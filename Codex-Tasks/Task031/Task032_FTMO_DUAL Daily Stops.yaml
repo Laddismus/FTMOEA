@@ -1,0 +1,273 @@
+title: AF_TASK_032_FTMO_DUAL_DAILY_STOPS_SOFT_HARD
+
+summary: >
+  Erweitere die bestehende FTMO-RiskEngine um getrennte Daily Soft/Hard Stops:
+    - Daily Soft Stop (z.B. 3 %): blockiert neue Entries, bestehende Positionen bleiben offen.
+    - Daily Hard Stop (z.B. 4 %): erzwingt sofortiges Schließen aller offenen Positionen
+      und blockiert alle weiteren Trades.
+  Ziel:
+    - Konfigurierbare Schwellenwerte in ftmo_rules.yaml.
+    - Klare Semantik in FtmoRiskEngine (soft vs. hard breach).
+    - RiskManager-Integration:
+        * Soft Stop → nur Entry-Block.
+        * Hard Stop → Force-Close-Signal in die Pipeline (Exit-Entscheidung).
+
+inputs:
+  - Name: FtmoRiskEngine (risk/ftmo_rules.py)
+    Beschreibung: >
+      Aktueller Stand:
+        - safety_daily_loss_pct (z.B. 4 %)
+        - can_open_new_trade() basiert auf safety_daily_loss_pct oder overall.
+        - Keine Unterscheidung Soft/Hard.
+      AF_TASK_032:
+        - führt separate daily_soft_stop_pct und daily_hard_stop_pct ein,
+        - implementiert zwei explizite Methoden:
+            * is_daily_soft_breached()
+            * is_daily_hard_breached()
+        - passt can_open_new_trade() an die Soft-Logik an,
+        - führt eine Methode should_force_close_all_positions() für Hard-Stop ein.
+
+  - Name: RiskManager / RiskLayer
+    Beschreibung: >
+      Aktuell:
+        - nutzt FtmoRiskEngine.can_open_new_trade(), um Entries zu blocken.
+        - kein Mechanismus für „Force Close All“.
+      AF_TASK_032:
+        - erweitert den RiskLayer um:
+            * Soft-Stop-Handling: nur Entry-Block.
+            * Hard-Stop-Handling: Flag/Signal, dass alle Positionen geschlossen werden sollen.
+        - das Force-Close-Signal muss bis in die Exit-/Exec-Schicht durchgereicht werden
+          (z.B. über Decision-Meta oder einen separaten RiskAction).
+
+outputs:
+  - Änderung: FtmoRiskConfig in risk/ftmo_rules.py
+    Inhalt: >
+      Erweitere die Config um getrennte Daily-Stop-Schwellen:
+
+        @dataclass
+        class FtmoRiskConfig:
+            initial_equity: float | None = None
+            max_daily_loss_pct: float = 5.0
+            max_overall_loss_pct: float = 10.0
+            # NEU:
+            daily_soft_stop_pct: float = 3.0   # Soft Stop: keine neuen Entries
+            daily_hard_stop_pct: float = 4.0   # Hard Stop: Force Close
+            safety_overall_loss_pct: float = 8.5
+            enforce_safety: bool = True
+            close_positions_on_breach: bool = True  # kann jetzt sinnvoll genutzt werden
+
+      Abwärtskompatibilität:
+        - safety_daily_loss_pct kann entfallen oder intern als daily_hard_stop_pct
+          weiterverwendet werden.
+        - Falls in YAML noch safety_daily_loss_pct existiert, kannst du es beim Laden
+          nach daily_hard_stop_pct mappen.
+
+  - Änderung: FtmoRiskEngine-API
+    Inhalt: >
+      Ergänze Methoden und passe Semantik an:
+
+        class FtmoRiskEngine:
+            ...
+
+            def current_daily_loss_pct(self) -> float:
+                # unverändert: (start - current) / start * 100
+
+            def is_daily_soft_breached(self) -> bool:
+                return self.current_daily_loss_pct() >= self.cfg.daily_soft_stop_pct
+
+            def is_daily_hard_breached(self) -> bool:
+                return self.current_daily_loss_pct() >= self.cfg.daily_hard_stop_pct
+
+            def can_open_new_trade(self) -> bool:
+                """
+                - Wenn enforce_safety=False → True.
+                - Sonst:
+                    * False, sobald Soft-Stop oder Hard-Stop erreicht ist.
+                    * Hard-Stop ist damit ein Superset (>= Hard ⇒ auch >= Soft).
+                """
+                if not self.cfg.enforce_safety:
+                    return True
+                if self.is_daily_soft_breached():
+                    return False
+                if self.is_overall_safety_breached():
+                    return False
+                return True
+
+            def should_force_close_all_positions(self) -> bool:
+                """
+                - True, wenn:
+                    * enforce_safety=True
+                    * close_positions_on_breach=True
+                    * Hard-Stop oder Overall-Safety verletzt sind
+                """
+                if not self.cfg.enforce_safety or not self.cfg.close_positions_on_breach:
+                    return False
+                if self.is_daily_hard_breached():
+                    return True
+                if self.is_overall_safety_breached():
+                    return True
+                return False
+
+  - Änderung: configs/risk/ftmo_rules.yaml
+    Inhalt: >
+      Ergänze die neuen Felder:
+
+        initial_equity: null
+        max_daily_loss_pct: 5.0
+        max_overall_loss_pct: 10.0
+        daily_soft_stop_pct: 3.0
+        daily_hard_stop_pct: 4.0
+        safety_overall_loss_pct: 8.5
+        enforce_safety: true
+        close_positions_on_breach: true
+
+      Hinweis:
+        - max_daily_loss_pct bleibt für Info/Analyzer interessant,
+          aber primär steuern daily_soft_stop_pct / daily_hard_stop_pct das Verhalten.
+
+  - Änderung: RiskManager-Integration (core/risk_manager.py oder ähnlich)
+    Inhalt: >
+      Erweitere RiskManager um Soft/Hard-Stop-Handling:
+
+        class RiskManager:
+            def evaluate_entry(self, decision: StrategyDecision, account: AccountState, now: datetime) -> StrategyDecision:
+                # 1) FTMO-State updaten (on_new_equity)
+                if self.ftmo_engine is not None:
+                    self.ftmo_engine.ensure_initialized(equity=account.equity, now=now)
+                    self.ftmo_engine.on_new_equity(equity=account.equity, realized_pnl=account.realized_pnl, now=now)
+
+                    # Meta-Infos ergänzen
+                    decision.meta["ftmo_daily_loss_pct"] = self.ftmo_engine.current_daily_loss_pct()
+                    decision.meta["ftmo_overall_loss_pct"] = self.ftmo_engine.current_overall_loss_pct()
+
+                    # 2) Soft Stop: keine neuen Trades
+                    if not self.ftmo_engine.can_open_new_trade():
+                        decision.is_entry = False
+                        decision.meta["ftmo_blocked"] = True
+
+                    # 3) Hard Stop: Force Close All (wird weiter unten/anders verarbeitet)
+                    if self.ftmo_engine.should_force_close_all_positions():
+                        decision.meta["ftmo_force_flatten"] = True
+
+                # weitere RiskGuards...
+
+                return decision
+
+      Wichtig:
+        - Soft-Stop wird über is_entry=False umgesetzt.
+        - Hard-Stop kommunizieren wir über ein Meta-Feld „ftmo_force_flatten“,
+          damit die Exit-/Exec-Schicht darauf reagieren kann.
+
+  - Änderung: Exit-/Exec-Integration (OrderBuilder / Engine)
+    Inhalt: >
+      Erweitere Exec-Schicht, um auf das Hard-Stop-Signal zu reagieren:
+
+        - Im Engine-Schritt, bevor Orders gebaut werden:
+            * Prüfen, ob es offene Positionen gibt.
+            * Wenn decision.meta.get("ftmo_force_flatten") == True:
+                - Ignoriere neue Entries vollständig.
+                - Erzeuge für jede offene Position:
+                    * einen Full-Close-Exit (OrderSpec Exit/Close).
+        - ExitPolicy kann optional einen speziellen Exit-Grund setzen, z.B.:
+            * meta["exit_reason"] = "ftmo_hard_stop"
+
+      Für AF_TASK_032 reicht:
+        - eine schlanke Implementierung, die:
+            * bei ftmo_force_flatten:
+                - sicherstellt, dass close-Orders gebaut werden,
+                - im Test nachweisbar ist, dass ALLE Positionen geschlossen würden.
+
+  - Datei: tests/test_ftmo_dual_daily_stops.py
+    Inhalt: >
+      Neue Tests für Soft/Hard-Stop-Logik:
+
+        - test_soft_stop_blocks_new_entries_but_does_not_force_close:
+            * daily_soft_stop_pct=3.0, daily_hard_stop_pct=4.0
+            * current_daily_loss_pct=3.1
+            * can_open_new_trade() == False
+            * should_force_close_all_positions() == False
+
+        - test_hard_stop_triggers_force_close:
+            * current_daily_loss_pct=4.1
+            * should_force_close_all_positions() == True
+
+        - test_overall_safety_also_triggers_force_close:
+            * current_overall_loss_pct=9.0 (>= safety_overall_loss_pct)
+            * should_force_close_all_positions() == True
+
+  - Datei: tests/test_risk_manager_ftmo_soft_hard_integration.py
+    Inhalt: >
+      Integration mit RiskManager & Exec:
+
+        - test_soft_stop_sets_block_flag_but_no_force_flatten:
+            * FtmoRiskEngine.is_daily_soft_breached() → True
+            * is_daily_hard_breached() → False
+            * evaluate_entry(...):
+                - decision.is_entry == False
+                - decision.meta["ftmo_blocked"] == True
+                - "ftmo_force_flatten" nicht gesetzt
+
+        - test_hard_stop_sets_force_flatten_flag:
+            * FtmoRiskEngine.should_force_close_all_positions() → True
+            * evaluate_entry(...):
+                - decision.meta["ftmo_force_flatten"] == True
+
+        - test_engine_creates_exit_orders_on_force_flatten:
+            * Setup:
+                - AccountState mit 2 offenen Positionen.
+                - Decision.meta["ftmo_force_flatten"] == True
+            * Engine-Step:
+                - ruft OrderBuilder/Exec auf
+            * Assertions:
+                - es entstehen zwei Exit-Orders (Full-Close),
+                - keine neuen Entry-Orders.
+
+acceptance:
+  - Soft/Hard-Stop sauber getrennt:
+      Beschreibung: >
+        FtmoRiskEngine stellt klar getrennte Methoden bereit:
+          - is_daily_soft_breached()
+          - is_daily_hard_breached()
+          - can_open_new_trade()
+          - should_force_close_all_positions()
+        Tests belegen die korrekte Semantik (3 %/4 % Beispiel).
+
+  - RiskManager reagiert differenziert:
+      Beschreibung: >
+        Soft Stop (≥ daily_soft_stop_pct):
+          - blockiert nur neue Entries (decision.is_entry=False),
+          - setzt decision.meta["ftmo_blocked"]=True.
+        Hard Stop (≥ daily_hard_stop_pct oder ≥ safety_overall_loss_pct):
+          - setzt decision.meta["ftmo_force_flatten"]=True,
+          - Ein späterer Exec-Schritt erzeugt Flatten-Orders für alle offenen Positionen.
+
+  - Exec-Schicht unterstützt Force-Flat:
+      Beschreibung: >
+        Bei gesetztem "ftmo_force_flatten":
+          - werden für alle offenen Positionen Exit-Orders erzeugt,
+          - keine weiteren Entries mehr erlaubt.
+        Tests zeigen, dass bei Hard-Stop tatsächlich ein „ALLES ZU“-Verhalten entsteht.
+
+  - Konfigurierbar & rückwärtskompatibel:
+      Beschreibung: >
+        - daily_soft_stop_pct und daily_hard_stop_pct kommen aus ftmo_rules.yaml.
+        - Falls nur ein „altes“ Feld vorhanden ist, wird es sinnvoll gemappt.
+        - use_ftmo_risk=false → FTMO-Regeln greifen nicht, Verhalten wie bisher.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für Config/State
+  - Architektur:
+      - FtmoRiskEngine bleibt eine reine Regel-/State-Maschine.
+      - RiskManager und Engine interpretieren die Flags (blocked/force_flatten).
+      - Kein direkter Broker-Code in der RiskEngine (weiterhin SIM/LIVE-agnostisch).
+  - Tests:
+      - pytest
+      - Alle neuen Tests deterministisch & schnell (kein echter Zeitverlauf außer fixen datetime-Werten).
+
+notes:
+  - Erweiterungen später:
+      - Differenzierte Stops pro Asset / Strategie.
+      - Daily-Soft/Hard-Stops kombiniert mit „Session-Stops“ (z.B. pro London/NY-Session).
+      - Visualisierung im QA-/Dashboard (z.B. „Daily Soft Stop triggered at 10:32 UTC“).

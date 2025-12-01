@@ -1,0 +1,8 @@
+enable_e2e: true
+enable_train_smoke: true
+enable_lab_smoke: true
+enable_quant_smoke: true
+enable_pytest_smoke: false
+pytest_args:
+  - "-q"
+  - "tests/test_e2e_acceptance_sim_rl.py"

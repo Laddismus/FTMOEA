@@ -1,0 +1,18 @@
+profile_name: "sim_e2e_acceptance"
+description: "Small RL-enabled SIM run for E2E acceptance"
+data:
+  symbol: "TEST_ASSET"
+  start: "2024-01-01"
+  end: "2024-01-03"
+  timeframe: "M5"
+strategy_profile: "baseline_v1"
+use_risk_agent: true
+use_exit_agent: true
+use_position_sizer: true
+use_exit_policy: true
+rl_agents:
+  risk_path: "models/risk_agent/test_e2e"
+  exit_path: "models/exit_agent/test_e2e"
+position_sizer_config: "configs/exec/position_sizer.yaml"
+exit_policy_config: "configs/exec/exit_policy.yaml"
+output_root: "runs/e2e_acceptance"

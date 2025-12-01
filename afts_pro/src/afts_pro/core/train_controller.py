@@ -58,17 +58,28 @@ class TrainController:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         if job_cfg.agent_type == "risk":
-            agent_cfg = RiskAgentConfig(**yaml.safe_load(Path(job_cfg.agent_config_path).read_text()))
+            raw_cfg = yaml.safe_load(Path(job_cfg.agent_config_path).read_text()) or {}
+            raw_cfg.pop("n_actions", None)
+            agent_cfg = RiskAgentConfig(**raw_cfg)
             agent = RiskAgent(agent_cfg, obs_spec=obs_spec, action_spec=ActionSpec(action_type="continuous", shape=(1,)))
-            train_cfg = TrainLoopConfig()
+            train_kwargs = {}
+            if isinstance(agent_cfg.train, dict):
+                allowed = {"total_episodes", "max_steps_per_episode", "replay_capacity", "batch_size", "log_interval", "save_every_n_episodes"}
+                train_kwargs = {k: v for k, v in agent_cfg.train.items() if k in allowed}
+            train_cfg = TrainLoopConfig(**train_kwargs)
             summary = train_risk_agent(env, agent, train_cfg, checkpoint_dir=output_dir)
             episodes = summary.episodes
             mean_ret = summary.mean_return
             best_ret = summary.best_return
         elif job_cfg.agent_type == "exit":
-            agent_cfg = ExitAgentConfig(**yaml.safe_load(Path(job_cfg.agent_config_path).read_text()))
+            raw_cfg = yaml.safe_load(Path(job_cfg.agent_config_path).read_text()) or {}
+            agent_cfg = ExitAgentConfig(**{k: v for k, v in raw_cfg.items() if k in ExitAgentConfig().__dict__ or k in {"action_mode", "n_actions", "exploration_epsilon", "sl_tighten_factor", "partial_close_fraction", "train"}})
             agent = ExitAgent(agent_cfg, obs_spec=obs_spec, action_spec=ActionSpec(action_type="discrete", num_actions=agent_cfg.n_actions))
-            train_cfg = ExitTrainConfig()
+            train_kwargs = {}
+            if isinstance(agent_cfg.train, dict):
+                allowed = {"total_episodes", "max_steps_per_episode", "replay_capacity", "batch_size", "log_interval", "save_every_n_episodes"}
+                train_kwargs = {k: v for k, v in agent_cfg.train.items() if k in allowed}
+            train_cfg = ExitTrainConfig(**train_kwargs)
             summary = train_exit_agent(env, agent, train_cfg, checkpoint_dir=output_dir)
             episodes = summary.episodes
             mean_ret = summary.mean_return

@@ -1,0 +1,223 @@
+title: AF_TASK_030_ORB_PIPELINE_INTEGRATION_AND_SIM_SMOKE
+
+summary: >
+  Integriere die ORB 15m Strategy vollständig in die bestehende StrategyBridge-/Pipeline
+  und stelle sicher, dass ein SIM-Run mit dem ORB-Profile end-to-end funktioniert.
+  Ziel:
+    - StrategyBridge kann ORB-Profile über Config laden und nutzen.
+    - ORB-Entscheidungen (Entry/SL/TP) fließen bis in PositionSizer und OrderBuilder.
+    - Es gibt ein dediziertes SIM-Profil für ORB (sim_orb_15m) mit Smoke-Test.
+    - Optional: ORB-Profile können für LAB-/Train-Profile referenziert werden.
+
+inputs:
+  - Name: ORBStrategy & ORB-Config
+    Beschreibung: >
+      Bereits vorhanden:
+        - configs/strategy/orb_15m_v1.yaml
+        - ORBStrategy (core/strategy_orb.py)
+        - Komponententests (test_strategy_orb_component.py)
+      AF_TASK_030 baut darauf auf und
+        - hängt ORBStrategy in StrategyBridge/StrategyEngine ein,
+        - sorgt dafür, dass StrategyBridge aus einer StrategyProfile-Config
+          die richtige Strategy-Instanz erzeugt.
+
+  - Name: StrategyBridge / StrategyEngine
+    Beschreibung: >
+      Die bestehende Strategy-Schicht erzeugt StrategyDecisions.
+      AF_TASK_030:
+        - erweitert diese, sodass sie StrategyProfile-Configs kennt,
+        - ORBStrategy als konkreten Strategie-Typ behandeln kann,
+        - aber generell profilbasiert bleibt (keine harte ORB-Verkabelung).
+
+  - Name: SIM-/Mode-Config (sim_orb_15m.yaml)
+    Beschreibung: >
+      Vorhandenes SIM-Profil:
+        - configs/modes/sim_orb_15m.yaml
+      AF_TASK_030:
+        - schärft dieses Profil,
+        - stellt sicher, dass:
+            * strategy_profile auf ORB-Config zeigt,
+            * RL-/Risk-/Exit-/Sizer-Fahnen sinnvoll gesetzt sind,
+            * Output-Pfade definiert sind.
+
+outputs:
+  - Änderung: StrategyProfile-Lader (z.B. src/afts_pro/core/strategy_config.py)
+    Inhalt: >
+      Stelle sicher, dass du:
+        - StrategyProfileConfig aus YAML (z.B. orb_15m_v1.yaml) laden kannst,
+        - anhand eines Felds wie `profile_type` oder der Präsenz der Sektion `orb`
+          entscheidest, welche konkrete Strategy-Klasse zu instanzieren ist.
+
+      Beispiel:
+        # Pseudocode
+
+        @dataclass
+        class StrategyProfileConfig:
+            name: str
+            symbol: str
+            timeframe: str
+            session: SessionConfig
+            orb: ORBConfig | None = None
+            sl_tp: SLTPConfig
+            filters: FilterConfig
+            # später weitere Strategie-Typen (trend, range, smc, ...)
+
+        def load_strategy_profile(path: str) -> StrategyProfileConfig:
+            # YAML laden und in StrategyProfileConfig gießen
+
+  - Änderung: StrategyBridge (z.B. src/afts_pro/core/strategy_bridge.py)
+    Inhalt: >
+      StrategyBridge soll:
+        - im Konstruktor eine StrategyProfileConfig entgegennehmen (anstatt
+          nur einfache Parameter),
+        - eine oder mehrere Strategy-Instanzen erzeugen (für AF_TASK_030 reicht eine ORBStrategy),
+        - in on_bar(...) / process_bar(...) die richtige Strategie aufrufen.
+
+      Beispiel (stark vereinfacht):
+
+        class StrategyBridge:
+            def __init__(self, profile: StrategyProfileConfig):
+                self.profile = profile
+                if profile.orb is not None:
+                    self.strategy = ORBStrategy(profile.orb)
+                else:
+                    raise ValueError("Unsupported strategy profile")
+
+            def on_bar(self, ctx: StrategyContext) -> StrategyDecision:
+                return self.strategy.on_bar(ctx)
+
+      Anforderungen:
+        - StrategyBridge bleibt erweiterbar für weitere Strategietypen.
+        - ORB ist eine Ausprägung, kein Sonderfall im restlichen Code.
+
+  - Änderung: SIM-Engine / Mode-Dispatcher (z.B. src/afts_pro/core/engine.py, src/afts_pro/cli/afts_sim_cli.py)
+    Inhalt: >
+      Stelle sicher, dass:
+        - SIM-Mode-Config (z.B. sim_orb_15m.yaml) ein Feld `strategy_profile_path`
+          oder ähnlich hat:
+              strategy_profile_path: "configs/strategy/orb_15m_v1.yaml"
+        - Engine/Mode-Dispatcher:
+            * YAML lädt,
+            * load_strategy_profile(...) aufruft,
+            * StrategyBridge mit diesem Profile instanziiert,
+            * StrategyBridge in die Pipeline einspeist.
+
+      Beispiel:
+
+        profile_cfg = load_strategy_profile(sim_cfg.strategy_profile_path)
+        strategy_bridge = StrategyBridge(profile_cfg)
+        engine = Engine(strategy=strategy_bridge, ...)
+
+  - Update: configs/modes/sim_orb_15m.yaml
+    Inhalt: >
+      Schärfe das bestehende SIM-Profil, z.B.:
+
+        profile_name: "sim_orb_15m"
+        description: "SIM run for ORB 15m baseline strategy"
+        data:
+          symbol: "EURUSD"
+          timeframe: "M15"
+          start: "2024-01-01"
+          end: "2024-01-10"
+        strategy_profile_path: "configs/strategy/orb_15m_v1.yaml"
+        use_risk_agent: true
+        use_exit_agent: true
+        use_position_sizer: true
+        use_exit_policy: true
+        rl_agents:
+          risk_path: "models/risk_agent/orb_test"
+          exit_path: "models/exit_agent/orb_test"
+        output_root: "runs/sim/orb_15m"
+
+      Für AF_TASK_030 reicht ein kurzer Zeitraum (z.B. 5–10 Tage) als Smoke-SIM.
+
+  - Datei: tests/test_interface_orb_to_pipeline.py
+    Inhalt: >
+      Interface-Test, der den gesamten Weg prüft:
+        ORBStrategy → StrategyBridge → RL → PositionSizer → OrderBuilder
+
+      Beispieltests:
+
+        - test_orb_breakout_flows_to_order_builder:
+            * Setup:
+                - Lade StrategyProfileConfig für orb_15m_v1.
+                - Erzeuge StrategyBridge(profile).
+                - Erzeuge Engine/Pipeline-Stub, die:
+                    * StrategyBridge nutzt,
+                    * RLInferenceHook via Dummy-Risk/Exit-Agent,
+                    * PositionSizer mit einfachen Parametern,
+                    * OrderBuilder, der Orders zurückgibt.
+                - Füttere 2–3 synthetische 15m-Bars:
+                    * Bar1 = ORB-Range (high/low)
+                    * Bar2 = Breakout (close über RangeHigh+Buffer).
+            * Assertions:
+                - StrategyDecision.is_entry == True
+                - side == "long"
+                - sl_price & tp_price gesetzt
+                - PositionSizer wurde aufgerufen (z.B. via Spy/Mock)
+                - OrderBuilder hat einen Entry-Order erzeugt (size > 0).
+
+        - test_orb_respects_filters_in_pipeline:
+            * z.B. allow_long=false → trotz Long-Breakout kein Entry in Pipeline.
+
+  - Optional: Update QA/E2E, um ORB als Szenario zu nutzen
+    Inhalt: >
+      Du kannst (optional) in:
+        - E2E-SIM-Config (sim_e2e_acceptance.yaml) oder
+        - QA-Suite
+      eine Variante aufnehmen, die den ORB-Profile-SIM als zusätzlichen Check nutzt
+      (z.B. als weiterer Testcase oder LAB-Scenario).
+      Für AF_TASK_030 ist das optional – Fokus liegt auf Pipeline-Integration + einem
+      gezielten ORB-Pipeline-Test.
+
+acceptance:
+  - StrategyBridge unterstützt ORB-Profile:
+      Beschreibung: >
+        StrategyBridge kann ein StrategyProfileConfig laden, ORBStrategy instanzieren
+        und on_bar(...) mit ORB-Logik bedienen.
+        Bei orb_15m_v1.yaml entsteht eine ORBStrategy, bei anderen Profilen
+        bleibt die Struktur erweiterbar.
+
+  - ORB-Entscheidungen erreichen Execution-Schicht:
+      Beschreibung: >
+        test_interface_orb_to_pipeline zeigt:
+          - ORB-Breakout → StrategyDecision.is_entry=True,
+          - RiskAgent/PositionSizer → effective_risk_pct & position_size gesetzt,
+          - OrderBuilder → konkreter Entry-Order (mit size, sl, tp).
+
+  - sim_orb_15m.yaml lauffähig:
+      Beschreibung: >
+        Ein kurzer SIM-Run mit sim_orb_15m.yaml:
+          - bricht nicht ab,
+          - erzeugt (bei passenden Daten) ORB-Trades,
+          - schreibt Artefakte nach runs/sim/orb_15m.
+        Für AF_TASK_030 reicht ein Minimal-Smoke (z.B. via bestehenden SIM-Smoketest oder
+        manuelles Ausführen).
+
+  - Tests grün:
+      Beschreibung: >
+        - test_strategy_orb_component.py (bestehend) bleibt grün.
+        - test_interface_orb_to_pipeline.py verifiziert die Integration.
+        - Alle bisherigen QA/E2E-/Interface-Tests sind weiterhin grün.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für StrategyProfileConfig, ORBConfig, SessionConfig etc.
+  - Architektur:
+      - StrategyBridge ist generisch profilbasiert:
+          * kennt nicht nur „ORB“, sondern verarbeitet generisch StrategyProfileConfig.
+          * ORBStrategy ist eine konkrete Implementierung.
+      - Die restliche Pipeline (Risk, RL, Sizer, Exit, Orders) bleibt unverändert –
+        sie arbeitet mit StrategyDecision, egal welche Strategy dahinter steckt.
+  - Tests:
+      - pytest
+      - Synthetische OHLC-Sequenzen für ORB-Tests (deterministisch & klein).
+      - Keine echten Marktdaten nötig für AF_TASK_030.
+
+notes:
+  - Nächster sinnvoller Schritt (wenn 030 fertig):
+      - Task 031: Zweite Strategie (z.B. Trendfolger H4/M15) oder
+      - Task 031: FTMO-Risk-Engine-Skeleton (exakte FTMO-Regeln in RiskLayer)
+      - oder ein **Statusbericht 2**, der Implementierungsphase 2 inkl. Live-Skeleton,
+        ORB, RL & QA zusammenfasst und die nächsten Evolutionsstufen definiert.

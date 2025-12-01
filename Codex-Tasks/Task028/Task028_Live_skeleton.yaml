@@ -1,0 +1,416 @@
+title: AF_TASK_028_LIVE_MODE_SKELETON
+
+summary: >
+  Implementiere einen sauberen LIVE-Mode-Skeleton, der dieselbe Pipeline wie der SIM-Mode nutzt,
+  aber über einen Broker-Client arbeitet (Abstraktion), in einem kontinuierlichen Loop läuft
+  und optional das System-Gate (QA) als Vorbedingung prüft.
+  Ziel:
+    - LIVE-Loop-Runner mit klarer Architektur (Engine + LiveRunner).
+    - Broker-Interface mit FakeBroker für Tests.
+    - Live-Mode-Config + CLI.
+    - Keine echte Broker-API / kein Echtgeld – nur Skeleton & Stubs.
+  Fokus:
+    - Saubere Architektur, Wiederverwendung der bestehenden Engine-Komponenten.
+    - Optionaler Gate-Check („ready_for_live“) vor Start des LIVE-Modus.
+
+inputs:
+  - Name: SIM Engine & Pipeline
+    Beschreibung: >
+      Der bestehende SIM-Mode (engine/engine.py, core/e2e_runner.py, etc.) enthält:
+        - StrategyBridge, RiskManager, RLInferenceHook, PositionSizer, ExitPolicy, OrderBuilder, ExecutionSIM.
+      Diese Komponenten sollen im LIVE-Mode wiederverwendet werden, nur:
+        - Marktdaten kommen vom Broker-Client (statt von Offline-Daten),
+        - Orders werden über Broker-Client ausgeführt (statt ExecutionSIM),
+        - LiveRunner verwaltet einen kontinuierlichen Loop.
+
+  - Name: System-Gate & QA-Suite
+    Beschreibung: >
+      AF_TASK_026/027 liefern:
+        - QAReport + run_qa_suite(...)
+        - System-Gate (evaluate_gate, run_gate_from_scratch, load_latest_report)
+      LIVE-Skeleton soll optional:
+        - vor Start einen Gate-Check machen:
+            * wenn GatePolicy-Grenzen nicht erfüllt → Live-Start verweigern.
+        - Diese Prüfung muss abschaltbar/konfigurierbar sein (z.B. für Dev-/Testmodus).
+
+outputs:
+  - Datei: src/afts_pro/broker/base.py
+    Inhalt: >
+      Broker-Interface-Definitionen:
+
+        from dataclasses import dataclass
+        from typing import Protocol, Literal
+
+        Side = Literal["long", "short"]
+
+        @dataclass
+        class LivePrice:
+            symbol: str
+            bid: float
+            ask: float
+            timestamp: float  # epoch seconds
+
+        @dataclass
+        class LivePosition:
+            symbol: str
+            size: float
+            entry_price: float
+            side: Side
+            sl_price: float | None = None
+            tp_price: float | None = None
+
+        @dataclass
+        class LiveOrderResult:
+            order_id: str
+            status: Literal["accepted", "rejected"]
+            reason: str | None = None
+
+        class BrokerClient(Protocol):
+            """
+            Minimal interface for live trading.
+            Real Broker-Implementierungen (MT5, Bybit, etc.) werden später implementiert.
+            """
+
+            def get_price(self, symbol: str) -> LivePrice: ...
+            def get_position(self, symbol: str) -> LivePosition | None: ...
+            def send_entry_order(
+                self, symbol: str, side: Side, size: float, sl: float | None, tp: float | None
+            ) -> LiveOrderResult: ...
+            def send_exit_order(
+                self, symbol: str, size: float
+            ) -> LiveOrderResult: ...
+            def modify_sl_tp(
+                self, symbol: str, sl: float | None, tp: float | None
+            ) -> LiveOrderResult: ...
+
+  - Datei: src/afts_pro/broker/fake.py
+    Inhalt: >
+      Simple FakeBroker-Implementierung für Tests & Dev:
+
+        import time
+        from dataclasses import dataclass, field
+        from .base import BrokerClient, LivePrice, LivePosition, LiveOrderResult, Side
+
+        @dataclass
+        class FakeBrokerState:
+            prices: dict[str, LivePrice] = field(default_factory=dict)
+            positions: dict[str, LivePosition] = field(default_factory=dict)
+            next_order_id: int = 1
+
+        class FakeBroker(BrokerClient):
+            def __init__(self, state: FakeBrokerState | None = None):
+                self.state = state or FakeBrokerState()
+
+            def get_price(self, symbol: str) -> LivePrice:
+                # Falls kein Preis gesetzt ist, Default erzeugen (z.B. 100.0)
+                price = self.state.prices.get(symbol)
+                if price is None:
+                    now = time.time()
+                    price = LivePrice(symbol=symbol, bid=100.0, ask=100.5, timestamp=now)
+                    self.state.prices[symbol] = price
+                return price
+
+            def get_position(self, symbol: str) -> LivePosition | None:
+                return self.state.positions.get(symbol)
+
+            def send_entry_order(self, symbol: str, side: Side, size: float, sl: float | None, tp: float | None) -> LiveOrderResult:
+                # Naiver „Market Fill“: Position direkt anlegen / addieren
+                price = self.get_price(symbol)
+                entry = price.ask if side == "long" else price.bid
+                pos = self.state.positions.get(symbol)
+                if pos is None:
+                    pos = LivePosition(symbol=symbol, size=size, entry_price=entry, side=side, sl_price=sl, tp_price=tp)
+                else:
+                    # size addieren (vereinfachtes Modell)
+                    total_size = pos.size + size
+                    avg_price = (pos.entry_price * pos.size + entry * size) / total_size
+                    pos.size = total_size
+                    pos.entry_price = avg_price
+                    if sl is not None:
+                        pos.sl_price = sl
+                    if tp is not None:
+                        pos.tp_price = tp
+                self.state.positions[symbol] = pos
+                oid = f"FAKE-{self.state.next_order_id}"
+                self.state.next_order_id += 1
+                return LiveOrderResult(order_id=oid, status="accepted")
+
+            def send_exit_order(self, symbol: str, size: float) -> LiveOrderResult:
+                pos = self.state.positions.get(symbol)
+                if pos is None:
+                    return LiveOrderResult(order_id="NA", status="rejected", reason="no_position")
+                remaining = pos.size - size
+                if remaining <= 0:
+                    self.state.positions.pop(symbol, None)
+                else:
+                    pos.size = remaining
+                oid = f"FAKE-{self.state.next_order_id}"
+                self.state.next_order_id += 1
+                return LiveOrderResult(order_id=oid, status="accepted")
+
+            def modify_sl_tp(self, symbol: str, sl: float | None, tp: float | None) -> LiveOrderResult:
+                pos = self.state.positions.get(symbol)
+                if pos is None:
+                    return LiveOrderResult(order_id="NA", status="rejected", reason="no_position")
+                if sl is not None:
+                    pos.sl_price = sl
+                if tp is not None:
+                    pos.tp_price = tp
+                oid = f"FAKE-{self.state.next_order_id}"
+                self.state.next_order_id += 1
+                return LiveOrderResult(order_id=oid, status="accepted")
+
+  - Datei: src/afts_pro/core/live_runner.py
+    Inhalt: >
+      Live-Mode Runner / Skeleton:
+
+        from dataclasses import dataclass
+        from pathlib import Path
+        from typing import Optional
+        import time
+
+        from afts_pro.broker.base import BrokerClient, LivePrice, LivePosition
+        from afts_pro.core.system_gate import GatePolicy, QAConfig, run_gate_from_scratch, load_latest_report, evaluate_gate
+        from afts_pro.core.engine import LiveEngine  # oder Engine mit Live-Unterstützung / StrategyPipeline-Teil
+
+        @dataclass
+        class LiveConfig:
+            symbol: str
+            poll_interval_sec: float
+            max_steps: int | None  # Für Tests limitierbar; None = unendlich
+            use_system_gate: bool
+            gate_mode: str  # "run" (QA neu) oder "from-last"
+            qa_config_path: str
+            gate_policy_path: str
+            # später erweiterbar (Session-Fenster, Logging, etc.)
+
+        class LiveRunner:
+            def __init__(self, config: LiveConfig, broker: BrokerClient, engine: "LiveEngine"):
+                self.config = config
+                self.broker = broker
+                self.engine = engine
+
+            def check_gate(self) -> bool:
+                if not self.config.use_system_gate:
+                    return True
+                # GatePolicy + QAConfig laden
+                qa_cfg = QAConfig.from_yaml(self.config.qa_config_path)
+                policy = GatePolicy.from_yaml(self.config.gate_policy_path)
+                if self.config.gate_mode == "run":
+                    decision = run_gate_from_scratch(qa_cfg, policy)
+                else:
+                    report_dir = Path("runs/qa")
+                    report = load_latest_report(report_dir)
+                    if report is None:
+                        return False
+                    decision = evaluate_gate(report, policy)
+                return decision.ready_for_live
+
+            def run(self):
+                # 1) Optionalen Gate-Check
+                if not self.check_gate():
+                    # Logging: Gate failed → kein LIVE-Start
+                    # (statt print: logger verwenden, falls vorhanden)
+                    raise RuntimeError("System gate not satisfied. LIVE mode aborted.")
+
+                steps = 0
+                while self.config.max_steps is None or steps < self.config.max_steps:
+                    # 2) Preis & Position vom Broker holen
+                    price: LivePrice = self.broker.get_price(self.config.symbol)
+                    pos: LivePosition | None = self.broker.get_position(self.config.symbol)
+
+                    # 3) State in Engine/Pipeline einspeisen (MarketState/AccountState-Abbild)
+                    #    LiveEngine sollte daraus StrategyDecision + Orders ableiten.
+                    orders = self.engine.process_live_tick(price=price, position=pos)
+
+                    # 4) Orders über Broker ausführen
+                    for o in orders:
+                        # o könnte z.B. ein Enum/Dataclass sein (Entry/Exit/Modify)
+                        # Hier wird nur die Skeleton-Integration angedeutet:
+                        if o.kind == "entry":
+                            self.broker.send_entry_order(
+                                symbol=o.symbol, side=o.side, size=o.size, sl=o.sl, tp=o.tp
+                            )
+                        elif o.kind == "exit":
+                            self.broker.send_exit_order(symbol=o.symbol, size=o.size)
+                        elif o.kind == "modify":
+                            self.broker.modify_sl_tp(symbol=o.symbol, sl=o.sl, tp=o.tp)
+
+                    steps += 1
+                    time.sleep(self.config.poll_interval_sec)
+
+      Hinweis:
+        - LiveEngine kann entweder:
+            * eine dünne Wrapperklasse um die bestehende Engine/Pipeline sein,
+            * oder Engine.process_live_tick(...) implementieren,
+              um aus LivePrice/LivePosition → StrategyDecision + Orders zu generieren.
+        - In Task 028 reicht ein Skeleton mit minimalem LiveEngine-Stub und Tests.
+
+  - Datei: configs/modes/live.yaml
+    Inhalt: >
+      Beispiel-Live-Config:
+
+        symbol: "EURUSD"
+        poll_interval_sec: 1.0
+        max_steps: 10                 # für Dev/Test; in echter Live-Config evtl. null
+        use_system_gate: true
+        gate_mode: "from-last"        # oder "run"
+        qa_config_path: "configs/qa/qa.yaml"
+        gate_policy_path: "configs/qa/gate_policy.yaml"
+        # später: broker_type, credentials_path, etc.
+
+  - Datei: src/afts_pro/cli/afts_live_cli.py
+    Inhalt: >
+      CLI für LIVE-Skeleton:
+
+        - Command: `afts-live`
+        - Flags:
+            * --config configs/modes/live.yaml
+            * --broker "fake" (später: "mt5", "bybit", ...)
+        - Verhalten:
+            * LiveConfig aus YAML laden.
+            * BrokerClient instanziieren (für "fake": FakeBroker()).
+            * LiveEngine/Engine für Live-Mode instanziieren.
+            * LiveRunner(config, broker, engine).run() aufrufen.
+        - Für Task 028 reicht:
+            * FakeBroker,
+            * ein minimaler LiveEngine-Stub, der KEINE echte Broker-API nutzt.
+
+  - Datei: src/afts_pro/core/live_engine.py (optional, falls noch nicht existiert)
+    Inhalt: >
+      Minimaler LiveEngine-Wrapper, der die bestehende Pipeline nutzt:
+
+        from dataclasses import dataclass
+        from afts_pro.broker.base import LivePrice, LivePosition
+
+        @dataclass
+        class LiveOrder:
+            kind: str        # "entry" | "exit" | "modify"
+            symbol: str
+            side: str | None = None
+            size: float | None = None
+            sl: float | None = None
+            tp: float | None = None
+
+        class LiveEngine:
+            def __init__(self, core_engine: "Engine", symbol: str):
+                self.core_engine = core_engine
+                self.symbol = symbol
+
+            def process_live_tick(self, price: LivePrice, position: LivePosition | None) -> list[LiveOrder]:
+                """
+                1) Preis/Position in MarketState/AccountState „übersetzen“
+                2) StrategyPipeline (Strategy + Risk + RL + Exec) aufrufen
+                   mit einem „Bar/Tick“-Äquivalent (z.B. synthetische 1-Tick-Bar)
+                3) Aus StrategyDecision/OrderSpecs -> LiveOrder-Liste ableiten
+                Für Task 028 darf diese Logik stark vereinfacht/stubbed sein.
+                """
+                # Stub: im Skeleton nur leere Liste zurückgeben oder
+                # einen Dummy-Order für Tests generieren.
+                return []
+
+  - Datei: tests/test_live_mode_skeleton.py
+    Inhalt: >
+      Tests für LiveRunner + FakeBroker + Gate-Integration (ohne echte Broker-APIs):
+
+        - test_live_runner_runs_n_steps_with_fake_broker(monkeypatch):
+            * LiveConfig mit:
+                - symbol="TEST"
+                - poll_interval_sec=0.0
+                - max_steps=3
+                - use_system_gate=False
+            * FakeBroker()
+            * Dummy-LiveEngine, dessen process_live_tick(...) pro Tick z.B. 1 Dummy-Order zurückgibt.
+            * LiveRunner(config, broker, engine).run()
+            * Assertions:
+                - FakeBroker.send_entry_order wurde 3x aufgerufen
+                  (z.B. via monkeypatch/MagicMock).
+                - Keine Exception.
+
+        - test_live_runner_respects_gate(monkeypatch):
+            * LiveConfig.use_system_gate=True
+            * monkeypatch check_gate() oder run_gate_from_scratch/evaluate_gate
+              so, dass ready_for_live=False zurückgeben.
+            * Erwartung:
+                - LiveRunner.run() wirft RuntimeError oder
+                  bricht sauber ab, ohne in die Loop zu gehen.
+
+        - test_live_runner_uses_gate_from_last_report(monkeypatch, tmp_path):
+            * Erzeuge einen Dummy-QAReport in runs/qa als JSON.
+            * load_latest_report(...) gibt diesen Report zurück.
+            * GatePolicy so, dass ready_for_live=True.
+            * LiveRunner.run() läuft durch (z.B. max_steps=1).
+            * Sicherstellen, dass kein QA-Neurunsch stattfindet, wenn gate_mode="from-last".
+
+        - test_live_engine_process_live_tick_contract():
+            * Dummy-CoreEngine/Strategy:
+                - process_live_tick(...) ruft interne Pipeline,
+                  generiert 1 Dummy-Entry-Order.
+            * Preis + Position übergeben.
+            * Assertions:
+                - Rückgabe ist list[LiveOrder]
+                - Felder (kind, symbol, size, side) sind konsistent.
+
+acceptance:
+  - Live-Skeleton vorhanden:
+      Beschreibung: >
+        Es existieren:
+          - Broker-Interface (BrokerClient) + FakeBroker,
+          - LiveConfig + live.yaml,
+          - LiveRunner, der in einem Loop:
+              * Preis/Position vom Broker holt,
+              * Engine/Pipeline aufruft,
+              * Orders über Broker ausführt,
+          - CLI `afts-live` zum Starten.
+
+  - Gate-Integration optional:
+      Beschreibung: >
+        LiveRunner.check_gate() verwendet:
+          - QAConfig + GatePolicy,
+          - run_gate_from_scratch(...) oder latest QAReport,
+        um ready_for_live zu bestimmen.
+        Wenn use_system_gate=True und ready_for_live=False:
+          - LiveRunner.run() startet nicht (wirft RuntimeError o.Ä.).
+        Wenn use_system_gate=False:
+          - LiveRunner.run() startet ohne Gate-Check.
+
+  - Kein echter Broker/kein Echtgeld:
+      Beschreibung: >
+        Für Task 028 werden nur:
+          - FakeBroker,
+          - Dummy-/Stub-LiveEngine,
+        verwendet.
+        Keine echten Netzwerkcalls, keine echte API, keine echten Credentials.
+        Tests nutzen ausschließlich FakeBroker und synthetische Daten.
+
+  - Tests decken Kernfälle ab:
+      Beschreibung: >
+        test_live_mode_skeleton.py prüft:
+          - dass der Loop begrenzt (max_steps) durchläuft,
+          - dass FakeBroker-Operationen aufgerufen werden,
+          - dass Gate-Blockierungen korrekt wirken,
+          - dass LiveEngine-Schnittstelle (process_live_tick → LiveOrder) konsistent ist.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für LiveConfig, LiveOrder, Broker-Entities
+  - Architektur:
+      - LiveRunner ist dünne Koordinationsebene:
+          * keine tiefen Handelsentscheidungen,
+          * delegiert an Engine/Pipeline.
+      - BrokerClient ist abstrahiert; echte Broker-Implementierungen kommen später
+        in eigenen Modulen (z.B. broker/mt5.py, broker/bybit.py).
+      - System-Gate-Integration ist optional und über Config steuerbar.
+  - Tests:
+      - pytest
+      - Keine Abhängigkeit zu realen Files/Systemen (außer QAReport-JSON im tmp_path).
+      - time.sleep in Tests via monkeypatch/override auf 0 reduzieren (performant).
+
+notes:
+  - Zukunft:
+      - In späteren Tasks:
+          * echte Broker-Clients (MT5, Bybit, etc.) implementieren,
+          * LiveEngine mit echter Mapping-Logik (MarketState/AccountState) füllen,
+          * Live-Risk-Monitoring und Not-Aus-Mechanismen ergänzen.
+      - UI kann später auf LiveRunner/LiveConfig aufsetzen (Start/Stop/Status).

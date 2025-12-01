@@ -3,3 +3,7 @@ use_exit_agent: false
 agent_paths:
   risk_agent: "models/risk_agent/latest"
   exit_agent: "models/exit_agent/latest"
+use_risk_agent_for_sizing: false
+use_position_sizer: false
+position_sizer_config: "configs/exec/position_sizer.yaml"
+fallback_risk_mode: "fixed"

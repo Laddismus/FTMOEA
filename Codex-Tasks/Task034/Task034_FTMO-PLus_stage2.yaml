@@ -1,0 +1,380 @@
+title: AF_TASK_034_FTMO_PLUS_STAGE_2
+
+summary: >
+  Erweitere den FTMO-Plus-Risklayer um Stage 2 Features:
+    - News-/Time-Filter (No-Trade-Zonen um High-Impact-Events).
+    - Profit-Target-/Equity-Ceiling-Handling (kein Overtrading nach Zielerreichung).
+    - Min-Trading-Days-/Activity-Helper (FTMO-Mindestradetage).
+    - Performance-Stability-Metriken (Rolling PF, Winrate, Volatilität).
+    - Circuit Breaker (extreme Loss-Velocity / Slippage / Anomalien).
+  Ziel:
+    - Der RiskLayer wird zu einem umfassenden „Mission Control“-System für FTMO-Challenges,
+      das hartes Regelwerk, Soft-Signale und Stabilitätsmetriken kombiniert.
+
+inputs:
+  - Name: FtmoPlusEngine & RiskManager (Stage 1)
+    Beschreibung: >
+      Stand nach AF_TASK_033:
+        - FtmoPlusEngine:
+            * SessionRiskConfig, RollingRisk, Loss-Velocity, RiskStages (0/1/2),
+            * ExposureCaps, SpreadGuard.
+        - RiskManager:
+            * aktualisiert FtmoPlusEngine,
+            * schreibt Meta-Infos,
+            * blockt Entries bei Exposure/Spread-Verstößen,
+            * PositionSizer skaliert RL-Risk nach Stage.
+      AF_TASK_034:
+        - erweitert FtmoPlus um:
+            * News-/Time-Filter,
+            * ProfitTarget / EquityCeiling Awareness,
+            * Activity-/MinDays-Tracking,
+            * PerformanceStability,
+            * CircuitBreaker-Signale.
+
+  - Name: AccountState / TradeHistory
+    Beschreibung: >
+      Für Stage 2 brauchst du:
+        - Zugriff auf:
+            * aktuelle Equity, Balance,
+            * kumulierten PnL (z.B. Challenge-PnL),
+            * Liste der letzten N Trades (oder aggregierte KPIs):
+                - PnL pro Trade,
+                - Anzahl Trades pro Tag,
+                - Win/Loss.
+        - AF_TASK_034 kann auf vereinfachte Daten zugreifen:
+            * account.trade_history (Liste oder Rolling-Buffer),
+            * account.completed_trades_count,
+            * account.profitable_days_count, etc.
+
+  - Name: News-/Time-Input
+    Beschreibung: >
+      Stage 2 soll einen generischen News/Time-Filter vorsehen, ohne echte API zu erzwingen.
+      Ausreichend:
+        - einfache API im Sinne von:
+            * „Ist jetzt eine No-Trade-Periode?“
+        - Konfig basiert auf:
+            * festen Uhrzeiten (z.B. London Open, New York Open),
+            * manuellen Event-Fenstern (z.B. FOMC, NFP) aus Config.
+
+outputs:
+  - Erweiterung: FtmoPlusConfig & FtmoPlusEngine (risk/ftmo_plus.py)
+    Inhalt: >
+      Ergänze neue Config-Sektionen:
+
+        @dataclass
+        class NewsWindowConfig:
+            name: str
+            start_datetime: str  # ISO-String, oder "HH:MM" + Tagstyp (für einfache Variante)
+            end_datetime: str
+
+        @dataclass
+        class TimeFenceConfig:
+            name: str
+            daily_start_time: str   # "HH:MM"
+            daily_end_time: str     # "HH:MM"
+            mode: Literal["allow_only", "block"] = "allow_only"
+
+        @dataclass
+        class ProfitTargetConfig:
+            target_pct: float = 10.0         # z.B. 10 % Challenge-Ziel
+            soft_lock_pct: float = 80.0      # ab 80 % des Ziels risk herunterfahren
+            hard_lock_pct: float = 100.0     # ab 100 % Ziel keine neuen Trades
+            allow_small_maintenance_trades: bool = False
+
+        @dataclass
+        class ActivityConfig:
+            min_trading_days: int = 10
+            min_trades_total: int = 10
+            min_trades_per_week: int = 3
+            # Stage 2: nur Tracking/Labelling, keine harten Blocks nötig.
+
+        @dataclass
+        class PerformanceStabilityConfig:
+            kpi_window_trades: int = 20
+            min_profit_factor: float = 1.1
+            min_winrate: float = 0.45
+            max_pnl_std_multiple: float = 3.0  # z.B. schlecht, wenn StdAbw. extrem hoch
+
+        @dataclass
+        class CircuitBreakerConfig:
+            max_instant_loss_pct: float = 2.0      # Verlust zwischen zwei Ticks/Trades
+            max_slippage_pips: float = 1.5
+            freeze_minutes: int = 30
+
+        @dataclass
+        class FtmoPlusConfig:
+            sessions: list[SessionRiskConfig]
+            rolling: RollingRiskConfig
+            loss_velocity: LossVelocityConfig
+            stages: RiskStageConfig
+            exposure_caps: ExposureCapsConfig
+            spread_guard: SpreadGuardConfig
+            # NEU:
+            news_windows: list[NewsWindowConfig] = field(default_factory=list)
+            time_fences: list[TimeFenceConfig] = field(default_factory=list)
+            profit_target: ProfitTargetConfig = field(default_factory=ProfitTargetConfig)
+            activity: ActivityConfig = field(default_factory=ActivityConfig)
+            stability: PerformanceStabilityConfig = field(default_factory=PerformanceStabilityConfig)
+            circuit_breaker: CircuitBreakerConfig = field(default_factory=CircuitBreakerConfig)
+
+      FtmoPlusEngine ergänzt Methoden:
+
+        class FtmoPlusEngine:
+            ...
+
+            def is_in_news_window(self, now: datetime) -> bool:
+                """
+                True, wenn now in einem konfigurierten NewsWindow liegt.
+                Für Stage 2 reicht:
+                  - einfache Zeitfenster mit Datum/Zeit oder
+                  - wiederkehrende Zeitfenster pro Tag (z.B. vordefinierte Range).
+                """
+
+            def is_allowed_by_time_fence(self, now: datetime) -> bool:
+                """
+                - Wenn time_fences leer: True.
+                - Sonst:
+                    * mode "allow_only":
+                         - True, wenn now in min. einem ALLOW-Fence liegt.
+                    * mode "block":
+                         - False, wenn now in einem Block-Fence liegt.
+                """
+
+            def profit_target_progress_pct(self, current_equity: float, initial_equity: float) -> float:
+                """
+                (current_equity - initial_equity) / initial_equity * 100
+                """
+
+            def is_profit_soft_lock(self, progress_pct: float) -> bool:
+                return progress_pct >= self.cfg.profit_target.soft_lock_pct
+
+            def is_profit_hard_lock(self, progress_pct: float) -> bool:
+                return progress_pct >= self.cfg.profit_target.hard_lock_pct
+
+            def compute_stability_kpis(self, trade_pnls: list[float]) -> dict[str, float]:
+                """
+                Berechnet:
+                  - profit_factor,
+                  - winrate,
+                  - pnl_std,
+                  - ggf. weitere Kennzahlen.
+                """
+
+            def is_stability_degraded(self, kpis: dict[str, float]) -> bool:
+                """
+                True, wenn PF < min_profit_factor oder winrate < min_winrate
+                oder pnl_std zu hoch relativ zu Gewinn-Erwartung.
+                """
+
+            def check_circuit_breaker(
+                self, *,
+                last_equity: float,
+                current_equity: float,
+                last_trade_slippage_pips: float | None,
+                now: datetime
+            ) -> bool:
+                """
+                True, wenn eine Circuit-Breaker-Situation vorliegt:
+                  - instant_loss_pct > max_instant_loss_pct
+                  - oder slippage > max_slippage_pips
+                Setzt intern einen Freeze-Until-Timestamp (now + freeze_minutes).
+                """
+
+            def is_circuit_breaker_active(self, now: datetime) -> bool:
+                """
+                True, solange Freeze-Until in der Zukunft liegt.
+                """
+
+  - Datei: configs/risk/ftmo_plus.yaml (Erweiterung)
+    Inhalt: >
+      Ergänze Stage-2-Config:
+
+        news_windows:
+          - name: "NFP"
+            start_datetime: "2025-03-07T13:20:00"
+            end_datetime: "2025-03-07T13:50:00"
+          # optional: generische daily windows für z.B. 5 Min vor London Open etc.
+
+        time_fences:
+          - name: "RegularTrading"
+            daily_start_time: "08:00"
+            daily_end_time: "22:00"
+            mode: "allow_only"
+
+        profit_target:
+          target_pct: 10.0
+          soft_lock_pct: 80.0
+          hard_lock_pct: 100.0
+          allow_small_maintenance_trades: false
+
+        activity:
+          min_trading_days: 10
+          min_trades_total: 10
+          min_trades_per_week: 3
+
+        stability:
+          kpi_window_trades: 20
+          min_profit_factor: 1.1
+          min_winrate: 0.45
+          max_pnl_std_multiple: 3.0
+
+        circuit_breaker:
+          max_instant_loss_pct: 2.0
+          max_slippage_pips: 1.5
+          freeze_minutes: 30
+
+  - Änderung: RiskManager.evaluate_entry (core/risk_manager.py)
+    Inhalt: >
+      Ergänze weitere Guards / Meta-Infos in evaluate_entry:
+
+        if self.ftmo_plus_engine is not None:
+            # bisher: rolling, stage, exposure, spread...
+
+            # News-/Time-Fences (Block-Level)
+            if self.ftmo_plus_engine.is_in_news_window(now):
+                decision.is_entry = False
+                decision.meta["ftmo_plus_blocked_news"] = True
+
+            if not self.ftmo_plus_engine.is_allowed_by_time_fence(now):
+                decision.is_entry = False
+                decision.meta["ftmo_plus_blocked_time"] = True
+
+            # Profit-Target Lock
+            if self.ftmo_engine is not None:
+                progress = self.ftmo_plus_engine.profit_target_progress_pct(
+                    current_equity=account.equity,
+                    initial_equity=self.ftmo_engine.state.initial_equity,
+                )
+                decision.meta["ftmo_plus_profit_progress_pct"] = progress
+
+                if self.ftmo_plus_engine.is_profit_hard_lock(progress):
+                    decision.is_entry = False
+                    decision.meta["ftmo_plus_blocked_profit_hard"] = True
+                elif self.ftmo_plus_engine.is_profit_soft_lock(progress):
+                    # Soft Lock: z.B. Stage erhöhen → StageEngine übernimmt Risk-Reduzierung
+                    decision.meta["ftmo_plus_profit_soft_lock"] = True
+                    # optional: Stage Engine Info für RL/Scaling
+
+            # Activity/Min-Days (vorerst nur Telemetrie)
+            decision.meta["ftmo_plus_trading_days"] = account.trading_days_count
+            decision.meta["ftmo_plus_total_trades"] = account.completed_trades_count
+
+            # Stability KPIs (für RL/Analyzer, nicht unbedingt blockend in Stage 2)
+            trade_pnls = account.last_n_trade_pnls(self.ftmo_plus_engine.cfg.stability.kpi_window_trades)
+            kpis = self.ftmo_plus_engine.compute_stability_kpis(trade_pnls)
+            decision.meta["ftmo_plus_pf"] = kpis["profit_factor"]
+            decision.meta["ftmo_plus_winrate"] = kpis["winrate"]
+            decision.meta["ftmo_plus_pnl_std"] = kpis["pnl_std"]
+            if self.ftmo_plus_engine.is_stability_degraded(kpis):
+                decision.meta["ftmo_plus_stability_degraded"] = True
+                # optional: Stage hochsetzen oder Risk Mult reduzieren (via StageEngine)
+
+            # Circuit Breaker: (Block + Force Flatten ähnlich FTMO-HardStop)
+            if self.ftmo_plus_engine.is_circuit_breaker_active(now):
+                decision.is_entry = False
+                decision.meta["ftmo_plus_blocked_circuit"] = True
+
+            if self.ftmo_plus_engine.check_circuit_breaker(
+                last_equity=account.last_equity,
+                current_equity=account.equity,
+                last_trade_slippage_pips=account.last_trade_slippage_pips,
+                now=now,
+            ):
+                # Sofort-Alarm: Flatten analog Hard-Stop
+                decision.meta["ftmo_force_flatten"] = True
+                decision.meta["ftmo_plus_circuit_triggered"] = True
+
+  - Datei: tests/test_ftmo_plus_stage2_engine.py
+    Inhalt: >
+      Unit-Tests für die neuen FtmoPlusEngine-Methoden:
+
+        - test_news_window_blocks_when_inside:
+            * now in NewsWindow -> is_in_news_window(now) == True.
+
+        - test_time_fence_allow_only_behavior:
+            * now innerhalb ALLOW-Fence -> is_allowed_by_time_fence=True.
+            * außerhalb -> False.
+
+        - test_profit_target_progress:
+            * initial_equity=100k, current=110k -> 10 % Progress.
+
+        - test_stability_kpis_basic:
+            * trade_pnls = [1, -1, 2, -0.5, 1]
+            * compute_stability_kpis -> pf>0, winrate in [0,1], pnl_std>0.
+
+        - test_circuit_breaker_triggers_on_instant_loss:
+            * last_equity=100000, current=97500 -> 2.5 % instant loss -> True.
+
+  - Datei: tests/test_risk_manager_ftmo_plus_stage2_integration.py
+    Inhalt: >
+      Integration RiskManager + FtmoPlus Stage2:
+
+        - test_news_block_sets_meta_and_blocks_entry:
+            * is_in_news_window(now) -> True
+            * evaluate_entry(...) -> is_entry=False, meta["ftmo_plus_blocked_news"]=True.
+
+        - test_profit_hard_lock_blocks_new_entry:
+            * profit_progress_pct >= hard_lock_pct
+            * evaluate_entry -> is_entry=False, meta["ftmo_plus_blocked_profit_hard"]=True.
+
+        - test_circuit_breaker_sets_force_flatten:
+            * check_circuit_breaker(...) -> True
+            * evaluate_entry -> meta["ftmo_force_flatten"]=True, meta["ftmo_plus_circuit_triggered"]=True.
+
+        - test_stability_kpis_populated:
+            * account.last_n_trade_pnls(...) liefert Dummy-Daten
+            * evaluate_entry -> meta enthält pf, winrate, pnl_std.
+
+acceptance:
+  - FTMO-Plus Stage 2 Logik implementiert:
+      Beschreibung: >
+        FtmoPlusEngine unterstützt:
+          - News-/Time-Fence-Checks,
+          - ProfitTarget-Progress (Soft-/Hard-Lock),
+          - Stability-KPIs,
+          - CircuitBreaker (Instant-Loss/Slippage + Freeze).
+        Tests in test_ftmo_plus_stage2_engine.py sind grün.
+
+  - RiskManager nutzt Stage 2 Signale:
+      Beschreibung: >
+        RiskManager:
+          - blockt Entries bei News-/Time-Fence-Verletzung,
+          - blockt Entries nach Profit Hard Lock,
+          - triggert Force-Flat bei CircuitBreaker,
+          - schreibt alle relevanten Meta-Infos für RL/Analyzer.
+        Tests in test_risk_manager_ftmo_plus_stage2_integration.py sind grün.
+
+  - RL-Kompatibilität:
+      Beschreibung: >
+        FtmoPlus Stage 2 erzeugt zusätzliche Meta-Infos:
+          - ftmo_plus_stage,
+          - profit_progress_pct,
+          - stability-KPIs,
+          - Flags wie blocked_news, blocked_time, blocked_profit_hard.
+        Diese können später als Observation-Features in die RL-Env integriert werden,
+        ohne dass bestehende RL-Logik bricht.
+        Wenn FtmoPlus deaktiviert ist, bleibt das Systemverhalten wie in Stage 1.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für alle neuen Configs
+  - Architektur:
+      - FtmoPlusEngine bleibt reiner Logik-Layer (keine Netzwerk-/API-Aufrufe).
+      - News/Time-Fenster basieren in Stage 2 auf Config-Zeiten (manuell gepflegt),
+        externe Kalender-/API-Anbindung kann später in einem separaten Modul erfolgen.
+      - RiskManager orchestriert:
+          * FTMO-Core,
+          * FTMO-Plus Stage 1 & 2,
+          * RL-RiskAgent,
+          * PositionSizer.
+  - Tests:
+      - pytest
+      - alle neuen Tests deterministisch (fixe Datums/Zeitwerte).
+
+notes:
+  - Weiteres Potential (Stage 3+):
+      - echte Anbindung an Wirtschafts-Kalender (API),
+      - automatisch generierte TimeFences für High-Impact-News,
+      - komplexe Consistency-Metriken (Equity-Glättung, Trade-Distribution),
+      - Reward-Shaping-Erweiterungen mit FTMO-Plus-Infos für RL-Training.

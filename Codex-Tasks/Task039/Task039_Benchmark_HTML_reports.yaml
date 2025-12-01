@@ -1,0 +1,261 @@
+title: AF_TASK_039_BENCHMARK_HTML_REPORTS
+
+summary: >
+  Baue ein HTML-basiertes Benchmark-Report-System für Evaluationsläufe (EvalController + BenchmarkEngine).
+  Ziel:
+    - Für jeden Eval-Run werden neben JSON/TXT nun auch hochwertige HTML-Reports erzeugt.
+    - Der HTML-Report enthält:
+        * Equity-Kurve + Drawdown-Verlauf
+        * Tages-/Wochen-PnL Charts
+        * Kern-KPIs (PF, Winrate, MDD, MAR, Sharpe-like, Trade-Count)
+        * FTMO-Matrix (Daily-DD, Overall-DD, Profit-Target-Progress, Pass/Fail)
+        * RL-Train-Metriken (Reward-Curve, Loss-Curve, Epsilon/Exploration)
+    - Optional Vergleichs-Ansicht (z.B. Tabelle mit mehreren Checkpoints).
+    - Reports sollen „read-only“ im Filesystem landen und mit Browser geöffnet werden können.
+
+inputs:
+  - Name: BenchmarkEngine & BenchmarkReport
+    Beschreibung: >
+      Nach AF_TASK_038:
+        - BenchmarkEngine:
+            * berechnet KPIs, FTMO-Metrics, RL-Train-Metrics.
+        - BenchmarkReport:
+            * kpis: dict
+            * ftmo: dict
+            * rl_train: dict
+            * score: float
+            * checkpoint_path: str
+            * comments: list[str]
+      AF_TASK_039:
+        - nutzt diese strukturierte Info als Input für HTML-Rendering,
+        - liest zusätzlich bei Bedarf SIM-Artefakte (Equity-Serie, Trades).
+
+  - Name: EvalController & Eval-Output-Struktur
+    Beschreibung: >
+      Nach AF_TASK_038:
+        - EvalController:
+            * führt Eval-Läufe aus,
+            * legt Reports (JSON/TXT) unter runs/eval/... ab.
+        - eval.yaml:
+            * enthält Pfade/Settings für Eval.
+      AF_TASK_039:
+        - erweitert EvalController, um zusätzlich HTML-Reports via BenchmarkHtmlRenderer zu erzeugen,
+        - steuert dies über Config (save_html: true/false).
+
+  - Name: Run-Artefakte aus SIM
+    Beschreibung: >
+      Die SIM-Pipeline erzeugt typischerweise:
+        - Equity-Zeitreihen (z.B. equity.csv)
+        - Trades (trades.csv oder ähnliches)
+        - Metrics (metrics.json)
+      AF_TASK_039:
+        - nutzt Equity- & evtl. DailyPnL-Daten, um Charts (SVG/PNG) zu rendern,
+        - bettet diese in den HTML-Report ein.
+
+outputs:
+  - Datei: core/benchmark_html.py
+    Inhalt: >
+      Implementiere einen HTML-Renderer, z.B. BenchmarkHtmlRenderer:
+
+        from dataclasses import dataclass
+        from pathlib import Path
+        from typing import Optional
+
+        @dataclass
+        class HtmlReportConfig:
+            title: str = "AFTS Benchmark Report"
+            include_equity_chart: bool = True
+            include_drawdown_chart: bool = True
+            include_daily_pnl_chart: bool = True
+            include_ftmo_table: bool = True
+            include_rl_train_section: bool = True
+            # Pfade für Artefakte im Run-Ordner:
+            equity_csv_name: str = "equity.csv"
+            trades_csv_name: str = "trades.csv"
+            daily_pnl_csv_name: str = "daily_pnl.csv"
+
+        class BenchmarkHtmlRenderer:
+            def __init__(self, cfg: HtmlReportConfig):
+                self.cfg = cfg
+
+            def render_single(self, report: BenchmarkReport, run_dir: Path) -> Path:
+                """
+                Erstellt einen HTML-Report für einen einzelnen BenchmarkReport.
+                run_dir:
+                  - Ordner, in dem Eval-/SIM-Artefakte liegen (equity.csv, trades.csv, etc.).
+                Rückgabe:
+                  - Pfad zur erzeugten HTML-Datei.
+                Schritte:
+                  1) Equity-/DailyPnL-Daten laden (falls vorhanden).
+                  2) Charts als einfache SVG oder als inline-Base64-PNG erzeugen.
+                  3) HTML-Seite als String zusammenbauen:
+                        - Head (Titel, einfache CSS),
+                        - Summary-Section (KPIs, FTMO, Score),
+                        - Chart-Section,
+                        - RL-Train-Section (Reward/Loss/Epsilon).
+                  4) nach run_dir / "benchmark_report.html" schreiben.
+                """
+
+            def render_comparison(self, comparison: BenchmarkComparison, out_path: Path) -> Path:
+                """
+                Optional: Vergleichs-Report für mehrere BenchmarkReports.
+                  - Liste nach Score sortiert tabellarisch darstellen:
+                        * Score, PF, MDD, FTMO-Pass, Checkpoint-Name.
+                  - Bestes Modell highlighten.
+                """
+
+            # interne Hilfsfunktionen:
+            #   - _load_equity_series(run_dir) -> pd.Series oder (timestamps, equity)
+            #   - _generate_svg_line_chart(xs, ys, title) -> str
+            #   - _render_kpi_table(report)
+            #   - _render_ftmo_table(report)
+            #   - _render_rl_train_stats(report)
+
+      Hinweis:
+        - Für die Charts kannst du:
+            * einfache, selbst-generierte SVGs verwenden (kein extra Plot-Framework),
+            * oder Matplotlib nutzen und PNGs als Base64 einbetten.
+        - Ziel: minimale Abhängigkeiten, deterministische Outputs.
+
+  - Änderung: configs/modes/eval.yaml
+    Inhalt: >
+      Ergänze HTML-Optionen:
+
+        base:
+          ...
+        rl:
+          ...
+        output:
+          evaluation_root: "runs/eval"
+          save_json: true
+          save_txt: true
+          save_html: true        # jetzt standardmäßig aktiv
+          html:
+            title: "AFTS AFTS-PRO Benchmark"
+            include_equity_chart: true
+            include_drawdown_chart: true
+            include_daily_pnl_chart: true
+            include_ftmo_table: true
+            include_rl_train_section: true
+
+  - Änderung: EvalController (core/eval_controller.py)
+    Inhalt: >
+      - EvalController.run_eval(...) erweitern:
+
+        class EvalController:
+            def run_eval(self) -> BenchmarkReport:
+                # ... bestehende Steps:
+                #   1) Eval Run ausführen (SIM+RL)
+                #   2) BenchmarkEngine anwenden -> BenchmarkReport + JSON/TXT speichern
+                # NEU:
+                if self.cfg.output.save_html:
+                    html_cfg = HtmlReportConfig(
+                        title=self.cfg.output.html.title,
+                        include_equity_chart=self.cfg.output.html.include_equity_chart,
+                        include_drawdown_chart=self.cfg.output.html.include_drawdown_chart,
+                        include_daily_pnl_chart=self.cfg.output.html.include_daily_pnl_chart,
+                        include_ftmo_table=self.cfg.output.html.include_ftmo_table,
+                        include_rl_train_section=self.cfg.output.html.include_rl_train_section,
+                    )
+                    renderer = BenchmarkHtmlRenderer(html_cfg)
+                    html_path = renderer.render_single(report, run_dir=self.current_run_dir)
+                    # optional: path in Report oder Log schreiben
+
+      - Für multi-eval (falls implementiert):
+          * optional: BenchmarkComparison erzeugen & Vergleichs-HTML via renderer.render_comparison(...).
+
+  - CLI-Erweiterung: afts_eval_cli.py
+    Inhalt: >
+      - CLI-Hilfe/Langs:
+          * Erwähne, dass bei save_html=true automatisch HTML im Eval-Ordner erzeugt wird.
+      - Optional:
+          * Flag --no-html, das save_html zur Laufzeit auf false setzt,
+            falls jemand bewusst nur JSON/TXT möchte.
+
+  - Datei: templates/benchmark_report_template.html (optional)
+    Inhalt: >
+      Wenn du gerne mit Templates arbeitest:
+        - lege ein einfaches HTML-Template an, z.B. mit Platzhaltern:
+            {{TITLE}}, {{SUMMARY_TABLE}}, {{FTMO_TABLE}}, {{EQUITY_CHART_SVG}}, etc.
+        - BenchmarkHtmlRenderer füllt diese Platzhalter.
+      Wenn du kein Templating-Framework willst:
+        - reicht auch ein inline erzeugter HTML-String im Renderer.
+
+  - Datei: tests/test_benchmark_html_reports.py
+    Inhalt: >
+      Tests für HTML-Reporting:
+
+        - test_render_single_creates_html_file:
+            * Dummy-BenchmarkReport mit:
+                kpis={"profit_factor":1.3, "winrate":0.55, "max_dd_pct":-4.2}
+                ftmo={"daily_dd_pass":True, "overall_dd_pass":True, "target_progress_pct":65.0}
+                rl_train={"mean_reward_last50": 0.8, "epsilon_mean_last50": 0.2}
+                score=0.73
+            * Dummy run_dir mit:
+                - equity.csv (z.B. 10 Zeilen Dummy-Daten)
+            * renderer.render_single(...) -> Pfad existiert,
+              HTML nicht leer, enthält u.a. Strings wie "profit_factor", "FTMO", "Score".
+
+        - test_render_single_handles_missing_equity_data_gracefully:
+            * run_dir ohne equity.csv
+            * renderer.render_single(...) erzeugt trotzdem HTML, evtl. ohne Chart-Section.
+
+        - test_render_comparison_generates_table:
+            * BenchmarkComparison mit 2-3 Reports
+            * render_comparison(...) -> HTML enthält Checkpoint-Paths & Score-Werte.
+
+acceptance:
+  - HTML-Renderer verfügbar:
+      Beschreibung: >
+        BenchmarkHtmlRenderer:
+          - kann aus einem BenchmarkReport + run_dir einen lesbaren HTML-Report erzeugen,
+          - Charts, KPI-Tabellen, FTMO-Matrix & RL-Train-Summary werden integriert,
+          - ist robust gegenüber fehlenden optionalen Daten (ohne Crash).
+
+  - EvalController erzeugt HTML-Report:
+      Beschreibung: >
+        EvalController:
+          - liest output.save_html & output.html.* aus eval.yaml,
+          - erzeugt bei aktivem save_html einen HTML-Report pro Eval-Run,
+          - speichert ihn im jeweiligen Eval-Run-Verzeichnis.
+        Tests bestätigen, dass nach einem Eval-Lauf eine HTML-Datei vorhanden ist.
+
+  - Vergleichs-HTML (optional, aber bevorzugt):
+      Beschreibung: >
+        Bei Nutzung von BenchmarkComparison:
+          - render_comparison(...) erzeugt ein HTML-File mit Ranking-Tabelle,
+          - best_checkpoint ist erkennbar hervorgehoben (z.B. "BEST" Label).
+
+  - JSON/TXT bleiben unverändert:
+      Beschreibung: >
+        Die bestehende JSON-/TXT-Report-Logik aus AF_TASK_038 bleibt funktional und unverändert.
+        HTML ist ein Add-on, kein Ersatz.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für HtmlReportConfig
+  - Architektur:
+      - BenchmarkHtmlRenderer ist reiner Rendering-Layer (kein Training, keine Risk-Logik).
+      - EvalController orchestriert nur, kennt aber keine HTML-Details.
+      - Reports werden pro Eval-Run lokal unterhalb des eval_root abgelegt.
+  - Tests:
+      - pytest
+      - keine Webbrowser-/GUI-Tests, reine File-Existenz & Content-Asserts.
+      - deterministische Outputs (kein zufälliger Inhalt).
+
+notes:
+  - Design-Style:
+      - Du kannst das HTML minimal halten (clean, dark/light-neutral) und später,
+        wenn UI/Branding kommt, das Styling upgraden.
+      - Wichtig ist zunächst:
+          * Inhalte sind korrekt,
+          * Struktur ist logisch,
+          * Performance-Kennzahlen sind auf einen Blick erfassbar.
+
+  - Nächste sinnvolle Schritte nach AF_TASK_039:
+      - AF_TASK_040: Model Selection & Auto-Promotion
+          * automatisches Wählen des besten Checkpoints anhand BenchmarkScore,
+          * optionales Taggen als „production-ready“.
+      - AF_TASK_041: Integration Benchmark/Eval in QA & Gate
+          * z.B. Gate-Policy: LIVE-Deployment nur mit BenchmarkScore >= X und FTMO-Pass.

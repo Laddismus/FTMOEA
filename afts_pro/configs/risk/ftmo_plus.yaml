@@ -1,0 +1,70 @@
+sessions:
+  - name: "London"
+    start_time: "08:00"
+    end_time: "17:00"
+    max_session_loss_pct: 1.5
+    soft_factor: 0.7
+  - name: "NewYork"
+    start_time: "14:00"
+    end_time: "22:00"
+    max_session_loss_pct: 1.2
+    soft_factor: 0.7
+
+rolling:
+  window_minutes: 60
+  max_rolling_loss_pct: 1.5
+
+loss_velocity:
+  dd_fast_threshold_pct_per_hour: 4.0
+
+stages:
+  stage0_risk_mult: 1.0
+  stage1_risk_mult: 0.5
+  stage2_risk_mult: 0.0
+  stage0_max_risk_pct: 1.0
+  stage1_max_risk_pct: 0.5
+  stage2_max_risk_pct: 0.0
+  new_stage_min_trades: 5
+  cooldown_minutes: 60
+
+exposure_caps:
+  max_open_trades: 3
+  max_total_risk_pct: 2.0
+
+spread_guard:
+  max_spread_pips: 0.8
+  enabled: true
+
+news_windows:
+  # Example high-impact window; adjust as needed
+  - name: "NFP"
+    start_datetime: "2025-03-07T13:20:00"
+    end_datetime: "2025-03-07T13:50:00"
+
+time_fences:
+  - name: "RegularTrading"
+    daily_start_time: "08:00"
+    daily_end_time: "22:00"
+    mode: "allow_only"
+
+profit_target:
+  target_pct: 10.0
+  soft_lock_pct: 80.0
+  hard_lock_pct: 100.0
+  allow_small_maintenance_trades: false
+
+activity:
+  min_trading_days: 10
+  min_trades_total: 10
+  min_trades_per_week: 3
+
+stability:
+  kpi_window_trades: 20
+  min_profit_factor: 1.1
+  min_winrate: 0.45
+  max_pnl_std_multiple: 3.0
+
+circuit_breaker:
+  max_instant_loss_pct: 2.0
+  max_slippage_pips: 1.5
+  freeze_minutes: 30

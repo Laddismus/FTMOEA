@@ -1,0 +1,208 @@
+title: AF_TASK_023_E2E_ACCEPTANCE_SIM_RL
+
+summary: >
+  Implementiere einen automatisierten End-to-End-Akzeptanztest (E2E) für AFTS-PRO im SIM-Modus
+  mit aktivierten RL-Komponenten (RiskAgent + ExitAgent).
+  Ziel:
+    - Einen realistischen, aber kleinen SIM-Run (z.B. 1–3 Tage Daten) vollständig durchlaufen.
+    - Sicherstellen, dass:
+        * die komplette Pipeline (Data → Strategy → Risk → RL → Exit → Exec → Storage) fehlerfrei läuft,
+        * alle zentralen Artefakte erzeugt werden (Trades, Equity, Metrics, Logs),
+        * RL-Actions tatsächlich in den Trades/EQs „spürbar“ sind (risk_pct, exit_action etc.),
+        * es keine stillen Fatal-Fehler (NaNs, infinities, fehlende Files) gibt.
+  Der Test ist als funktionaler „System-Smoke-/Annahme-Test“ gedacht und bildet die Grundlage
+  für spätere QA-/Report-Schichten.
+
+inputs:
+  - Name: SIM Engine / Mode Dispatcher
+    Beschreibung: >
+      Das zentrale Entry-Point-System, mit dem aktuell SIM-Runs gestartet werden können:
+        - entweder über CLI (z.B. afts_sim_cli.py / main.py --mode sim)
+        - oder eine Engine-API (z.B. run_sim(profile=...)).
+      AF_TASK_023 benötigt eine programmatisch aufrufbare Funktion, um
+      einen SIM-Run mit einer bestimmten Config/Profile zu starten,
+      vorzugsweise ohne Blocking-CLI-Parsing in den Tests.
+
+  - Name: RL-Inference Integration
+    Beschreibung: >
+      RiskAgent + ExitAgent sind bereits:
+        - train-/load-fähig,
+        - in SIM-Inference (RLInferenceHook) eingebunden,
+        - in ExitPolicy & PositionSizer integriert.
+      Für AF_TASK_023 reicht ein Dummy-/Small-Checkpoint oder sogar ein
+      „random-but-deterministic“ Agent:
+        - wichtig ist nicht die Performance, sondern dass:
+            * act() aufgerufen wird,
+            * Actions in Decision+Execution landen,
+            * SIM keine Exception wirft.
+
+  - Name: Run-Artifakte-Struktur (runs/sim/...)
+    Beschreibung: >
+      SIM-Runs erzeugen:
+        - Trades-Datei (z.B. trades.parquet/.csv),
+        - Equity-Curve-Datei (z.B. equity.parquet),
+        - Metriken (z.B. metrics.json),
+        - Logs.
+      AF_TASK_023 definiert, welche Artefakte MINDESTENS da sein müssen,
+      damit ein Run als „funktional akzeptiert“ gilt.
+
+outputs:
+  - Datei: configs/modes/sim_e2e_acceptance.yaml
+    Inhalt: >
+      Ein dediziertes SIM-Profil für den E2E-Test, z.B.:
+        profile_name: "sim_e2e_acceptance"
+        description: "Small RL-enabled SIM run for E2E acceptance"
+        data:
+          symbol: "TEST_ASSET"
+          start: "2024-01-01"
+          end: "2024-01-03"
+          timeframe: "M5"
+        strategy_profile: "baseline_v1"      # existierende einfache Strategie
+        use_risk_agent: true
+        use_exit_agent: true
+        use_position_sizer: true
+        use_exit_policy: true
+        rl_agents:
+          risk_path: "models/risk_agent/test_e2e"   # Dummy/Small Checkpoint
+          exit_path: "models/exit_agent/test_e2e"
+        position_sizer_config: "configs/exec/position_sizer.yaml"
+        exit_policy_config: "configs/exec/exit_policy.yaml"
+        output_root: "runs/e2e_acceptance"
+      Anforderungen:
+        - Die verwendeten Agent-Pfade können auf einfache, deterministische Dummy-Checkpoints zeigen
+          (oder du baust in AF_TASK_023 eine minimale „Scripted-Policy“ Variante ein).
+        - Data-Quelle kann:
+            * synthetisch sein (z.B. generator in Tests), oder
+            * auf einen kleinen vorbereiteten Test-Satz verweisen.
+
+  - Datei: src/afts_pro/cli/afts_e2e_cli.py
+    Inhalt: >
+      Einfacher CLI-Entry für den E2E-Run:
+        - Command: `afts-e2e-sim`
+        - Optional args:
+            * --config configs/modes/sim_e2e_acceptance.yaml
+        - Verhalten:
+            * lädt die angegebene SIM-E2E-Config
+            * startet genau einen SIM-Run
+            * gibt am Ende eine kurze Summary auf stdout aus:
+                - Anzahl Bars
+                - Anzahl Trades
+                - Final Equity
+        - Dieser CLI wird in den Tests NICHT direkt über Subprocess genutzt,
+          sondern die Kern-Funktionalität wird in einer separaten Funktion gekapselt,
+          sodass pytest sie direkt aufrufen kann.
+
+  - Datei: src/afts_pro/core/e2e_runner.py
+    Inhalt: >
+      Zentrale API für E2E-Tests:
+        - Datenklassen:
+            * E2ESimConfig: referenziert Pfade/Profiles
+            * E2ERunResult:
+                - run_dir: Path
+                - num_trades: int
+                - equity_start: float
+                - equity_end: float
+                - has_rl_signals: bool
+                - files_present: dict[str, bool]
+        - Funktion:
+            def run_e2e_sim(config: E2ESimConfig) -> E2ERunResult:
+                """
+                Führt einen kleinen SIM-Run durch mit:
+                  - geladenem SIM-Profil,
+                  - aktivierten RL-Komponenten,
+                  - Output in ein dediziertes run_dir unter output_root.
+                Liefert E2ERunResult zurück, das MINDESTINFOS für Validierung enthält.
+                """
+      Anforderungen:
+        - Diese Funktion darf NICHTs in sys.argv / CLI direkt verändern.
+        - Sie nutzt intern Engine/ModeDispatcher, aber kapselt den Aufruf so,
+          dass pytest sie direkt aufrufen kann.
+
+  - Datei: tests/test_e2e_acceptance_sim_rl.py
+    Inhalt: >
+      High-Level E2E-Test-File mit z.B. folgenden Tests:
+        - test_e2e_sim_run_produces_trades_and_equity:
+            * Baut eine E2ESimConfig basierend auf sim_e2e_acceptance.yaml
+            * Ruft run_e2e_sim(...)
+            * Assertions:
+                - result.num_trades > 0        (mindestens ein Trade)
+                - result.equity_start > 0
+                - result.equity_end > 0        (kein NaN/inf)
+                - "trades" in result.files_present und True
+                - "equity" in result.files_present und True
+        - test_e2e_sim_run_uses_rl_fields:
+            * Prüft, dass result.has_rl_signals == True:
+                - mindestens ein Trade oder Decision enthält:
+                    * risk_pct (aus RiskAgent/PositionSizer)
+                    * exit_action (aus ExitAgent/ExitPolicy)
+        - test_e2e_sim_run_no_exceptions:
+            * Indirekt: Wenn run_e2e_sim(...) keine Exception wirft,
+              gilt der Test als bestanden.
+              (Optional kann ein zusätzlicher Log-Scan gemacht werden,
+               um "ERROR"/"TRACEBACK" im Log zu vermeiden.)
+
+acceptance:
+  - SIM+RL End-to-End lauffähig:
+      Beschreibung: >
+        Der E2E-Test zeigt, dass ein kompletter SIM-Run mit aktivierten RL-Komponenten:
+          - fehlerfrei durchläuft,
+          - Trades und Equity-Daten generiert,
+          - RL-Informationen in den Ergebnissen auftauchen.
+        Keine Exceptions, keine NaNs/Inf-Werte.
+
+  - Artefakte-Mindestmenge:
+      Beschreibung: >
+        Ein erfolgreicher E2E-Run muss mindestens enthalten:
+          - Trades-Datei (z.B. trades.parquet oder trades.csv),
+          - Equity-Curve-Datei,
+          - ggf. eine Metrics/Summary-Datei.
+        Der Test prüft explizit auf Existenz dieser Files.
+
+  - RL-Wirkung nachweisbar:
+      Beschreibung: >
+        result.has_rl_signals == True bedeutet:
+          - mindestens eine Zeile (Trade / Decision / Meta-Log) enthält:
+              * einen risk_pct-Wert,
+              * und/oder einen exit_action-Wert.
+        Dies stellt sicher, dass der RL-Stack nicht „tot“ im E2E-Run ist.
+
+  - Reproduzierbarkeit:
+      Beschreibung: >
+        E2E-Run ist deterministisch (bei fixem Seed/Config):
+          - Wiederholter Test mit gleicher Config liefert:
+              * gleiche Anzahl Trades,
+              * identische Equity-Endwerte,
+              * identisches Vorhandensein von Files.
+        (Exakte Byte-Gleichheit der Files ist optional; in AF_TASK_023 reicht
+         deterministisches Verhalten auf KPI-Ebene.)
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - E2ESimConfig und E2ERunResult als dataclasses
+      - Keine Abhängigkeit von externen Tools (kein Subprocess innerhalb der Tests)
+  - Struktur:
+      - CLI (afts_e2e_cli.py) ruft NUR die Core-Funktion run_e2e_sim(...) auf
+        und formatiert die Ausgabe für den Menschen.
+      - Tests nutzen direkt run_e2e_sim(...), nicht die CLI.
+  - Tests:
+      - pytest
+      - Der E2E-Test darf 1–3 Sekunden dauern, aber nicht minutenlang.
+      - Wenn echte Historien zu schwer sind, darf eine kleine synthetische
+        Test-Datenquelle in AF_TASK_023 hinzugefügt werden.
+
+notes:
+  - Rolle im Gesamt-QA-Plan:
+      - AF_TASK_023 ist der erste „big picture“-Test:
+          * Er beantwortet: „Bricht irgendwas heftig, wenn ich das System in echt laufen lasse?“
+      - Er ist bewusst „relativ grob“, aber dafür breit:
+          * Deckt SIM, RL, PositionSizing, ExitPolicy, OrderBuilder, Execution, Storage ab.
+      - Die feineren Tests für jede Komponente/Schnittstelle kommen in:
+          * AF_TASK_024_COMPONENT_QA
+          * AF_TASK_025_INTERFACE_QA
+          * AF_TASK_026_QA_REPORT
+          * AF_TASK_027_SYSTEM_GATE
+  - Praxis:
+      - Du kannst diesen E2E-Run später auch manuell nutzen, z.B.:
+          * `afts-e2e-sim --config configs/modes/sim_e2e_acceptance.yaml`
+        um zu prüfen, ob ein größerer Refactor das System grundsätzlich noch intakt lässt.

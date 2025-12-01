@@ -1,0 +1,383 @@
+title: AF_TASK_035_BACKTEST_FEATURE_ADAPTER_FOR_FTMO_PLUS
+
+summary: >
+  Baue einen Backtest-Feature-Adapter, der aus OHLCV (+ optional Bid/Ask),
+  Session-Infos und optionalen News-CSV-Fenstern alle benötigten Felder für
+  FTMO-Core, FTMO-Plus und RL/PositionSizer ableitet.
+  Ziel:
+    - SIM/RL können mit reinen OHLCV (+ modelliertem Spread) laufen.
+    - FTMO-/FTMO-Plus-Regeln sind im Backtest voll nutzbar.
+    - Später können echte Bid/Ask- und Newsdaten eingebunden werden,
+      ohne die Risk-/RL-Logik zu ändern (nur Provider-Config).
+
+inputs:
+  - Name: OHLCV Backtest-Daten
+    Beschreibung: >
+      Basisdaten:
+        - time (Timestamp, UTC)
+        - open, high, low, close, volume
+      Optional:
+        - bid, ask (oder mid + spread)
+      AF_TASK_035:
+        - nimmt an, dass du mindestens OHLCV hast.
+        - Spread kann:
+            * direkt aus Bid/Ask kommen oder
+            * aus einem Modell abgeleitet werden (z.B. pro Symbol/Session).
+
+  - Name: FtmoRiskEngine / FtmoPlusEngine / RiskManager
+    Beschreibung: >
+      Bereits vorhanden:
+        - FtmoRiskEngine (Core + Soft/Hard Stops).
+        - FtmoPlusEngine (Stage 1 + Stage 2).
+        - RiskManager, der Equity, Spread, DD, etc. braucht.
+      AF_TASK_035:
+        - sorgt dafür, dass AccountState & RiskContext im Backtest
+          konsistent befüllt werden:
+            * current_spread_pips,
+            * session_name,
+            * in_news_window,
+            * last_equity, equity,
+            * last_trade_slippage_pips (modelliert),
+            * etc.
+
+  - Name: SIM-Engine / RL-Env
+    Beschreibung: >
+      SIM-Engine und/oder RL-Env rufen pro Bar / Step den Adapter,
+      um aus Rohdaten → Markt-/Account-Features abzuleiten.
+      AF_TASK_035:
+        - liefert eine klare API:
+            * adapter.build_step_context(bar, account_state) -> StepContext
+        - StepContext enthält alle Felder, die:
+            * RiskManager,
+            * RLTradingEnv (ObservationBuilder),
+            * FTMO-Plus,
+            * PositionSizer
+          später brauchen.
+
+outputs:
+  - Datei: src/afts_pro/core/backtest_feature_adapter.py
+    Inhalt: >
+      Implementiere einen BacktestFeatureAdapter, z.B.:
+
+        from dataclasses import dataclass
+        from datetime import datetime, time
+        from typing import Optional
+
+        @dataclass
+        class SpreadModelConfig:
+            mode: str  # "fixed" | "from_bid_ask" | "session_model"
+            fixed_spread_pips: float = 0.3
+            session_spreads: dict[str, float] | None = None  # z.B. {"London": 0.4, "Asia": 0.8}
+
+        @dataclass
+        class NewsSourceConfig:
+            enabled: bool
+            csv_path: Optional[str] = None   # optional; wenn None → keine News
+            # CSV-Format z.B.: timestamp_start, timestamp_end, name, impact
+
+        @dataclass
+        class BacktestDataAdapterConfig:
+            spread_model: SpreadModelConfig
+            news_source: NewsSourceConfig
+            timezone: str  # z.B. "Europe/London" oder "UTC"
+
+        @dataclass
+        class StepContext:
+            """
+            Aggregierte Informationen für einen Backtest-Step:
+              - Zeit/Zeitkontext
+              - OHLCV-Daten
+              - abgeleitete Features für Risk / FTMO / RL
+            """
+            ts: datetime
+            open: float
+            high: float
+            low: float
+            close: float
+            volume: float
+            bid: float | None
+            ask: float | None
+            spread_pips: float | None
+            session_name: str | None
+            in_news_window: bool
+            # Optional weitere Felder:
+            #   - next_event_minutes: float | None
+            #   - regime_cluster, etc. (für spätere Erweiterungen)
+
+        class BacktestFeatureAdapter:
+            def __init__(self, cfg: BacktestDataAdapterConfig, session_resolver, news_index=None):
+                """
+                session_resolver: Hilfsobjekt/Funktion, die aus ts -> session_name (z.B. "London") macht.
+                news_index: optionaler Index aus CSV-News fenstern (ts_start, ts_end).
+                """
+                self.cfg = cfg
+                self.session_resolver = session_resolver
+                self.news_index = news_index  # kann None sein
+
+            def compute_spread_pips(
+                self,
+                ts: datetime,
+                symbol: str,
+                bid: float | None,
+                ask: float | None
+            ) -> float:
+                """
+                - mode == "from_bid_ask": spread = (ask - bid) * PIP_FACTOR
+                - mode == "fixed": spread = fixed_spread_pips
+                - mode == "session_model":
+                    * session_name holen → session_spreads[session] oder fallback fixed
+                """
+
+            def is_in_news_window(self, ts: datetime) -> bool:
+                """
+                Wenn news_source.enabled und news_index vorhanden:
+                  - True, wenn ts in einem konfigurierten Newsfenster liegt.
+                Sonst False.
+                """
+
+            def build_step_context(self, bar, symbol: str) -> StepContext:
+                """
+                bar: Objekt oder Dict mit Feldern:
+                  - ts (datetime), open, high, low, close, volume
+                  - optional bid, ask
+                Liefert StepContext mit:
+                  - session_name aus session_resolver(ts)
+                  - spread_pips gemäß compute_spread_pips(...)
+                  - in_news_window gemäß is_in_news_window(ts)
+                """
+
+  - Datei: src/afts_pro/core/session_resolver.py
+    Inhalt: >
+      Hilfsmodul, um aus einem Timestamp → Session-Label zu machen:
+
+        from dataclasses import dataclass
+        from datetime import datetime, time
+
+        @dataclass
+        class SessionDef:
+            name: str
+            start: time
+            end: time
+
+        @dataclass
+        class SessionResolverConfig:
+            timezone: str
+            sessions: list[SessionDef]
+
+        class SessionResolver:
+            def __init__(self, cfg: SessionResolverConfig):
+                self.cfg = cfg
+                # ggf. timezone-Handling vorbereiten
+
+            def resolve(self, ts: datetime) -> str | None:
+                """
+                - ts in lokale TZ umwandeln (cfg.timezone),
+                - prüfen, in welcher Session (start<=time<end) ts liegt,
+                - Session-Name oder None zurückgeben.
+                """
+
+  - Datei: src/afts_pro/core/news_index.py
+    Inhalt: >
+      Einfacher CSV-basierter NewsIndex für Backtests (optional):
+
+        from dataclasses import dataclass
+        from datetime import datetime
+        from pathlib import Path
+        import csv
+
+        @dataclass
+        class NewsWindow:
+            start: datetime
+            end: datetime
+            name: str
+            impact: str | None = None  # "low", "medium", "high"
+
+        class NewsIndex:
+            def __init__(self, windows: list[NewsWindow]):
+                self.windows = windows
+
+            @classmethod
+            def from_csv(cls, path: str, tz: str) -> "NewsIndex":
+                """
+                CSV-Format z.B.:
+                    start_iso,end_iso,name,impact
+                -> parse zu NewsWindow, Timestamps in tz interpretieren/konvertieren.
+                """
+
+            def is_in_window(self, ts: datetime) -> bool:
+                """
+                True, wenn ts in einem beliebigen NewsWindow liegt.
+                """
+
+  - Datei: configs/backtest/data_adapter.yaml
+    Inhalt: >
+      Konfig für den Backtest-Adapter:
+
+        timezone: "Europe/London"
+
+        spread_model:
+          mode: "fixed"          # "fixed" | "from_bid_ask" | "session_model"
+          fixed_spread_pips: 0.3
+          session_spreads:
+            London: 0.3
+            NewYork: 0.4
+            Asia: 0.8
+
+        news_source:
+          enabled: false
+          csv_path: null         # z.B. "data/news/economic_events.csv" (später)
+
+        sessions:
+          - name: "London"
+            start_time: "08:00"
+            end_time: "17:00"
+          - name: "NewYork"
+            start_time: "14:00"
+            end_time: "22:00"
+          - name: "Asia"
+            start_time: "00:00"
+            end_time: "07:00"
+
+      Hinweis:
+        - SessionDef/SessionResolverConfig können aus diesen Feldern abgeleitet werden.
+        - news_source.enabled=false → es gibt einfach keine News-Fenster.
+
+  - Änderung: SIM-Engine Integration (z.B. src/afts_pro/core/engine.py)
+    Inhalt: >
+      In der SIM-Engine (oder einem Backtest-Runner) integrierst du den Adapter:
+
+        - Beim Setup:
+            * data_cfg = load_yaml("configs/backtest/data_adapter.yaml")
+            * session_resolver = SessionResolver(SessionResolverConfig(...))
+            * news_index = NewsIndex.from_csv(...) oder None
+            * adapter = BacktestFeatureAdapter(data_cfg, session_resolver, news_index)
+
+        - Pro Bar/Step:
+            * step_ctx = adapter.build_step_context(bar, symbol)
+            * AccountState aktualisieren:
+                - account.current_spread_pips = step_ctx.spread_pips
+                - account.session_name = step_ctx.session_name
+                - account.in_news_window = step_ctx.in_news_window
+            * RiskManager & RL-Obs bekommen diese Felder über AccountState/Context.
+
+      Wichtig:
+        - bestehende Engine-Logik bleibt erhalten,
+        - BacktestFeatureAdapter ersetzt bisherige Ad-hoc-Spreads/Session-Guards.
+
+  - Datei: tests/test_backtest_feature_adapter.py
+    Inhalt: >
+      Unit-Tests für den Adapter:
+
+        - test_fixed_spread_mode_uses_config_value:
+            * mode="fixed", fixed_spread_pips=0.5
+            * bid/ask None
+            * compute_spread_pips(...) -> 0.5
+
+        - test_from_bid_ask_mode_computes_spread_correctly:
+            * mode="from_bid_ask"
+            * bid=1.1000, ask=1.1003 (3 pips bei EURUSD)
+            * compute_spread_pips(...) -> ~0.3 (je nach PIP_FACTOR-Konvention)
+
+        - test_session_model_mode_uses_session_spreads:
+            * mode="session_model"
+            * ts in "London" Session
+            * session_spreads["London"]=0.4
+            * compute_spread_pips(...) -> 0.4
+
+        - test_news_index_blocks_correct_timestamp:
+            * NewsIndex mit Fenster [10:00–10:15]
+            * ts=10:05 -> is_in_news_window=True
+            * ts=09:59 -> False
+
+        - test_build_step_context_populates_session_and_spread:
+            * SessionResolver für simple Session,
+            * Bar mit ts und OHLC,
+            * adapter.build_step_context(...) -> session_name gesetzt, spread_pips gesetzt.
+
+  - Datei: tests/test_sim_integration_with_adapter.py
+    Inhalt: >
+      Integrationstest (kleiner Smoke-Test) zwischen Engine, Adapter & Risk:
+
+        - Ziel:
+            * sicherstellen, dass:
+                - AccountState.current_spread_pips
+                - AccountState.session_name
+                - RiskManager-Rules (Spread/Session-Guards)
+              korrekt arbeiten, wenn Adapter im Spiel ist.
+
+        - Beispieltest:
+            * Setup:
+                - Engine mit Adapter in fixed-spread-Mode
+                - FtmoPlusEngine aktiviert (SpreadGuard)
+            * Führe 2–3 Bars:
+                - Bar1: normal → Entry erlaubt
+                - Bar2: news_index oder Session/Spread so konfigurieren,
+                        dass Conditions verletzt sind → is_entry=False.
+            * Asserts:
+                - meta["ftmo_plus_blocked_spread"] oder ["ftmo_plus_blocked_news"] gesetzt.
+
+
+acceptance:
+  - BacktestFeatureAdapter implementiert:
+      Beschreibung: >
+        backtest_feature_adapter.py liefert:
+          - BacktestDataAdapterConfig,
+          - BacktestFeatureAdapter mit build_step_context(),
+          - Spread-Modellierung,
+          - News-Check (falls aktiviert),
+          - Session-Labeling.
+        Unit-Tests in test_backtest_feature_adapter.py sind grün.
+
+  - SessionResolver & NewsIndex verfügbar:
+      Beschreibung: >
+        SessionResolver:
+          - ordnet Timestamps konsistent Sessions zu.
+        NewsIndex:
+          - kann CSV lesen (optional),
+          - is_in_window(ts) funktioniert laut Test.
+
+  - SIM-Engine nutzt Adapter:
+      Beschreibung: >
+        In der SIM-Engine:
+          - pro Bar wird StepContext gebaut,
+          - AccountState.current_spread_pips & session_name werden gesetzt,
+          - RiskManager/FTMO-/FTMO-Plus-Regeln sehen diese Felder.
+        Integrationstest test_sim_integration_with_adapter.py läuft grün
+        und zeigt, dass Spread/News/Session-Guards aktiv greifen können.
+
+  - OHLCV-only kompatibel:
+      Beschreibung: >
+        Auch wenn:
+          - keine Bid/Ask-Werte vorhanden sind,
+          - news_source.enabled=false,
+        funktioniert der Adapter:
+          - Spread wird im fixed- oder session_model-Mode modelliert,
+          - in_news_window bleibt False,
+          - keine Exceptions.
+        FTMO-/FTMO-Plus-Logik läuft mit OHLCV+modelliertem Spread
+        und kann später einfach auf echte Bid/Ask/News-Daten upgegradet werden.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für Configs & StepContext
+  - Architektur:
+      - BacktestFeatureAdapter ist rein „Data → Features“, keine Trading-Logik.
+      - RiskManager, FtmoRiskEngine, FtmoPlusEngine bleiben unverändert;
+        sie konsumieren nur AccountState/Context-Felder, die der Adapter liefert.
+      - NewsIndex & SessionResolver sind eigenständige, kleine Hilfsbausteine.
+  - Tests:
+      - pytest
+      - Synthetische OHLC-/Bid/Ask-/News-Daten, keine externen Abhängigkeiten.
+      - Alle Tests deterministisch.
+
+notes:
+  - Erweiterungen:
+      - Später kannst du:
+          * L2-Provider anbinden (MicrostructureFeatures),
+          * echte News-APIs → CSV exporten und in NewsIndex einlesen,
+          * zusätzliche Feature-Adapters für RL-Observations (z.B. Regime-Labels)
+        ohne die FTMO-/Risk-Schicht anzugreifen.
+      - Für RL:
+          * StepContext kann direkt an ObservationBuilder übergeben werden,
+            damit RL-Agents Stage, Session, Spread, NewsFlags etc. als Features bekommen.

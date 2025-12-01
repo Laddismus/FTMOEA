@@ -1,0 +1,230 @@
+title: AF_TASK_026_QA_REPORT_AND_TESTPROTOKOLL
+
+summary: >
+  Baue eine zentrale QA-Reporting-Schicht, die die wichtigsten Health-Checks von
+  AFTS-PRO automatisiert ausführt und als strukturierten System-Health-Report
+  speichert.
+  Ziel:
+    - Ein einziger Entry-Point (CLI + Python-API), der:
+        * E2E-Akzeptanz-Run
+        * Komponenten-/Interface-Smoke-Checks
+        * RL-/Train-/LAB-/Quant-Smokes
+      ausführt,
+    - alle Ergebnisse in einem QA-Report (JSON + schön lesbares Text-Log) ablegt,
+    - und damit ein „Testprotokoll“ liefert, das du vor größeren Änderungen,
+      vor LIVE-Aktivierung oder nach Refactors verwenden kannst.
+
+inputs:
+  - Name: E2E Runner (core/e2e_runner.py)
+    Beschreibung: >
+      Bereits vorhanden:
+        - run_e2e_sim(E2ESimConfig) -> E2ERunResult
+      Der QA-Report soll diesen E2E-Run wiederverwenden und dessen Ergebnis als
+      „E2E-Sektion“ im QA-Report aufführen.
+
+  - Name: LabRunner, TrainController, QuantAnalyzer
+    Beschreibung: >
+      LabRunner, TrainController und QuantAnalyzer besitzen bereits:
+        - Smoke-/Unit-/Komponententests und CLI.
+      AF_TASK_026 nutzt davon:
+        - kleine, programmatisch aufrufbare „Smoke“-Pfadvarianten:
+            * ein kurzer Train-Run (risk/exit),
+            * ein kurzer LAB-Experiment-Run,
+            * ein kleiner Quant-Analyse-Run auf synthetischen oder E2E-Daten.
+
+  - Name: Testsuite (pytest)
+    Beschreibung: >
+      Die großen Unit-/Component-/Interface-Tests laufen über pytest.
+      AF_TASK_026 soll:
+        - optional eine „ pytest-Schnellprüfung“ ausführen können (z.B. Marker oder Teilmenge),
+        - aber primär dedizierte QA-Smokes nutzen, damit der QA-Report schnell und stabil bleibt.
+      Du musst NICHT alle Tests doppelt durch den QA-Report jagen – er ist ein Health-Check,
+      kein vollständiger CI-Ersatz.
+
+outputs:
+  - Datei: src/afts_pro/core/qa_report.py
+    Inhalt: >
+      Neues Modul für QA-Health-Checks und Reporting.
+      Enthält:
+        - Dataklassen:
+            @dataclass
+            class QACheckResult:
+                name: str
+                passed: bool
+                details: dict[str, Any] = field(default_factory=dict)
+
+            @dataclass
+            class QASectionResult:
+                name: str
+                checks: list[QACheckResult]
+
+                @property
+                def passed(self) -> bool:
+                    return all(c.passed for c in self.checks)
+
+            @dataclass
+            class QAReport:
+                sections: list[QASectionResult]
+                generated_at: datetime
+                commit_ref: str | None = None  # optional: Git-Commit-Hash
+                notes: str | None = None
+
+                @property
+                def all_passed(self) -> bool:
+                    return all(s.passed for s in self.sections)
+        - Helper-Funktionen für einzelne QA-Sektionen:
+            def run_e2e_section() -> QASectionResult: ...
+            def run_train_smoke_section() -> QASectionResult: ...
+            def run_lab_smoke_section() -> QASectionResult: ...
+            def run_quant_smoke_section() -> QASectionResult: ...
+            def run_pytest_smoke_section(pytest_args: list[str] | None = None) -> QASectionResult: ...
+        - Hauptfunktion:
+            def run_qa_suite(config: QAConfig | None = None) -> QAReport:
+                """
+                Führt die definierten QA-Sektionen aus und aggregiert sie zu einem QAReport.
+                config kann steuern, welche Sektionen aktiv sind.
+                """
+
+  - Datei: src/afts_pro/core/qa_config.py
+    Inhalt: >
+      Optionales kleines Config-Modul oder -Dataclass:
+        @dataclass
+        class QAConfig:
+            enable_e2e: bool = True
+            enable_train_smoke: bool = True
+            enable_lab_smoke: bool = True
+            enable_quant_smoke: bool = True
+            enable_pytest_smoke: bool = False
+            pytest_args: list[str] = field(default_factory=lambda: ["-q", "tests"])
+
+      Diese Config kann aus YAML geladen werden (z.B. configs/qa/qa.yaml).
+
+  - Datei: configs/qa/qa.yaml
+    Inhalt: >
+      Beispiel-Config für QA-Suite:
+        enable_e2e: true
+        enable_train_smoke: true
+        enable_lab_smoke: true
+        enable_quant_smoke: true
+        enable_pytest_smoke: false
+        pytest_args:
+          - "-q"
+          - "tests/test_e2e_acceptance_sim_rl.py"
+
+  - Implementierung der QA-Sektionen in qa_report.py
+    Inhalt: >
+      Konkrete Implementierungen, z.B.:
+
+        def run_e2e_section() -> QASectionResult:
+            cfg = E2ESimConfig.from_yaml("configs/modes/sim_e2e_acceptance.yaml")
+            result = run_e2e_sim(cfg)
+            checks = [
+                QACheckResult(
+                    name="e2e_sim_run_completed",
+                    passed=True,
+                    details={
+                        "num_trades": result.num_trades,
+                        "equity_start": result.equity_start,
+                        "equity_end": result.equity_end,
+                        "run_dir": str(result.run_dir),
+                    },
+                ),
+                QACheckResult(
+                    name="e2e_has_trades",
+                    passed=result.num_trades > 0,
+                    details={"num_trades": result.num_trades},
+                ),
+                QACheckResult(
+                    name="e2e_has_rl_signals",
+                    passed=result.has_rl_signals,
+                    details={"has_rl_signals": result.has_rl_signals},
+                ),
+            ]
+            return QASectionResult(name="e2e_sim_rl", checks=checks)
+
+        def run_train_smoke_section() -> QASectionResult:
+            """
+            Startet einen sehr kleinen Train-Run (z.B. wenige Episoden, Fake-Env)
+            über TrainController und prüft:
+              - ob Output-Dir erstellt wurde,
+              - ob training_summary.json existiert,
+              - ob keine Exception fliegt.
+            """
+
+        def run_lab_smoke_section() -> QASectionResult:
+            """
+            Führt einen Mini-LAB-Run mit 1–2 Experimenten aus (FakeSIM) und prüft:
+              - ob KPI-Matrix/Results geschrieben wurden.
+            """
+
+        def run_quant_smoke_section() -> QASectionResult:
+            """
+            Führt QuantAnalyzer auf einem kleinen Run (z.B. dem E2E-Run oder
+            synthetischer Equity) aus und prüft:
+              - ob Rolling-KPIs nicht leer sind,
+              - ob keine NaNs entstehen.
+            """
+
+        def run_pytest_smoke_section(pytest_args: list[str] | None = None) -> QASectionResult:
+            """
+            Optional:
+              - ruft pytest programmatically auf (pytest.main(pytest_args))
+              - returned passed=True/False je nach Exit-Code.
+            """
+
+  - Datei: src/afts_pro/cli/afts_qa_cli.py
+    Inhalt: >
+      CLI-Wrapper für den QA-Report:
+        - Command: `afts-qa`
+        - Optionen:
+            * --config configs/qa/qa.yaml
+            * --output-dir runs/qa
+        - Verhalten:
+            * lädt QAConfig (oder verwendet Defaults),
+            * ruft run_qa_suite(config) auf,
+            * speichert:
+                - JSON-Report: runs/qa/qa_report_YYYYMMDD_HHMMSS.json
+                - optional: Text-Report: runs/qa/qa_report_YYYYMMDD_HHMMSS.txt
+            * gibt auf stdout eine Kurz-Zusammenfassung:
+                - Anzahl Sektionen
+                - welche Sektionen PASS/FAIL
+                - Gesamtstatus: PASSED/FAILED
+
+      Format Text-Report (Beispiel):
+
+        AFTS-PRO QA REPORT
+        ==================
+        Generated at: 2025-11-28T21:30:00
+        Commit: abc1234 (optional)
+
+        Section: e2e_sim_rl  .......... PASS
+          - e2e_sim_run_completed .... PASS (num_trades=42, equity_end=10345.67)
+          - e2e_has_trades ........... PASS
+          - e2e_has_rl_signals ....... PASS
+
+        Section: train_smoke  ........ PASS
+          - train_run_completed ...... PASS (episodes=10)
+          - training_summary_present . PASS
+
+        Section: lab_smoke    ........ PASS
+        Section: quant_smoke  ........ PASS
+
+        OVERALL STATUS: PASSED ✅
+
+  - Datei: tests/test_qa_report.py
+    Inhalt: >
+      Tests für QA-Report-Logik (nicht für E2E selbst noch einmal, sondern für die Aggregation):
+        - test_qa_report_all_sections_pass:
+            * Mockt einzelne Sektionen (z.B. run_e2e_section, run_train_smoke_section)
+              so, dass sie PASS liefern.
+            * run_qa_suite(...) → report.all_passed == True
+            * report.sections enthält die erwarteten Namen.
+        - test_qa_report_fails_if_one_section_fails:
+            * eine Sektion liefert einen QACheckResult mit passed=False.
+            * report.all_passed == False
+        - test_qa_cli_writes_report_files(tmp_path):
+            * ruft die Kern-Logik (nicht unbedingt den Click/Argparse) mit output_dir=tmp_path auf.
+            * prüft:
+                - JSON-Report existiert,
+                - optional Text-Report existiert,
+                - JSON-Struktur enthält sections, all

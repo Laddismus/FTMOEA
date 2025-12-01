@@ -1,0 +1,32 @@
+title: "Task M0.9b – Train Smoke Runs über TrainController"
+summary: |
+  Erstelle kleine Dev-Scripts und ggf. minimale Config-Erweiterungen, um einen
+  vollständigen Smoke-Train-Run für Risk- und Exit-Agenten über den TrainController
+  auszuführen. Ziel ist ein manueller Sanity-Check der Trainings-Pipeline
+  (ohne Fokus auf Performance), basierend auf den Profilen in configs/train_profiles.yaml.
+inputs:
+  - "Bestehende Tests: tests/test_train_controller_component.py"
+  - "Bestehende Tests: tests/test_train_mode_integration.py"
+  - "Bestehende Tests: tests/test_train_profiles_orb_eurusd.py"
+  - "Config-Datei: configs/train_profiles.yaml (Profile für orb_eurusd_riskagent_v1 / orb_eurusd_exitagent_v1)"
+  - "Kernlogik: src/afts_pro/core/train_controller.py"
+outputs:
+  - "Neues Dev-Script: dev/smoke_train_orb_risk.py (Train-Sanity-Run für Risk-Agent)"
+  - "Neues Dev-Script: dev/smoke_train_orb_exit.py (Train-Sanity-Run für Exit-Agent)"
+  - "Train-Output-Verzeichnisse unterhalb eines klar definierten Root-Ordners, z. B. models/dev_smoke_train/... (Risk/Exit getrennt)"
+  - "Konsolen-Log, das Start/Ende des Runs und die wichtigsten Metriken (Episode count, Loss, ggf. Reward) ausgibt"
+acceptance:
+  - "pytest -q läuft weiterhin komplett grün (153 passed)"
+  - "python dev/smoke_train_orb_risk.py läuft durch, ohne Exception, erzeugt einen neuen Experiment-Ordner und schreibt mindestens ein Config-/Meta-File plus Dummy-Checkpoint"
+  - "python dev/smoke_train_orb_exit.py läuft durch, ohne Exception, erzeugt einen neuen Experiment-Ordner und schreibt mindestens ein Config-/Meta-File plus Dummy-Checkpoint"
+  - "Die Smoke-Skripte nutzen intern den TrainController und die Profile aus configs/train_profiles.yaml, anstatt eigene Hardcoded-Configs zu verwenden"
+  - "Es werden keine bestehenden Tests, Configs oder Kern-APIs kaputtgemacht; Änderungen an bestehendem Code sind minimal und notwendig begründet"
+coding_standards:
+  - "Kein Überschreiben von produktiven Experiment-Pfaden; Smoke-Runs in einen eigenen dev-/smoke-Namespace schreiben (z. B. models/dev_smoke_train/...)"
+  - "Logging über das bestehende Logging-System oder zumindest über klare print-Statements mit Prefix [SMOKE-TRAIN]"
+  - "Keine Magie: Pfade und Profilnamen in den Smoke-Skripten klar und oben im Script als Konstanten definiert"
+  - "Kein Refactoring der Kernlogik, sofern nicht zwingend durch die Aufgabe notwendig – Tests definieren die verbindliche API"
+notes: |
+  Fokus ist ein manueller „Drück den Knopf und schau, ob Training end-to-end läuft“-Check.
+  Es geht NICHT um Trainingsqualität, sondern um Pipeline-Stabilität. Wenn hilfreich, können
+  Episodenanzahl / Max Steps in den Smoke-Runs reduziert werden, damit der Lauf schnell durch ist.

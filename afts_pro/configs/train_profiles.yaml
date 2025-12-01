@@ -1,0 +1,40 @@
+profiles:
+  orb_eurusd_riskagent_v1:
+    description: "RiskAgent Training – ORB 15m – EURUSD – FTMO+ aware – Train 2023–2024, Eval 2025"
+    agent_type: "risk"
+    strategy_profile_path: "configs/strategy/orb_15m_v1.yaml"
+    env_config: "configs/rl/env_orb_eurusd_ftmo_risk.yaml"
+    agent_config: "configs/rl/risk_agent_orb_eurusd_v1.yaml"
+    data:
+      train_start: "2023-01-01"
+      train_end: "2024-12-31"
+      eval_start: "2025-01-01"
+      eval_end: "2025-06-30"
+      timeframe: "15m"
+      ohlcv_path: "data/eurusd/ohlcv_15m.parquet"
+    ftmo:
+      ftmo_rules_config: "configs/risk/ftmo_rules.yaml"
+      ftmo_plus_config: "configs/risk/ftmo_plus.yaml"
+    output_root: "runs/train/orb_eurusd_riskagent_v1"
+    checkpoint_every_n_episodes: 50
+    eval_every_n_episodes: 50
+
+  orb_eurusd_exitagent_v1:
+    description: "ExitAgent Training – ORB 15m – EURUSD – FTMO+ aware – Train 2023–2024, Eval 2025"
+    agent_type: "exit"
+    strategy_profile_path: "configs/strategy/orb_15m_v1.yaml"
+    env_config: "configs/rl/env_orb_eurusd_ftmo_exit.yaml"
+    agent_config: "configs/rl/exit_agent_orb_eurusd_v1.yaml"
+    data:
+      train_start: "2023-01-01"
+      train_end: "2024-12-31"
+      eval_start: "2025-01-01"
+      eval_end: "2025-06-30"
+      timeframe: "15m"
+      ohlcv_path: "data/eurusd/ohlcv_15m.parquet"
+    ftmo:
+      ftmo_rules_config: "configs/risk/ftmo_rules.yaml"
+      ftmo_plus_config: "configs/risk/ftmo_plus.yaml"
+    output_root: "runs/train/orb_eurusd_exitagent_v1"
+    checkpoint_every_n_episodes: 50
+    eval_every_n_episodes: 50

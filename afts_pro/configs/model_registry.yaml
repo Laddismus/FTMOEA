@@ -1,0 +1,8 @@
+model_registry:
+  promotion_root: "models/production"
+  registry_path: "models/production/promotions.json"
+
+production_profiles:
+  orb_eurusd:
+    risk_tag: "orb_eurusd_risk_v1"
+    exit_tag: "orb_eurusd_exit_v1"

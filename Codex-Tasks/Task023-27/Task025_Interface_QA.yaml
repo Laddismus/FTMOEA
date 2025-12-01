@@ -1,0 +1,231 @@
+title: AF_TASK_025_INTERFACE_QA
+
+summary: >
+  Ergänze gezielte Interface-Tests, die die wichtigsten Übergänge zwischen den
+  Kernkomponenten von AFTS-PRO prüfen:
+    - Strategy → RiskManager → RLInference → PositionSizer → ExitPolicy → OrderBuilder → Execution/Storage
+  Ziel:
+    - Sicherstellen, dass die Komponenten nicht nur einzeln korrekt funktionieren
+      (AF_TASK_024), sondern ihre Schnittstellen sauber zusammenspielen.
+    - Fehler wie „Feld wird nicht weitergereicht“, „None an falscher Stelle“ oder
+      „Guard blockt alles“ werden früh erkannt.
+    - Die Tests sind leichter & fokussierter als der E2E-Test, aber umfangreicher
+      als reine Komponententests.
+
+inputs:
+  - Name: SIM-Pipeline Aufbau
+    Beschreibung: >
+      Die aktuelle SIM-Pipeline hat ungefähr folgende Reihenfolge:
+        1. StrategyBridge erzeugt StrategyDecision (Entry/Exit Signals).
+        2. RiskManager/Guards filtern/verändern die Decision.
+        3. RLInferenceHook ruft RiskAgent + ExitAgent auf und schreibt:
+             - risk_pct (update/meta)
+             - exit_action (meta)
+        4. PositionSizer berechnet position_size basierend auf risk_pct, SL, Equity etc.
+        5. ExitPolicyApplier interpretiert exit_action und setzt SL/Exit-Felder.
+        6. OrderBuilder liest StrategyDecision (inkl. RL/Exec-Felder)
+           und erstellt konkrete OrderSpecs.
+        7. ExecutionSIM setzt diese Orders um und schreibt Trades/Equity.
+
+      AF_TASK_025 definiert Tests, die einzelne Teilketten dieser Pipeline
+      überprüfen, ohne einen kompletten mehrtägigen SIM-Run zu fahren.
+
+  - Name: Bereits existierende Komponenten & Tests
+    Beschreibung: >
+      AF_TASK_024 hat pro Komponente isolierte Tests geschaffen.
+      AF_TASK_025 baut darauf auf und konzentriert sich jetzt auf:
+        - Multi-Komponenten-Pfade (2–5 Module in Reihe),
+        - insbesondere RL-bezogene Pfade und Risk/Exit-Integration.
+
+outputs:
+  - Datei: tests/test_interface_strategy_to_risk_to_rl.py
+    Inhalt: >
+      Tests für die Schnittstelle:
+        StrategyBridge → RiskManager → RLInferenceHook
+
+      Beispiele:
+        - test_strategy_signal_flows_through_risk_and_rl:
+            * Setup:
+                - Dummy-MarketState mit klar definierter Situation.
+                - StrategyBridge liefert Entry-Decision (z.B. LONG).
+                - RiskManager hat keine Blocker (passt Decision nur durch).
+                - Dummy-RiskAgent liefert risk_pct=1.0.
+            * Ablauf:
+                - Pipeline bis inkl. RLInferenceHook ausführen.
+            * Assertions:
+                - decision.side == "long"
+                - decision.update["risk_pct"] == 1.0
+                - decision.meta["exit_action"] ist gesetzt (z.B. 3 durch Dummy-ExitAgent)
+        - test_risk_manager_can_block_before_rl:
+            * RiskManager so konfigurieren, dass ein Trade wegen DD-Limit blockiert wird.
+            * RLInferenceHook wird trotzdem sauber aufgerufen ODER bewusst übersprungen
+              (je nach gewünschter Semantik), aber die Decision bleibt „no entry“.
+            * Assertions:
+                - decision.is_entry == False
+                - keine Exception, RL-Pfade crashen nicht.
+
+  - Datei: tests/test_interface_rl_to_sizer_to_orderbuilder.py
+    Inhalt: >
+      Tests für:
+        RLInferenceHook → PositionSizer → OrderBuilder
+
+      Beispiele:
+        - test_risk_pct_changes_position_size_and_order:
+            * Setup:
+                - Dummy-Decision mit Entry LONG, sl_price vorhanden.
+                - RiskAgent.act gibt risk_pct=2.0.
+                - PositionSizerConfig mit klar berechenbarer Größe.
+            * Ablauf:
+                - RLInferenceHook setzt risk_pct.
+                - PositionSizer.compute_position_size(...) setzt position_size.
+                - OrderBuilder.build_entry_order(...) wird gerufen.
+            * Assertions:
+                - decision.update["position_size"] > 0
+                - OrderSpec.size == decision.update["position_size"]
+        - test_missing_risk_pct_falls_back_to_fixed:
+            * Setup:
+                - RLInferenceHook deaktiviert / RiskAgent=None.
+                - PositionSizer base_risk_mode="fixed", fixed_risk_pct=0.5.
+            * Ablauf:
+                - PositionSizer nutzt fixed_risk_pct.
+                - OrderBuilder baut Entry-Order.
+            * Assertions:
+                - effective_risk_pct == fixed_risk_pct
+                - Pipeline bricht nicht, obwohl kein agent_risk_pct vorhanden.
+
+  - Datei: tests/test_interface_exit_policy_to_orderbuilder.py
+    Inhalt: >
+      Tests für:
+        ExitPolicyApplier → OrderBuilder → ExecutionStub
+
+      Beispiele:
+        - test_exit_action_full_close_creates_full_exit_order:
+            * Setup:
+                - PositionState: size=1.0
+                - StrategyDecision: keine neuen Entries, aber exit_action=full_close
+                  (per RLInferenceHook in meta gesetzt).
+            * Ablauf:
+                - ExitPolicyApplier.apply(...) setzt meta/update-Felder für full_close.
+                - OrderBuilder.build_exit_orders(...) erzeugt Close-Order.
+            * Assertions:
+                - erzeugte Order hat size≈1.0 (volle Position).
+        - test_exit_action_partial_close_respects_fraction:
+            * Setup:
+                - size=1.0, partial_close_fraction=0.3
+                - exit_action=partial_close
+            * Ablauf:
+                - ExitPolicyApplier → decision.meta["exit_partial_close_fraction"]=0.3
+                - OrderBuilder → Exit-Order mit size≈0.3
+            * Assertions:
+                - remaining_position_size≈0.7 (wenn simuliert)
+                - keine doppelte Exit-Order.
+
+  - Datei: tests/test_interface_sim_to_storage.py
+    Inhalt: >
+      Tests für:
+        „kleiner SIM-Run“ → Storage/Artifacts (stark verkürzt gegenüber E2E)
+
+      Beispiele:
+        - test_single_bar_sim_persists_minimal_artifacts:
+            * Setup:
+                - Engine/SimRunner mit Testprofil, das nur 1–5 Bars läuft.
+                - RLAgents können dummy sein.
+            * Ablauf:
+                - SIM für diesen kurzen Zeitraum starten.
+            * Assertions:
+                - run_dir existiert
+                - mindestens 1 Trades-File oder Event-Log-File existiert
+                - keine NaNs/inf in grundlegenden Feldern (z.B. equity_start/end).
+        - Fokus:
+            * kürzer / leichter als E2E, aber dennoch echte „End-to-Storage“-Kette.
+
+  - Datei: tests/test_interface_train_to_policy_usage.py
+    Inhalt: >
+      Tests für:
+        TrainController → gespeicherter Agent → Nutzung in SIM
+
+      Beispiele:
+        - test_trained_policy_can_be_loaded_for_sim_inference:
+            * Setup:
+                - Mock-Train-Run via TrainController, der einen Dummy-Checkpoint erzeugt
+                  (oder einen Fake-Agent-Save).
+                - SIM-Config, die diesen Pfad als rl_agents.risk_path/exit_path nutzt.
+            * Ablauf:
+                - TrainController.run_train_job(...) → erzeugt "checkpoint_dir".
+                - SimConfig so überschreiben, dass risk_path=checkpoint_dir.
+                - SIM mit wenigen Bars starten (z.B. 10 Bars).
+            * Assertions:
+                - SIM-Run läuft ohne Exception.
+                - RLInferenceHook wurde auf Basis des geladenen Agents instanziiert
+                  (z.B. via Log/Flag oder Inspect im Test).
+                - Mindestens ein Decision/Trade enthält meta["agent_version"] oder ähnliches,
+                  das aus dem geladenen Checkpoint stammt.
+
+acceptance:
+  - Schnittstellen getestet, nicht nur Komponenten:
+      Beschreibung: >
+        Für jede der folgenden Schnittstellen existiert mindestens ein expliziter Test:
+          1. StrategyBridge → RiskManager → RLInferenceHook
+          2. RLInferenceHook → PositionSizer → OrderBuilder
+          3. ExitPolicyApplier → OrderBuilder → (ExecutionStub)
+          4. SimRunner/Engine → Storage (Artefakte)
+          5. TrainController → gespeicherter Agent → SIM-Inference
+
+  - Keine „schwimmenden“ Felder:
+      Beschreibung: >
+        Interface-Tests stellen sicher, dass:
+          - risk_pct von RLInferenceHook weitergereicht wird und vom PositionSizer genutzt wird.
+          - exit_action von RLInferenceHook über ExitPolicyApplier wirklich zu Orders führt.
+          - position_size von PositionSizer vom OrderBuilder genutzt wird.
+        Es gibt keine „toten Felder“, die geschrieben, aber nie verwendet werden.
+
+  - Robustheit bei optionalen Komponenten:
+      Beschreibung: >
+        Schnittstellen verhalten sich robust, wenn:
+          - RiskAgent deaktiviert ist (fallback auf fixed risk).
+          - ExitAgent deaktiviert ist (keine ExitPolicy-Anpassungen).
+          - PositionSizer oder ExitPolicy via Config abgeschaltet sind.
+        Tests prüfen, dass dann entweder:
+          - Legacy/Fallback-Logik greift,
+          - oder definierte No-Op-Verhalten ohne Exceptions.
+
+  - Tests bleiben leichter als E2E:
+      Beschreibung: >
+        Die Interface-Tests sind:
+          - schneller und gezielter als der E2E-SMOKE,
+          - nutzen oft Stubs/Mocks für Teile der Pipeline,
+          - aber gehen über reine Einzelkomponenten hinaus.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen im Produktcode.
+      - pytest für Tests.
+  - Teststruktur:
+      - Für jeden Interface-Bereich eine eigene Testdatei
+        (wie oben vorgeschlagen), klar benannt: `test_interface_*`.
+      - Verwendung von simplen Dummy-/Stub-Klassen, um Abhängigkeiten
+        zu minimieren (z.B. Dummy-Agent, Dummy-Execution).
+      - Keine externen Ressourcen, keine langen Backtests.
+  - Logging:
+      - Wo sinnvoll, in den Produktionskomponenten kurze Logs,
+        die den Interface-Fluss greifbar machen (z.B. „Applied RL exit action…“),
+        aber die Tests selbst sollen primär auf Datenobjekte, nicht auf Logs prüfen.
+
+notes:
+  - Rolle im QA-Gesamtplan:
+      - AF_TASK_025 schließt die Lücke zwischen:
+          * „Komponente funktioniert isoliert“ (AF_TASK_024)
+          * und „Gesamtsystem läuft“ (AF_TASK_023).
+      - Du erkennst hiermit früh:
+          * wenn ein Feld nicht mehr durchgereicht wird,
+          * wenn eine Config-Änderung eine Schnittstelle zerbricht,
+          * wenn eine Guard logische Pfade komplett blockiert.
+  - Nächster Schritt:
+      - AF_TASK_026_QA_REPORT:
+          * Ein aggregierter QA-/Test-Report, der die Ergebnisse von:
+              - Unit/Component-Tests
+              - Interface-Tests
+              - E2E-Acceptance
+            zusammenfasst.
+      - Danach:
+          * AF_TASK_027_SYSTEM_GATE (z.B. „ready_for_live“ Flag basierend auf QA).

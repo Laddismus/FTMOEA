@@ -1,0 +1,24 @@
+name: "orb_15m_v1"
+description: "Baseline Open Range Breakout 15m Strategy"
+symbol: "EURUSD"
+timeframe: "M15"
+session:
+  timezone: "Europe/London"
+  session_start: "08:00"
+  session_end: "18:00"
+orb:
+  range_minutes: 15
+  min_range_pips: 3.0
+  breakout_buffer_pips: 0.5
+  max_entries_per_day: 1
+sl_tp:
+  mode: "range_rr"
+  atr_period: 14
+  atr_sl_mult: 1.0
+  atr_tp_mult: 2.0
+  range_rr_sl_mult: 1.0
+  range_rr_tp_mult: 2.0
+filters:
+  allow_long: true
+  allow_short: true
+  trade_only_in_session: true

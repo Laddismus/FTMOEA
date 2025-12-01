@@ -1,0 +1,42 @@
+env_type: "risk"
+episode:
+  max_steps: 200
+  mode: "daily"
+reward_profiles:
+  risk:
+    weight_equity_delta: 1.0
+    weight_drawdown_delta: -2.0
+    weight_stage_progress: 0.5
+    weight_mfe_usage: 0.3
+    weight_mae_penalty: -0.5
+    weight_time_under_water: -0.2
+    clip_min: -5.0
+    clip_max: 5.0
+observation:
+  include_features: true
+  include_position_state: true
+  include_risk_state: true
+  equity_norm_mode: "start_equity"
+features:
+  base_price_features: true
+  base_pnl_features: true
+  ftmo:
+    include_daily_dd_pct: true
+    include_overall_dd_pct: true
+    include_stage: true
+    include_stage_one_hot: true
+    max_stage: 2
+    include_rolling_dd_pct: true
+    include_loss_velocity: true
+    include_profit_progress_pct: true
+    include_session_one_hot: true
+    sessions: ["Asia", "London", "NewYork"]
+    include_news_flag: true
+    include_time_fence_flag: true
+    include_spread: true
+    spread_clip_pips: 2.0
+    include_stability_kpis: true
+    stability_pf_clip: 3.0
+    stability_winrate_clip: 1.0
+    stability_pnl_std_clip: 5.0
+    include_circuit_active_flag: true

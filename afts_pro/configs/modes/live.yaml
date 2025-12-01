@@ -1,0 +1,7 @@
+symbol: "EURUSD"
+poll_interval_sec: 1.0
+max_steps: 10
+use_system_gate: true
+gate_mode: "from-last"
+qa_config_path: "configs/qa/qa.yaml"
+gate_policy_path: "configs/qa/gate_policy.yaml"

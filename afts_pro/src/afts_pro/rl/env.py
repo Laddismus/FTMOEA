@@ -63,36 +63,30 @@ def _safe_div(num: float, den: float) -> float:
 
 
 class RewardCalculator:
-    def __init__(self, reward_spec: RewardSpec, equity_norm: float) -> None:
+    def __init__(self, reward_spec: RewardSpec, equity_norm: float = 1.0) -> None:
         self.spec = reward_spec
         self.equity_norm = equity_norm or 1.0
         self.prev_equity: Optional[float] = None
         self.prev_dd: Optional[float] = None
 
-    def compute(
-        self,
-        equity: float,
-        drawdown: float,
-        stage_progress: float = 0.0,
-        mfe_mae: float = 0.0,
-    ) -> float:
+    def compute(self, ctx: RewardContext) -> float:
         eq_delta = 0.0
         dd_delta = 0.0
         if self.prev_equity is not None:
-            eq_delta = _safe_div(equity - self.prev_equity, self.equity_norm)
+            eq_delta = _safe_div(ctx.equity_t - self.prev_equity, self.equity_norm)
         if self.prev_dd is not None:
-            dd_delta = _safe_div(drawdown - self.prev_dd, self.equity_norm)
+            dd_delta = _safe_div(ctx.dd_t - self.prev_dd, self.equity_norm)
 
-        self.prev_equity = equity
-        self.prev_dd = drawdown
+        self.prev_equity = ctx.equity_t
+        self.prev_dd = ctx.dd_t
 
         reward = (
             self.spec.weight_equity_delta * eq_delta
             + self.spec.weight_drawdown_delta * dd_delta
-            + self.spec.weight_stage_progress * stage_progress
-            + self.spec.weight_mfe_mae * mfe_mae
+            + self.spec.weight_stage_progress * ctx.stage_progress
+            + self.spec.weight_mfe_usage * (ctx.mfe_t - abs(ctx.mae_t))
         )
-        return reward
+        return float(reward)
 
 
 class RLTradingEnv(RLBaseEnv):
@@ -130,7 +124,7 @@ class RLTradingEnv(RLBaseEnv):
             clip_min=profile_cfg.get("clip_min"),
             clip_max=profile_cfg.get("clip_max"),
         )
-        self._reward_calc = RewardCalculator(reward_config)
+        self._reward_calc = RewardCalculator(reward_config, equity_norm=1.0)
         self._start_equity = 1.0
         self._max_steps = config.get("episode", {}).get("max_steps", 0)
         self._episode_mode = config.get("episode", {}).get("mode", "fixed_bars")
@@ -237,4 +231,8 @@ class RLTradingEnv(RLBaseEnv):
             step_index_in_trade=current_event.get("step_index_in_trade"),
             time_under_water=float(current_event.get("time_under_water", 0.0)),
         )
+        if self._reward_calc.prev_equity is None:
+            self._reward_calc.prev_equity = ctx.equity_prev
+        if self._reward_calc.prev_dd is None:
+            self._reward_calc.prev_dd = ctx.dd_prev
         return self._reward_calc.compute(ctx)

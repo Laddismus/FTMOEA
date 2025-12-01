@@ -1,0 +1,9 @@
+base_risk_mode: "agent"
+fixed_risk_pct: 0.5
+min_risk_pct: 0.0
+max_risk_pct: 3.0
+max_risk_per_trade_pct: 1.0
+max_risk_per_day_pct: 4.0
+default_sl_atr_factor: 1.5
+cost_per_unit: null
+hybrid_offset_pct: 0.0

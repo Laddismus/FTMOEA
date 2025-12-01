@@ -26,11 +26,16 @@ from afts_pro.exec import (
     PositionSide,
     SimFillEngine,
 )
+from afts_pro.exec.exit_policy import ExitPolicyApplier, ExitPolicyConfig
+from afts_pro.exec.position_sizer import PositionSizer, PositionSizerConfig
+from afts_pro.core.strategy_profile import load_strategy_profile
+from afts_pro.core.strategy_orb import ORBStrategy
 from afts_pro.risk import (
     RiskManager,
     create_risk_policy_from_config,
     load_risk_config,
 )
+from afts_pro.risk.ftmo_rules import FtmoRiskEngine, FtmoRiskConfig
 from afts_pro.behaviour import BehaviourManager
 from afts_pro.config.behaviour_config import create_guards
 from afts_pro.core.rl_hook_integration import integrate_rl_inference
@@ -130,6 +135,12 @@ async def _run_simulation() -> None:
     use_risk_agent = bool(sim_mode_cfg.get("use_risk_agent", False))
     use_exit_agent = bool(sim_mode_cfg.get("use_exit_agent", False))
     agent_paths = sim_mode_cfg.get("agent_paths", {})
+    use_position_sizer_flag = bool(sim_mode_cfg.get("use_position_sizer", False))
+    use_risk_agent_for_sizing = bool(sim_mode_cfg.get("use_risk_agent_for_sizing", False))
+    position_sizer_cfg_path = sim_mode_cfg.get("position_sizer_config", "configs/exec/position_sizer.yaml")
+    position_sizer_cfg = load_yaml(str(PROJECT_ROOT / position_sizer_cfg_path)) if position_sizer_cfg_path else {}
+    exit_policy_cfg_path = PROJECT_ROOT / "configs" / "exec" / "exit_policy.yaml"
+    exit_policy_cfg = load_yaml(str(exit_policy_cfg_path)) if exit_policy_cfg_path.exists() else {}
 
     risk_config_path = Path(global_config.risk.policy_path)
     if not risk_config_path.is_absolute():
@@ -137,6 +148,12 @@ async def _run_simulation() -> None:
     risk_config = load_risk_config(str(risk_config_path))
     risk_policy = create_risk_policy_from_config(str(risk_config_path))
     starting_balance = float(risk_config.get("initial_balance", 100000.0))
+    ftmo_engine = None
+    ftmo_cfg_path = sim_mode_cfg.get("risk", {}).get("ftmo_config_path") if isinstance(sim_mode_cfg, dict) else None
+    use_ftmo = sim_mode_cfg.get("risk", {}).get("use_ftmo_risk", False) if isinstance(sim_mode_cfg, dict) else False
+    if use_ftmo and ftmo_cfg_path:
+        ftmo_cfg = FtmoRiskConfig(**load_yaml(str(PROJECT_ROOT / ftmo_cfg_path)))
+        ftmo_engine = FtmoRiskEngine(ftmo_cfg)
 
     logger.info(
         "RISK_CONFIG | path=%s | type=%s | params=%s",
@@ -152,12 +169,12 @@ async def _run_simulation() -> None:
         unrealized_pnl=0.0,
         fees_total=0.0,
     )
-    order_builder = OrderBuilder(asset_specs=asset_specs)
+    order_builder = OrderBuilder(asset_specs=asset_specs, use_position_sizer=sim_mode_cfg.get("use_position_sizer", False))
     position_manager = PositionManager()
     execution_cfg = global_config.execution
     fill_engine = _build_fill_engine(execution_cfg)
     price_validator = PriceValidator()
-    risk_manager = RiskManager(risk_policy)
+    risk_manager = RiskManager(risk_policy, ftmo_engine=ftmo_engine)
     run_logger: RunLogger | None = None
     if global_config.runlogger.enabled:
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + f"_{global_config.environment.mode}_{profile_name}"
@@ -183,8 +200,14 @@ async def _run_simulation() -> None:
         behaviour_manager = BehaviourManager(guards=behaviour_guards)
     else:
         logger.info("Behaviour layer disabled or no guards configured.")
-    strategies = _instantiate_strategies(symbol, global_config.strategy.enabled_strategies)
-    bridge = StrategyBridge(strategies, asset_specs=asset_specs)
+    profile_path_override = sim_mode_cfg.get("strategy_profile_path")
+    if profile_path_override:
+        profile_cfg = load_strategy_profile(str(PROJECT_ROOT / profile_path_override))
+        strategies = [ORBStrategy(profile_cfg.orb, profile_cfg.session, symbol=profile_cfg.symbol or symbol)] if profile_cfg.orb else []
+        bridge = StrategyBridge(strategies, asset_specs=asset_specs)
+    else:
+        strategies = _instantiate_strategies(symbol, global_config.strategy.enabled_strategies)
+        bridge = StrategyBridge(strategies, asset_specs=asset_specs)
     extras_loader: ExtrasLoader | None = None
     extras_map = {}
     if global_config.extras.enabled:
@@ -222,6 +245,14 @@ async def _run_simulation() -> None:
         logger.info("RL inference hook enabled (risk=%s, exit=%s)", use_risk_agent, use_exit_agent)
     else:
         logger.info("RL inference hook disabled.")
+    exit_policy_applier: ExitPolicyApplier | None = None
+    if sim_mode_cfg.get("use_exit_agent", False):
+        cfg = ExitPolicyConfig(**exit_policy_cfg) if isinstance(exit_policy_cfg, dict) else ExitPolicyConfig()
+        exit_policy_applier = ExitPolicyApplier(cfg)
+    position_sizer: PositionSizer | None = None
+    if use_position_sizer_flag:
+        ps_cfg = PositionSizerConfig(**position_sizer_cfg) if isinstance(position_sizer_cfg, dict) else PositionSizerConfig()
+        position_sizer = PositionSizer(ps_cfg)
 
     tracked_paths: List[Path] = []
     config_mtimes: Dict[Path, float] = {}
@@ -396,6 +427,35 @@ async def _run_simulation() -> None:
                 )
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning("RL inference failed: %s", exc)
+        if exit_policy_applier is not None and decision.meta.get("exit_action") is not None:
+            pos_state = account_state.positions.get(state.symbol)
+            exit_policy_applier.apply(decision.meta.get("exit_action"), pos_state, state, decision, atr=None)
+        # Position sizing for entries
+        if position_sizer is not None and decision.action == "entry":
+            agent_risk = decision.update.get("risk_pct") or decision.meta.get("risk_pct")
+            if not use_risk_agent_for_sizing:
+                agent_risk = None
+            sl_price = decision.update.get("sl_price") or decision.update.get("new_sl")
+            atr_val = feature_bundle.model.values[0] if feature_bundle and feature_bundle.model else None
+            sizing_result = position_sizer.compute_position_size(
+                symbol=state.symbol,
+                side=decision.side or "long",
+                entry_price=state.close,
+                sl_price=sl_price,
+                equity=account_state.equity,
+                agent_risk_pct=agent_risk,
+                daily_realized_pnl=account_state.realized_pnl,
+                atr=atr_val,
+            )
+            decision.update["position_size"] = sizing_result.size
+            decision.meta["effective_risk_pct"] = sizing_result.effective_risk_pct
+            decision.meta["risk_capped_by"] = sizing_result.capped_by
+            logger.info(
+                "Position size computed | size=%.4f | eff_risk=%.3f%% | caps=%s",
+                sizing_result.size,
+                sizing_result.effective_risk_pct,
+                sizing_result.capped_by,
+            )
 
         new_orders: List[Order] = []
         if risk_decision.allow_new_orders:
@@ -403,12 +463,12 @@ async def _run_simulation() -> None:
             new_orders.extend(order_builder.build_manage_orders(decision, state, account_state))
             new_orders.extend(order_builder.build_exit_orders(decision, state, account_state))
 
-                if not new_orders and not account_state.open_orders and not account_state.positions and not demo_entry_sent:
-                    demo_decision = StrategyDecision(action="entry", side="long", confidence=1.0)
-                    new_orders.extend(order_builder.build_entry_orders(demo_decision, state, account_state))
-                    demo_entry_sent = True
-            else:
-                logger.debug("Risk blocked new orders this bar.")
+            if not new_orders and not account_state.open_orders and not account_state.positions and not demo_entry_sent:
+                demo_decision = StrategyDecision(action="entry", side="long", confidence=1.0)
+                new_orders.extend(order_builder.build_entry_orders(demo_decision, state, account_state))
+                demo_entry_sent = True
+        else:
+            logger.debug("Risk blocked new orders this bar.")
 
         if new_orders:
             pending_orders_for_next_bar.extend(new_orders)

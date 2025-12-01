@@ -1,0 +1,322 @@
+title: AF_TASK_040_MODEL_SELECTION_AND_AUTO_PROMOTION
+
+summary: >
+  Implementiere eine Model-Selection- und Auto-Promotion-Pipeline auf Basis der
+  Benchmark-/Eval-Reports.
+  Ziel:
+    - Mehrere RL-Checkpoints (RiskAgent/ExitAgent) anhand der BenchmarkReports vergleichen.
+    - Filterregeln (FTMO-Pass, Mindest-PF, maximaler Drawdown, Mindest-Score) anwenden.
+    - Bestes Modell pro Agent-Typ auswählen (ModelSelection).
+    - Auto-Promotion: gewähltes Modell als „production“ markieren, z.B. via Symlink/Copy
+      in einen standardisierten Pfad und Promotion-Metadaten schreiben.
+    - CLI-Workflow, um:
+        * Models zu listen,
+        * Selektion zu fahren,
+        * Promotion durchzuführen (mit optionalem Dry-Run).
+
+inputs:
+  - Name: BenchmarkReports & Eval-Outputs
+    Beschreibung: >
+      Nach AF_TASK_038/039:
+        - Für jeden Eval-Run gibt es:
+            * JSON-Report (BenchmarkReport)
+            * TXT Summary
+            * HTML-Report
+        - BenchmarkReport enthält:
+            * kpis: dict (pf, winrate, max_dd_pct, etc.)
+            * ftmo: dict (daily_dd_pass, overall_dd_pass, target_progress_pct, ...)
+            * rl_train: dict (mean_reward_last50, reward_slope, epsilon_mean, ...)
+            * score: float
+            * checkpoint_path: str
+            * comments: list[str]
+      AF_TASK_040:
+        - liest diese Reports ein,
+        - nutzt score & Einzel-KPIs, um Modelle zu filtern und zu ranken.
+
+  - Name: Eval-/Train-Struktur
+    Beschreibung: >
+      Annahmen:
+        - Trainings-Runs liegen unter z.B. runs/train/<profile>/<run_id>/...
+        - Eval-Runs liegen unter runs/eval/<profile>/<checkpoint_tag>/...
+        - JSON-Reports liegen pro EvalRun z.B. unter runs/eval/.../benchmark_report.json.
+      AF_TASK_040:
+        - erwartet konfigurierbare Pfade/Pattern,
+        - kann entweder:
+            * über einen eval_root alle vorhandenen Reports finden,
+            * oder aus einer Liste von Eval-Run-Pfaden arbeiten.
+
+  - Name: RL-Agent-Familien
+    Beschreibung: >
+      Es gibt mindestens:
+        - RiskAgent-Checkpoints
+        - ExitAgent-Checkpoints
+      AF_TASK_040:
+        - sollte in der Lage sein, pro Agent-Typ eine eigene Selektion/Pipeline zu fahren,
+        - z.B. risk_models und exit_models separat betrachten.
+
+outputs:
+  - Datei: core/model_selection.py
+    Inhalt: >
+      Implementiere ModelSelection-Logik:
+
+        from dataclasses import dataclass
+        from pathlib import Path
+        from typing import List, Optional
+
+        @dataclass
+        class ModelSelectionCriteria:
+            min_profit_factor: float = 1.1
+            max_drawdown_pct: float = -10.0    # z.B. -10 % (kpis["max_dd_pct"] >= -10.0)
+            min_winrate: float = 0.45
+            require_ftmo_daily_pass: bool = True
+            require_ftmo_overall_pass: bool = True
+            min_score: float = 0.0
+
+        @dataclass
+        class ModelSelectionConfig:
+            eval_root: str                          # z.B. "runs/eval/orb_eurusd_riskagent_v1"
+            agent_type: str                         # "risk" | "exit"
+            criteria: ModelSelectionCriteria
+            # Promotion:
+            promotion_root: str                     # z.B. "models/production"
+            promotion_tag: str                      # z.B. "orb_eurusd_risk_v1"
+            copy_checkpoint: bool = False           # wenn False: Symlink/PTR-File
+            pointer_filename: str = "CURRENT.txt"   # für "aktuelle Modell"-Pointer
+
+        class ModelSelector:
+            def __init__(self, cfg: ModelSelectionConfig):
+                self.cfg = cfg
+
+            def discover_reports(self) -> List[BenchmarkReport]:
+                """
+                Durchsucht eval_root rekursiv nach benchmark_report.json-Dateien,
+                lädt sie als BenchmarkReport-Instanzen.
+                Filtert optional nach agent_type (falls in Report markiert).
+                """
+
+            def filter_reports(self, reports: List[BenchmarkReport]) -> List[BenchmarkReport]:
+                """
+                Wendet Kriterien an:
+                  - profit_factor >= min_profit_factor
+                  - max_dd_pct >= max_drawdown_pct
+                  - winrate >= min_winrate
+                  - ftmo.daily_dd_pass / ftmo.overall_dd_pass, falls gefordert
+                  - score >= min_score
+                """
+
+            def rank_reports(self, reports: List[BenchmarkReport]) -> List[BenchmarkReport]:
+                """
+                Sortiert Reports absteigend nach score.
+                Bei Gleichstand:
+                  - höherer profit_factor zuerst,
+                  - dann geringerer max_dd_pct (weniger Drawdown).
+                """
+
+            def select_best(self) -> Optional[BenchmarkReport]:
+                """
+                Kombiniert discover_reports -> filter_reports -> rank_reports
+                und gibt das beste Modell oder None zurück.
+                """
+
+            def promote(self, best: BenchmarkReport, dry_run: bool = False) -> Path:
+                """
+                Promotion-Mechanik:
+                  - promotion_root/promotion_tag/<agent_type>/...
+                  - Wenn copy_checkpoint:
+                      * Checkpoint-Datei(en) in dieses Verzeichnis kopieren.
+                    Sonst:
+                      * Pointer-Datei mit Checkpoint-Pfad schreiben
+                        (z.B. CURRENT.txt mit absolutem Pfad),
+                      * optional Symlink, falls OS unterstützt.
+                  - Schreibt zusätzliche Metadata-Datei (z.B. selection_info.json)
+                    mit:
+                      * score, pf, mdd, winrate, ftmo_pass, timestamp etc.
+                  - Rückgabe: Pfad zum promoted Model-Dir bzw. Pointer.
+                """
+
+  - Datei: configs/model_selection.yaml
+    Inhalt: >
+      Konfiguriere Model Selection Policies, z.B.:
+
+        model_selection_profiles:
+          orb_eurusd_risk_v1:
+            agent_type: "risk"
+            eval_root: "runs/eval/orb_eurusd_riskagent_v1"
+            promotion_root: "models/production"
+            promotion_tag: "orb_eurusd_risk_v1"
+            copy_checkpoint: false
+            pointer_filename: "CURRENT.txt"
+            criteria:
+              min_profit_factor: 1.2
+              max_drawdown_pct: -8.0
+              min_winrate: 0.5
+              require_ftmo_daily_pass: true
+              require_ftmo_overall_pass: true
+              min_score: 0.2
+
+          orb_eurusd_exit_v1:
+            agent_type: "exit"
+            eval_root: "runs/eval/orb_eurusd_exitagent_v1"
+            promotion_root: "models/production"
+            promotion_tag: "orb_eurusd_exit_v1"
+            copy_checkpoint: false
+            pointer_filename: "CURRENT.txt"
+            criteria:
+              min_profit_factor: 1.1
+              max_drawdown_pct: -10.0
+              min_winrate: 0.45
+              require_ftmo_daily_pass: true
+              require_ftmo_overall_pass: true
+              min_score: 0.1
+
+  - Datei: core/model_promotion_registry.py (optional)
+    Inhalt: >
+      Optionales Hilfsmodul, um einen globalen Überblick über promoted Models zu behalten:
+
+        @dataclass
+        class PromotionRecord:
+            agent_type: str
+            tag: str
+            checkpoint_path: str
+            score: float
+            timestamp: str
+            meta: dict
+
+        class PromotionRegistry:
+            def __init__(self, path: str):
+                self.path = Path(path)  # z.B. "models/production/promotions.json"
+
+            def load(self) -> list[PromotionRecord]:
+                ...
+
+            def append_record(self, record: PromotionRecord) -> None:
+                """
+                Fügt einen neuen PromotionRecord hinzu (JSON-Liste),
+                um Explorer-Analysen/Buchhaltung zu erlauben.
+                """
+
+      Hinweis:
+        - Kann auch direkt in ModelSelector.promote() angesprochen werden,
+          wenn eine Registry in der Config hinterlegt ist (optional).
+
+  - CLI: cli/afts_model_cli.py
+    Inhalt: >
+      Eine CLI für Model Selection & Promotion:
+
+        # Beispiele:
+        afts_model_cli.py list-profiles
+        afts_model_cli.py select --profile orb_eurusd_risk_v1
+        afts_model_cli.py select --profile orb_eurusd_risk_v1 --dry-run
+        afts_model_cli.py promote --profile orb_eurusd_risk_v1
+
+      Subcommands:
+        - list-profiles:
+            * zeigt alle model_selection_profiles aus model_selection.yaml.
+        - select:
+            * lädt Config für Profile,
+            * ruft ModelSelector.select_best(),
+            * printet bestes Modell und Score,
+            * bei --dry-run KEINE Promotion.
+        - promote:
+            * ruft select_best(),
+            * wenn kein Modell die Kriterien erfüllt:
+                - exit mit non-zero und Hinweis,
+            * sonst promote(best),
+            * Ausgabe: Pfad + Kurzsummary.
+
+  - Datei: tests/test_model_selection.py
+    Inhalt: >
+      Tests für Model Selection & Promotion:
+
+        - test_filter_reports_applies_criteria:
+            * Erstelle 3 synthetische BenchmarkReports mit verschiedenen:
+                - profit_factor, max_dd_pct, winrate, ftmo flags, score
+            * criteria so setzen, dass nur bestimmte Reports durchkommen.
+            * assert, dass filter_reports nur die gewünschten Reports zurückgibt.
+
+        - test_rank_reports_sorts_by_score_then_pf_then_dd:
+            * 3 Reports mit:
+                - score: [0.4, 0.4, 0.3]
+                - pf: [1.2, 1.3, 1.5]
+                - dd: [-6.0, -5.0, -4.0]
+            * rank_reports -> Reihenfolge:
+                - zuerst score 0.4 mit pf 1.3 vs pf 1.2,
+                - bei gleicher pf: niedrigere DD (z.B. -5.0 > -6.0).
+
+        - test_select_best_returns_none_if_no_model_passes:
+            * criteria so streng, dass keiner durchkommt → select_best() -> None.
+
+        - test_promote_creates_pointer_file_and_meta:
+            * Erstelle Dummy-Checkpoint-Datei und Dummy-Report.
+            * ModelSelector.promote(best, dry_run=False)
+            * assert:
+                - promotion_root/promotion_tag/ existiert,
+                - pointer_filename existiert und enthält Pfad zum Checkpoint,
+                - selection_info.json (oder ähnlich) existiert mit Score etc.
+
+        - optional: test_promote_dry_run_does_not_create_files:
+            * dry_run=True -> keine Files erzeugt.
+
+  - Änderung: eval/benchmark-Flows (leicht)
+    Inhalt: >
+      - Optional: EvalController kann in den JSON-Bericht ein Feld "agent_type" und "profile"
+        schreiben, damit ModelSelector leichter filtern kann.
+      - z.B.:
+          report.meta["agent_type"] = "risk"
+          report.meta["profile"] = "orb_eurusd_riskagent_v1"
+
+acceptance:
+  - Model Selection Config & Code:
+      Beschreibung: >
+        model_selection.yaml existiert mit mindestens 2 Profilen (Risk & Exit).
+        ModelSelector kann:
+          - Reports aus eval_root entdecken,
+          - Kriterien anwenden,
+          - Reports ranken,
+          - bestes Modell (oder None) zurückgeben.
+
+  - Promotion Mechanik:
+      Beschreibung: >
+        ModelSelector.promote():
+          - legt unter promotion_root/promotion_tag einen Zielordner an,
+          - erzeugt entweder:
+              * Kopie des Checkpoints (copy_checkpoint=True),
+              * oder Pointer-Datei (CURRENT.txt) mit Pfad (copy_checkpoint=False),
+          - erzeugt Metadata-Datei mit Score & KPIs.
+        Tests bestätigen pointer/meta-Verhalten.
+
+  - CLI:
+      Beschreibung: >
+        afts_model_cli.py:
+          - list-profiles zeigt Profile aus model_selection.yaml,
+          - select --profile ... zeigt bestes Modell (inkl. Score/PF/MDD),
+          - promote --profile ... führt bei erfolgreicher Selektion Promotion aus
+            (oder beendet sich mit Fehler, wenn kein Modell die Kriterien erfüllt).
+
+  - Determinismus:
+      Beschreibung: >
+        Für gleiche BenchmarkReports und gleiche Criteria liefert ModelSelection
+        immer dieselbe Auswahl und dieselben Promotionspfade.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für Criteria, Config, PromotionRecord
+  - Architektur:
+      - ModelSelector kennt nur BenchmarkReports & Filesystem, keine Trainings-/RL-Details.
+      - CLI-Schicht nutzt ModelSelector, aber keine Business-Logik in der CLI.
+      - Promotion ist reversibel im Sinne von:
+          * man kann CURRENT.txt manuell auf älteren Checkpoint zeigen lassen.
+  - Tests:
+      - pytest
+      - reine File- und Object-Tests (keine echten Evals/Trainingsläufe nötig),
+      - Verwendung temporärer Verzeichnisse für Promotion-Tests.
+
+notes:
+  - Nächste sinnvolle Steps nach AF_TASK_040:
+      - AF_TASK_041: Integration der „Production Models“ in SIM/LIVE:
+          * Engine lädt für LIVE- oder PROD-SIM-Profile automatisch die per ModelSelection
+            gepromoteten Checkpoints (via Pointer).
+      - AF_TASK_042: Gate-Policy-Erweiterung:
+          * SystemGate darf Deployment nur erlauben, wenn ein promoted Modell
+            vorliegt und diverse Benchmark-/FTMO-Metriken innerhalb der Policy liegen.

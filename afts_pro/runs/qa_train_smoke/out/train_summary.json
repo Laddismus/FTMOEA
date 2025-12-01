@@ -1,0 +1,18 @@
+{
+  "episodes": 10,
+  "returns": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "mean_return": 0.0,
+  "best_return": 0.0,
+  "checkpoint_dir": "runs\\qa_train_smoke\\out"
+}

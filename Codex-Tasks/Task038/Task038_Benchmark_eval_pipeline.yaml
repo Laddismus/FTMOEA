@@ -1,0 +1,208 @@
+title: AF_TASK_038_BENCHMARK_EVAL_PIPELINE
+
+summary: >
+  Implementiere eine vollständige Benchmark- & Evaluation-Pipeline für RL-Trainingsergebnisse.
+  Ziel:
+    - Nach jedem TRAIN-Run (RiskAgent oder ExitAgent) werden automatisiert:
+        * Out-of-Sample Backtests ausgeführt (SIM MODE)
+        * KPI-Sets aggregiert (PF, WR, MDD, MAR, RR, DD-Velocity, Stability)
+        * FTMO-Challenge-Metrics berechnet (DailyDD, OverallDD, Target-Progress, FTMO-Pass/Fail)
+        * RL-Train KPIs ausgewertet (Loss Curves, Episode Rewards, Exploration vs. Exploitation)
+        * Benchmark-Reports erzeugt (JSON, TXT, optional HTML)
+    - Integration in LAB/Quant vorhanden, aber Task 038 schärft einen dedizierten EVALUATE MODE
+      & Pipeline, die „End-to-End“ aus TRAIN → EVAL geht.
+    - Geeignet als Grundlage für Model Selection (Best-Checkpoint-Ermittlung).
+
+inputs:
+  - Name: Train Outputs (RiskAgent/ExitAgent)
+    Beschreibung: >
+      Bereits vorhanden:
+        - Checkpoints aus TRAIN runs
+        - Train-Snapshots (episode-kpis, loss, epsilon, reward-statistics)
+      AF_TASK_038:
+        - nutzt diese Outputs als Input für EVAL-Läufe.
+
+  - Name: SIM Mode (SIM-Engine + RL Inference)
+    Beschreibung: >
+      SIM Mode existiert bereits:
+        - RL-Inference integriert
+        - StrategyBridge + ORB läuft voll
+        - FTMO/FTMO-Plus aktivierbar
+      AF_TASK_038:
+        - triggert SIM automatisch über EVAL-Configs & generiert Backtest-Artefakte.
+
+  - Name: QuantAnalyzer
+    Beschreibung: >
+      Basis vorhanden:
+        - Rolling KPIs
+        - Monte-Carlo
+        - CUSUM/Drift
+        - Regime-Labels
+      AF_TASK_038:
+        - erweitert Analyse:
+            * FTMO-Metric-Auswertung
+            * RL-spezifische KPIs
+            * Model Scores
+
+outputs:
+  - Datei: core/eval_controller.py
+    Inhalt: >
+      Implementiere einen neuen Controller, z.B. EvalController:
+
+        class EvalController:
+            """
+            Führt Evaluations-Jobs aus:
+              - lädt Trainings-Checkpoints
+              - startet SIM-Läufe mit diesen Checkpoints
+              - berechnet KPIs & FTMO-Metrics
+              - erstellt Evaluation-Reports
+            """
+            def __init__(self, eval_config):
+                self.cfg = eval_config
+
+            def run_eval(self):
+                # 1. Load checkpoint (RiskAgent/ExitAgent)
+                # 2. Prepare SIM config (OOS-Datenfenster, FTMO aktiv)
+                # 3. Run SIM
+                # 4. Collect artifacts
+                # 5. Pass to BenchmarkEngine (s.u.)
+                # 6. Save report + return status
+
+            def run_multi_eval(self, checkpoints: list):
+                # Für Model-Selection:
+                # führt n Checkpoints aus und vergleicht Scores
+
+  - Datei: core/benchmark_engine.py
+    Inhalt: >
+      Neue BenchmarkEngine, die:
+        - SIM-Artefakte lädt
+        - Standard-KPIs ausrechnet:
+            * PF, WR, AvgWin/Loss, VWAP-PnL
+            * MaxDrawdown, MAR, Sharpe-like
+            * Drawdown-Velocity (DD/s / DD/h)
+        - FTMO-Challenge-Metrics berechnet:
+            * FTMO Daily DD Pass/Fail
+            * FTMO Overall DD Pass/Fail
+            * Profit Target Progress
+            * Max Daily Loss Events
+        - RL-Training-Metrics zusammenfasst:
+            * mean reward last 50 episodes
+            * reward slope (learning curve)
+            * td-loss / q-loss per episode
+            * exploration vs exploitation (mean epsilon)
+        - Combined Score erstellt:
+            score = w1*pf + w2*(1 - dd_pct) + w3*(ftmo_pass) + w4*(reward_slope) + ...
+
+        -> Ergebnis = BenchmarkReport
+
+  - Datei: core/benchmark_report.py
+    Inhalt: >
+      Dataclasses für strukturierte Reports:
+
+        @dataclass
+        class BenchmarkReport:
+            kpis: dict
+            ftmo: dict
+            rl_train: dict
+            score: float
+            checkpoint_path: str
+            comments: list[str]
+
+        @dataclass
+        class BenchmarkComparison:
+            best_checkpoint: str
+            ranked: list[BenchmarkReport]
+
+  - Datei: configs/modes/eval.yaml
+    Inhalt: >
+      Dedizierte Eval-Mode-Config:
+
+        base:
+          symbol: "EURUSD"
+          timeframe: "15m"
+          oos_start: "2025-01-01"
+          oos_end: "2025-06-30"
+          strategy_profile_path: "configs/strategy/orb_15m_v1.yaml"
+          ftmo_rules: "configs/risk/ftmo_rules.yaml"
+          ftmo_plus: "configs/risk/ftmo_plus.yaml"
+
+        rl:
+          checkpoint_path: null  # durch CLI gesetzt
+          deterministic: true
+
+        output:
+          evaluation_root: "runs/eval"
+          save_json: true
+          save_txt: true
+          save_html: false   # optionaler späterer Task
+
+  - Datei: tests/test_eval_pipeline.py
+    Inhalt: >
+      Smoke Tests:
+
+        - test_eval_controller_runs_single_checkpoint:
+            * Fake-RL-Checkpoint + Fake-OOS-Daten
+            * run_eval()
+            * asserts:
+                - artifacts erzeugt
+                - BenchmarkReport vorhanden
+                - KPIs/FTMO/rl_train Keys vorhanden
+
+        - test_benchmark_engine_calculates_scores:
+            * synthetische KPI-Daten feeden
+            * Score-Berechnung prüfen
+
+        - test_multi_eval_selects_best_checkpoint:
+            * zwei Fake-Reports -> best_checkpoint richtig erkannt
+
+  - CLI: afts_eval_cli.py
+    Inhalt: >
+      CLI für die Pipeline:
+
+        afts_eval_cli.py --checkpoint runs/train/.../ckpt_200.pt
+        afts_eval_cli.py --multi checkpoints.json
+        afts_eval_cli.py --profile orb_eurusd_eval
+
+      Unterstützte Optionen:
+        - --checkpoint
+        - --multi
+        - --profile
+        - --override key=value
+
+acceptance:
+  - EvalController implementiert:
+      Beschreibung: >
+        EvalController.run_eval startet SIM im OOS-Datenfenster,
+        verarbeitet FTMO-/RL-Meta und gibt einen BenchmarkReport aus.
+
+  - BenchmarkEngine vollständig:
+      Beschreibung: >
+        KPIs, FTMO-Challenge-Metrics, RL-Train KPIs und Score generiert.
+        Score ist deterministisch für gleiche Input-Artefakte.
+
+  - CLI funktionsfähig:
+      Beschreibung: >
+        afts_eval_cli.py kann:
+          - Einzel-Checkpoint evaluieren
+          - Mehrere Checkpoints ranken
+          - Output als JSON/TXT speichern
+
+  - Tests:
+      Beschreibung: >
+        test_eval_pipeline.py erfolgreich:
+          - Smoke-Eval läuft
+          - Reports korrekt
+          - Score-Berechnung getestet
+
+coding_standards:
+  - Python 3.11
+  - Dataclasses
+  - Keine Hardcodings von Symbol/Strategie im Code
+  - EVAL ist ein eigenständiger Mode, der TRAIN nicht beeinflusst
+  - Scores müssen deterministisch sein
+
+notes:
+  - Erweiterungen (Task 039+):
+      - HTML Report Renderer (Plotly: Equity Curve, Drawdown, FTMO-Charts)
+      - Model Selection Engine (Auto-Promotion bestes Modell)
+      - Integration in QA/Gate (optional vor Live-Deployment)

@@ -1,0 +1,5 @@
+agent_config_path: runs\qa_train_smoke\agent.yaml
+agent_type: risk
+env_config_path: runs\qa_train_smoke\env.yaml
+output_dir: runs\qa_train_smoke\out
+seed: null

@@ -1,0 +1,25 @@
+base:
+  symbol: "EURUSD"
+  timeframe: "15m"
+  oos_start: "2025-01-01"
+  oos_end: "2025-06-30"
+  strategy_profile_path: "configs/strategy/orb_15m_v1.yaml"
+  ftmo_rules: "configs/risk/ftmo_rules.yaml"
+  ftmo_plus: "configs/risk/ftmo_plus.yaml"
+
+rl:
+  checkpoint_path: null
+  deterministic: true
+
+output:
+  evaluation_root: "runs/eval"
+  save_json: true
+  save_txt: true
+  save_html: true
+  html:
+    title: "AFTS Benchmark"
+    include_equity_chart: true
+    include_drawdown_chart: true
+    include_daily_pnl_chart: true
+    include_ftmo_table: true
+    include_rl_train_section: true

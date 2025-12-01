@@ -1,0 +1,236 @@
+title: AF_TASK_021_RL_EXIT_EXECUTION_INTEGRATION
+
+summary: >
+  Integriere den ExitAgent sauber in den Execution-Layer der SIM-Pipeline.
+  Ziel:
+    - ExitAgent-Actions (0..5) werden nicht nur in StrategyDecision.meta geschrieben,
+      sondern im Order- und Positions-Handling tatsächlich berücksichtigt.
+    - SL-/TP-/Trailing-/Partial-Close-Logik wird RL-gesteuert feinjustiert,
+      ohne die Basis-Strategie zu zerstören.
+    - Die Mapping-Regeln sind konfigurierbar, deterministisch und vollständig getestet.
+  Fokus: Nur SIM-Mode. LIVE bleibt weiterhin unberührt (explizit stubbed).
+
+inputs:
+  - Name: ExitAgent + RLInferenceHook
+    Beschreibung: >
+      Aus den bisherigen Tasks:
+        - ExitAgent.act(...) gibt diskrete Actions zurück:
+            0 = none
+            1 = tighten_sl
+            2 = move_sl_to_be
+            3 = trail_sl
+            4 = partial_close
+            5 = full_close
+        - RLInferenceHook schreibt exit_action in StrategyDecision.meta["exit_action"].
+      Diese Actions müssen nun in konkrete Exit-Operationen übersetzt werden.
+
+  - Name: StrategyDecision / PositionState / OrderBuilder
+    Beschreibung: >
+      Die SIM-Pipeline erzeugt pro Bar:
+        - StrategyDecision:
+            * entry/exit Signale
+            * meta/update-Fields (inkl. RL-Ausgaben)
+        - PositionState:
+            * entry_price, sl_price, tp_price
+            * size, direction, mfe, mae, usw.
+        - OrderBuilder:
+            * baut konkrete OrderSpecs (Entry / SL / TP / Modifikationen)
+      Task 021 fügt eine Schicht hinzu, die RL-Exit-Aktionen in diese OrderSpecs übersetzt.
+
+  - Name: AccountState / ATR / Volatilitätsdaten
+    Beschreibung: >
+      Für tighten/trailing wird typischerweise ATR oder Preisabstand genutzt:
+        - ATR (vom Feature-Engine/Indicator)
+        - current_price
+        - ggf. Risk-Konfiguration (min SL-Distanz, etc.).
+      Diese Infos sind entweder Teil von MarketState/PositionState oder können
+      im Exit-Controller übergeben werden.
+
+outputs:
+  - Datei: src/afts_pro/exec/exit_policy.py
+    Inhalt: >
+      Neue Schicht, die RL-ExitActions in konkrete SL/TP/Size-Anpassungen umsetzt.
+      Enthält mindestens:
+        - ExitPolicyConfig (pydantic/dataclass), z.B.:
+            * tighten_factor_atr: float     # z.B. 0.5 (SL näher um 0.5 ATR)
+            * tighten_min_distance_pct: float
+            * trail_factor_atr: float       # z.B. 1.0 (SL = price - 1*ATR)
+            * be_offset_ticks: float        # ggf. kleiner Puffer um Entry (0 = exakt BE)
+            * partial_close_fraction: float # z.B. 0.3 (30% schließen)
+            * allow_looser_sl: bool         # darf SL jemals vom RL „weiter“ werden? (normalerweise false)
+        - ExitAction (Enum oder NamedTuple) zur lesbaren Action-Repräsentation
+        - Klasse ExitPolicyApplier:
+            class ExitPolicyApplier:
+                def __init__(self, cfg: ExitPolicyConfig):
+                    ...
+
+                def apply(
+                    self,
+                    exit_action: int | None,
+                    position: PositionState | None,
+                    market: MarketState,
+                    decision: StrategyDecision
+                ) -> StrategyDecision:
+                    """
+                    Interpretiert exit_action gemäß Config und aktuellem State und
+                    passt StrategyDecision bzw. ein ExitPlan an:
+                      - kein Exit / keine Position -> no-op
+                      - tighten_sl: SL nur enger, nie weiter weg
+                      - move_sl_to_be: SL auf (EntryPrice +/- offset)
+                      - trail_sl: SL nachziehen, aber nicht zurücksetzen
+                      - partial_close: Teil der Position schließen
+                      - full_close: komplette Position schließen
+                    Gibt die aktualisierte StrategyDecision zurück.
+                    """
+      - interne Helper:
+          * _apply_tighten_sl(...)
+          * _apply_move_to_be(...)
+          * _apply_trail_sl(...)
+          * _apply_partial_close(...)
+          * _apply_full_close(...)
+
+  - Datei: configs/exec/exit_policy.yaml
+    Inhalt: >
+      Konfiguration für ExitPolicyApplier, z.B.:
+        tighten_factor_atr: 0.5
+        tighten_min_distance_pct: 0.1
+        trail_factor_atr: 1.0
+        be_offset_ticks: 0.0
+        partial_close_fraction: 0.3
+        allow_looser_sl: false
+
+  - Änderung: src/afts_pro/core/engine.py (SIM-Pipeline)
+    Inhalt: >
+      Integration eines ExitPolicy-Schritts in die SIM-Execution:
+        Bisher ungefähr:
+          StrategyBridge -> RiskManager -> RLInferenceHook -> Guards -> OrderBuilder
+        Neu:
+          StrategyBridge
+            -> RiskManager
+            -> RLInferenceHook (setzt exit_action in decision.meta)
+            -> ExitPolicyApplier.apply(...)  # modifiziert decision (SL/TP/size flags)
+            -> Guards
+            -> OrderBuilder
+        Anforderungen:
+          - ExitPolicyApplier wird nur im SIM genutzt (LIVE bleibt stub).
+          - Wenn exit_action is None oder kein PositionState vorhanden:
+              -> ExitPolicyApplier ist no-op.
+          - Logging:
+              INFO: "Applied RL exit action: X" (wenn Aktion != none).
+
+  - Anpassung: src/afts_pro/exec/order_builder.py (oder äquivalentes Modul)
+    Inhalt: >
+      Sicherstellen, dass StrategyDecision-Erweiterungen durch ExitPolicyApplier
+      wirklich in OrderSpecs umgesetzt werden:
+        - wenn decision.meta["exit_full_close"] == True:
+            -> Market-Exit-Order erzeugen
+        - wenn decision.meta["exit_partial_close_fraction"] > 0:
+            -> Reduktion der Positionsgröße um diesen Anteil
+        - wenn decision.update["sl_price"] gesetzt ist:
+            -> Modify-Order für SL mit neuem Preis
+        - wenn decision.update["tp_price"] gesetzt ist:
+            -> Analog für TP (falls genutzt)
+      Falls diese Felderstruktur noch nicht existiert, in Task 021 definieren:
+        - decision.update["sl_price"] / ["tp_price"]
+        - decision.meta["exit_partial_close_fraction"]
+        - decision.meta["exit_full_close"]
+
+  - Datei: tests/test_exit_execution_integration.py
+    Inhalt: >
+      Strenge Tests für das Zusammenspiel aus ExitAgent-Aktion und Execution:
+        - test_tighten_sl_never_looser:
+            * Position mit SL unterhalb Preis
+            * Action=1 (tighten)
+            * Neuer SL liegt näher am Preis, nie weiter weg als vorher.
+        - test_move_sl_to_be_sets_entry_price:
+            * Position mit entry_price=100, SL=95
+            * Action=2 (move_to_be)
+            * Neuer SL = 100 +/- be_offset
+        - test_trail_sl_follows_price_up_only:
+            * Long-Position:
+                - Preis von 100 auf 110 gestiegen, SL z.B. von 95 auf 105 trailen
+                - Fällt Preis zurück auf 108 -> SL bleibt 105 (kein loosen)
+        - test_partial_close_fraction_applied:
+            * Position size = 1.0
+            * Action=4, partial_close_fraction=0.3
+            * Resultierende Close-Order size ≈ 0.3
+            * Remaining Position ≈ 0.7
+        - test_full_close_closes_entire_position:
+            * Action=5 -> Exit-Order über 100% der Size
+        - test_no_position_no_exit:
+            * position=None
+            * Action beliebig
+            * ExitPolicyApplier ändert nichts, wirft keine Exception.
+        - test_engine_sim_pipeline_with_exit_agent:
+            * Minimaler SIM-Run:
+                - Dummy-ExitAgent, der z.B. immer Action=2 (move_to_be) liefert.
+                - Pipeline durchläuft mehrere Bars.
+                - Am Ende hat Position niemals einen SL, der weiter weg ist als initial,
+                  und es wurden SL-Modifikations-Orders erzeugt.
+
+acceptance:
+  - Actions werden wirklich ausgeführt:
+      Beschreibung: >
+        ExitAgent-Aktionen 1–5 führen nachweislich zu Änderungen in der Execution:
+          - SL wird entsprechend angepasst (enger, BE, trail).
+          - Partial Close erzeugt eine Positionsreduktion.
+          - Full Close erzeugt eine komplette Exit-Order.
+        Tests in test_exit_execution_integration.py validieren alle Actions.
+
+  - Kein „SL-Aufweichen“:
+      Beschreibung: >
+        Konfiguration allow_looser_sl=false garantiert:
+          - Kein Pfad im Code kann einen SL weiter vom Entry/Preis wegsetzen
+            als vorher (Long: SL darf nicht tiefer werden, Short: nicht höher).
+        Test test_tighten_sl_never_looser deckt das ab.
+
+  - SIM-Pipeline bricht nicht:
+      Beschreibung: >
+        Integration in engine.py ist robust:
+          - Keine Exceptions, wenn ExitAgent deaktiviert oder exit_action=None.
+          - Keine Exceptions, wenn keine Position aktiv ist.
+          - E2E-SIM-Test (vereinfachter „Sim-Run mit ExitAgent“) läuft durch.
+
+  - Konfigurierbarkeit:
+      Beschreibung: >
+        Alle Parameter (tighten_factor_atr, trail_factor_atr, partial_close_fraction, ...)
+        sind in exit_policy.yaml konfigurierbar.
+        Kein Hardcoding im Code.
+
+  - Logging / Transparenz:
+      Beschreibung: >
+        Für Debugging:
+          - Bei angewendeter Exit-Aktion wird zumindest einmal pro Anwendung eine
+            kurze INFO-Message geschrieben:
+              "RL ExitAction=move_sl_to_be applied (old_sl=..., new_sl=...)"
+          - Optional DEBUG mit Details.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Pydantic oder dataclasses für ExitPolicyConfig
+      - Kein RL-spezifischer Code in OrderBuilder; ExitPolicyApplier ist die Schnittstelle.
+  - Struktur:
+      - ExitPolicyApplier ist RL-unabhängig:
+          * Er kennt nur „exit_action“ (als int) und Config.
+          * Er kann später auch von nicht-RL-Logik (z.B. rule-based) genutzt werden.
+      - RLInferenceHook liefert nur exit_action; die Interpretation macht ExitPolicy.
+  - Tests:
+      - pytest
+      - Synthetische Position-/MarketStates für schnelle, deterministische Tests.
+      - Tests sind Pflicht (keine leeren Test-Dateien).
+
+notes:
+  - Intuition:
+      - Bisher hat ExitAgent nur „gesprochen“, jetzt „handelt“ er:
+          * Action → echte SL- und Positionsänderung.
+      - Das ist der entscheidende Schritt, damit RL-Exit wirklich eine Auswirkung auf
+        die Trade-Historie und später auf KPIs/Quant Analyzer hat.
+  - Sicherheit:
+      - Deshalb besonders wichtig:
+          * kein SL-Aufweichen,
+          * robustes Verhalten ohne aktive Position,
+          * alles konfigurierbar, keine Überraschungen.
+  - Zukunft:
+      - AF_TASK_022ff (QA/E2E-Layer) kann später sicherstellen,
+        dass diese RL Exit-Logik in langen SIM-Runs stabil bleibt.

@@ -1,0 +1,251 @@
+title: AF_TASK_024_COMPONENT_LEVEL_QA
+
+summary: >
+  Ergänze und schärfe die Unit-/Component-Tests für alle kritischen Kernkomponenten
+  von AFTS-PRO, sodass jede Komponente:
+    - in Isolation funktioniert,
+    - ihre Hauptverantwortung erfüllt,
+    - definierte Eingaben → erwartete Ausgaben liefert,
+    - stabile, dokumentierte Schnittstellen hat.
+  Ziel:
+    - Ein konsistenter Satz an Komponententests, der unabhängig vom E2E-Test läuft
+      und Probleme früh erkennt.
+    - Grundlage für den späteren Interface-QA-Block und QA-Report.
+
+inputs:
+  - Name: Bestehende Komponenten
+    Beschreibung: >
+      Die wichtigsten Module, die in AF_TASK_024 abgedeckt werden sollen, sind:
+        1. RL / Execution-nahe Komponenten:
+           - ExitPolicyApplier (exec/exit_policy.py)
+           - PositionSizer (exec/position_sizer.py)
+           - RLInferenceHook + ObservationBuilder (rl/rl_inference.py)
+           - RLTradingEnv + RewardCalculator (rl/env.py, rl/reward.py)
+           - RiskAgent, ExitAgent (rl/risk_agent.py, rl/exit_agent.py)
+        2. Core / Engine-nahe Komponenten:
+           - StrategyBridge (core/strategy_bridge.py oder äquivalent)
+           - RiskManager / RiskGuard Layer (core/risk_manager.py / guards)
+           - OrderBuilder (exec/order_builder.py)
+        3. Orchestrierungs-/Analyse-Komponenten:
+           - TrainController (core/train_controller.py)
+           - LabRunner (lab/lab_runner.py)
+           - QuantAnalyzer (analysis/quant_analyzer.py)
+      Viele dieser Klassen haben bereits Tests –
+      AF_TASK_024 soll:
+        - Lücken schließen,
+        - Tests klarer strukturieren,
+        - pro Komponente mindestens 1–3 aussagekräftige Funktionstests sicherstellen.
+
+  - Name: Bestehende Tests
+    Beschreibung: >
+      Es gibt schon Tests wie:
+        - test_risk_agent.py
+        - test_exit_agent.py
+        - test_agent_inference_integration.py
+        - test_reward_shaping.py
+        - test_env_reward_integration.py
+        - test_position_sizer_unit.py
+        - test_risk_execution_integration.py
+        - test_lab_runner.py
+        - test_quant_analyzer.py
+      AF_TASK_024 soll:
+        - wo sinnvoll: erweitern,
+        - neu strukturieren (z.B. pro Komponente eigene Testdatei),
+        - sicherstellen, dass alle oben genannten Module
+          mindestens 1 dedizierte Testklasse/-datei haben.
+
+outputs:
+  - Datei: tests/test_exit_policy_component.py
+    Inhalt: >
+      Fokussierte Tests NUR für ExitPolicyApplier (ohne Engine/SIM):
+        - test_tighten_sl_only_moves_sl_closer:
+            * Long-Position: entry=100, old_sl=95, price=110, atr=2
+            * Action=tighten_sl
+            * Erwartung: new_sl > 95 und new_sl < 110
+        - test_move_sl_to_be_exact:
+            * entry=100, old_sl=90, be_offset=0
+            * Action=move_to_be
+            * new_sl == 100
+        - test_trail_sl_never_looser:
+            * Verlauf: SL von 95 auf 105 möglich,
+            * Preis fällt zurück → SL bleibt max(alt, neu), niemals wieder tiefer.
+        - test_partial_close_calculates_fraction:
+            * size=1.0, partial_fraction=0.25 → erzeugt 0.25 Close-Size
+        - test_full_close_sets_full_exit_flag:
+            * Action=full_close → Meta-Feld "exit_full_close" gesetzt.
+
+  - Datei: tests/test_rl_inference_component.py
+    Inhalt: >
+      Tests für RLInferenceHook und ObservationBuilder isoliert:
+        - Dummy-RiskAgent/ExitAgent:
+            * RiskAgent.act → konstant 1.5
+            * ExitAgent.act → konstant 3
+        - test_observation_builder_matches_env_shape:
+            * build(...) → gleiche Shape wie RLTradingEnv.reset()[0]
+        - test_inference_hook_returns_expected_actions:
+            * compute_actions(...) → risk_pct=1.5, exit_action=3
+        - test_apply_to_decision_sets_meta_and_update:
+            * StrategyDecision ohne RL-Felder → nach apply_to_decision:
+                - decision.update["risk_pct"] == 1.5
+                - decision.meta["exit_action"] == 3
+
+  - Datei: tests/test_rl_env_component.py
+    Inhalt: >
+      Fokus RLTradingEnv + RewardCalculator:
+        - test_reset_produces_consistent_initial_state:
+            * reset(seed=123) → obs, info; wiederholter reset mit gleichem Seed → gleiche obs.
+        - test_step_changes_equity_and_reward_sign:
+            * synthetischer Stub für Market/AccountState in Env
+            * Szenario: Profit-Trade → Reward > 0
+            * Szenario: Loss-Trade → Reward < 0
+        - test_reward_profile_switch_changes_magnitude:
+            * env_type="risk" vs. env_type="exit"
+            * gleicher Kontext → verschiedene Rewardwerte (z.B. exit stärker MFE-gewichtet).
+
+  - Datei: tests/test_risk_agent_component.py
+    Inhalt: >
+      Ergänzende RiskAgent-Tests (falls noch nicht vorhanden / unklar):
+        - test_risk_agent_act_clamps_to_config_bounds:
+            * agent.act(...) ∈ [min_risk_pct, max_risk_pct].
+        - test_risk_agent_deterministic_act:
+            * gleicher obs, deterministic=True → gleiche Aktion.
+        - test_risk_agent_exploratory_differs_sometimes:
+            * deterministic=False → mit hoher Wahrscheinlichkeit andere Aktion bei mehreren Calls.
+
+  - Datei: tests/test_exit_agent_component.py
+    Inhalt: >
+      Analog für ExitAgent:
+        - test_exit_agent_returns_valid_action_enum:
+            * act(...) ∈ {0,...,n_actions-1}
+        - test_exit_agent_deterministic_action_stable:
+            * deterministic=True → stabil.
+        - optional: Mapping zu ExitAction-Enum/Name.
+
+  - Datei: tests/test_strategy_bridge_component.py
+    Inhalt: >
+      Tests nur für StrategyBridge:
+        - Dummy-Marktdaten + Dummy-Konfiguration:
+            * test_strategy_bridge_generates_entry_signals:
+                - bestimmte Pattern → definierte Entry-Signale (z.B. ORB-Setup).
+            * test_strategy_honors_basic_filters:
+                - z.B. Zeitfilter: außerhalb Session keine Einträge.
+      Ziel: StrategyBridge hat nachvollziehbares, testbares Verhalten.
+
+  - Datei: tests/test_risk_manager_component.py
+    Inhalt: >
+      Tests nur für RiskManager / Guards:
+        - test_risk_manager_blocks_trade_when_daily_dd_exceeded:
+            * simulated daily_loss > limit → Entry wird geblockt.
+        - test_risk_manager_allows_trade_when_within_limits:
+            * daily_loss < limit → Entry passiert.
+        - optional: Kombination mit Stage-System (StageIndex verändert sich).
+
+  - Datei: tests/test_order_builder_component.py
+    Inhalt: >
+      Tests nur für OrderBuilder:
+        - test_builds_entry_order_with_given_size_and_sl:
+            * StrategyDecision mit:
+                - side=long, position_size=0.5, sl_price=99, entry_price=100
+              → OrderSpec hat diese Werte.
+        - test_builds_modify_sl_order:
+            * decision.update["sl_price"] geändert → Modify-Order erstellt.
+        - test_builds_partial_close_order:
+            * decision.meta["exit_partial_close_fraction"]=0.4
+              → Close-Order über 40% der Position.
+
+  - Datei: tests/test_train_controller_component.py
+    Inhalt: >
+      Tests nur für TrainController:
+        - test_train_controller_builds_risk_job_and_calls_loop:
+            * Mock train_risk_agent(...)
+            * run_train_job(agent_type="risk") → train_risk_agent wurde aufgerufen.
+        - test_train_controller_builds_exit_job_and_calls_loop:
+            * analog für exit.
+        - test_train_controller_writes_summary_and_configs:
+            * nach run_train_job(...) existieren Summary und Config-Snapshots im Output-Dir.
+
+  - Datei: tests/test_lab_runner_component.py
+    Inhalt: >
+      Ergänzende Tests für LabRunner:
+        - test_single_experiment_run_writes_results:
+            * ein Experiment mit Fake-SIM-API → metrics file existiert.
+        - test_grid_sweep_generates_kpi_matrix:
+            * mehrere Parameterkombinationen → KPI-Matrix hat entsprechende Dimension.
+
+  - Datei: tests/test_quant_analyzer_component.py (falls nicht schon voll abgedeckt)
+    Inhalt: >
+      Fokussiert auf:
+        - test_quant_analyzer_computes_rolling_kpis:
+            * synthetic equity-serie → rolling KPIs nicht leer, keine NaNs.
+        - test_quant_analyzer_detects_drift_via_cusum:
+            * equity-serie mit künstlichem Regimewechsel → CUSUM markiert Wechsel.
+        - test_quant_analyzer_labels_regimes:
+            * synthetic PnL-Kurven → Regime-Labels vorhanden.
+
+  - Datei: tests/test_config_loading_component.py
+    Inhalt: >
+      Tests für Config-Lade-Utilities:
+        - test_env_config_loads_and_has_reward_profiles
+        - test_train_profiles_resolve_paths
+        - test_sim_mode_config_parses_rl_flags
+      Ziel: Änderungen in YAML-Configs werden früh erkannt.
+
+acceptance:
+  - Jede Kernkomponente hat eigene Tests:
+      Beschreibung: >
+        Für jede der oben aufgelisteten Kernkomponenten (ExitPolicy, PositionSizer,
+        RLInferenceHook/ObservationBuilder, RLTradingEnv/Reward, Agents, StrategyBridge,
+        RiskManager, OrderBuilder, TrainController, LabRunner, QuantAnalyzer, Config-Loader)
+        existiert mindestens eine dedizierte Testdatei oder klar identifizierbare Testklasse.
+        Diese Tests prüfen direkt die Hauptverantwortung der Komponente.
+
+  - Tests sind isoliert:
+      Beschreibung: >
+        Component-Tests laufen ohne vollständigen SIM-Run:
+          - Sie hängen nicht von echten Datenfeeds ab,
+          - nutzen Dummy-/Stub-Daten (kleine PositionStates, MarketStates, etc.),
+          - sind schnell und deterministisch.
+
+  - Testabdeckung der „kritischen Logik“:
+      Beschreibung: >
+        Insbesondere folgende kritische Logiken sind testabgedeckt:
+          - SL-Tightening/BE/Trailing in ExitPolicy,
+          - Risk→Size Mapping in PositionSizer,
+          - RL act() → Decision-Update in RLInferenceHook,
+          - Reward-Signale (Profit vs. Loss) im RLTradingEnv,
+          - RiskManager-Daily-DD-Blockaden,
+          - OrderBuilder-Ausgabe für Entry/Modify/PartialClose.
+
+  - Keine Redundanz mit E2E:
+      Beschreibung: >
+        Component-Tests prüfen Logik granular und in Isolation.
+        E2E-Tests (AF_TASK_023) prüfen Gesamtsystem.
+        Die neuen Tests duplizieren nicht blind E2E, sondern ergänzen granular.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen im Produktivcode,
+      - pytest-Struktur:
+          * eine Datei pro Themenkomponente,
+          * sprechende Testnamen (`test_...`),
+          * Given-When-Then-Style über Kommentare möglich.
+  - Testdesign:
+      - Für jede Komponente Fokus auf:
+          * Happy Path
+          * 1–2 kritische Edge Cases
+      - Keine externen Ressourcen (kein Netz, keine großen Files).
+      - Tests müssen in Summe schnell laufen.
+
+notes:
+  - Rolle im QA-Gesamtplan:
+      - AF_TASK_024 sorgt dafür, dass wir für jede core-Komponente
+        ein funktionales „Safety-Net“ haben.
+      - Damit werden Refactors/Änderungen früh abgefangen, bevor
+        sie im E2E-Run auffallen.
+  - Nächste Schritte:
+      - AF_TASK_025_INTERFACE_QA:
+          * Tests für die Übergänge zwischen Komponenten.
+      - AF_TASK_026_QA_REPORT:
+          * Aggregierter QA-Report / Testprotokoll.
+      - AF_TASK_027_SYSTEM_GATE:
+          * Technischer Gatekeeper für LIVE-Readiness.

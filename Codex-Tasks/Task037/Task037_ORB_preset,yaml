@@ -1,0 +1,297 @@
+title: AF_TASK_037_RL_TRAIN_PROFILES_FOR_ORB_EURUSD_FTMO
+
+summary: >
+  Definiere und integriere offizielle RL-Train- und Eval-Profile für die ORB-15m-Strategie
+  auf EURUSD unter FTMO-/FTMO-Plus-Bedingungen.
+  Ziel:
+    - Standardisierte, reproduzierbare Trainings-Setups (Train/Eval-Splits, Zeiträume).
+    - Klare Profile für RiskAgent- und ExitAgent-Training.
+    - CLI-Workflows, um diese Profile direkt zu starten.
+    - Basis-Tests, die Config-Integrität und einen kurzen Smoke-Train-Lauf prüfen
+      (ohne langen echten Trainings-Run).
+
+inputs:
+  - Name: ORB-Strategie & Profile (configs/strategy/orb_15m_v1.yaml, configs/modes/sim_orb_15m.yaml)
+    Beschreibung: >
+      Bereits vorhanden:
+        - ORBStrategy (15m) mit Range, Breakouts, Min-Range, max_entries/day, SL/TP.
+        - ORB-StrategyProfile für SIM.
+      AF_TASK_037:
+        - baut darauf auf und spezifiziert:
+            * Welcher Symbol (EURUSD),
+            * Welche Session (z.B. London+NY),
+            * Welche Backtest-Zeitspanne für Training vs. Evaluation.
+
+  - Name: RL-Train-Infra (TrainController, TRAIN mode, rl/*.py)
+    Beschreibung: >
+      Bereits vorhanden:
+        - TrainController orchestriert Env + Agent + Training Loop.
+        - TRAIN mode & CLI (afts_train_cli.py) starten Jobs per Profile.
+        - RiskAgent & ExitAgent haben eigene Agent-Configs & Training-Loops.
+      AF_TASK_037:
+        - liefert konkrete Train-Profile, die:
+            * env-config (inkl. FTMO-Features & Reward-Profile),
+            * agent-config,
+            * data-split (Train vs. Eval),
+            * output/run-IDs
+          definieren.
+
+  - Name: FTMO-/FTMO-Plus- & RL-Feature-Setup
+    Beschreibung: >
+      Nach AF_TASK_035/036:
+        - FTMO-Core + FTMO-Plus (Stage 1+2) aktivierbar.
+        - RL-Observationen enthalten FTMO-/FTMO-Plus-Features (Stage, DD, Profit-Progress,
+          Session, News/Time-Flags, Spread, Stability-KPIs etc.).
+      AF_TASK_037:
+        - legt fest, welche FTMO-Features im ORB-EURUSD-Train-Profil aktiv sind,
+        - nutzt FTMO-Reward-/Risk-Konfiguration, um realistische FTMO-Challenge-Bedingungen
+          im Training abzubilden.
+
+outputs:
+  - Datei: configs/train_profiles.yaml (Erweiterung)
+    Inhalt: >
+      Ergänze offizielle RL-Train-Profile, z.B.:
+
+        rl_train_profiles:
+          orb_eurusd_riskagent_v1:
+            description: "RiskAgent Training – ORB 15m – EURUSD – FTMO+ aware – Train 2023–2024, Eval 2025"
+            mode: "TRAIN"
+            agent_type: "risk"          # oder "RiskAgent"
+            symbol: "EURUSD"
+            strategy_profile_path: "configs/strategy/orb_15m_v1.yaml"
+            env_config_path: "configs/rl/env_orb_eurusd_ftmo_risk.yaml"
+            agent_config_path: "configs/rl/risk_agent_orb_eurusd_v1.yaml"
+            data:
+              train_start: "2023-01-01"
+              train_end: "2024-12-31"
+              eval_start: "2025-01-01"
+              eval_end: "2025-06-30"
+              timeframe: "15m"
+              # optional: Pfad zu OHLCV/Parquet-Partitionen
+              ohlcv_path: "data/eurusd/ohlcv_15m.parquet"
+            ftmo:
+              ftmo_rules_config: "configs/risk/ftmo_rules.yaml"
+              ftmo_plus_config: "configs/risk/ftmo_plus.yaml"
+            output:
+              run_root: "runs/train/orb_eurusd_riskagent_v1"
+              checkpoint_every_n_episodes: 50
+              eval_every_n_episodes: 50
+
+          orb_eurusd_exitagent_v1:
+            description: "ExitAgent Training – ORB 15m – EURUSD – FTMO+ aware – Train 2023–2024, Eval 2025"
+            mode: "TRAIN"
+            agent_type: "exit"
+            symbol: "EURUSD"
+            strategy_profile_path: "configs/strategy/orb_15m_v1.yaml"
+            env_config_path: "configs/rl/env_orb_eurusd_ftmo_exit.yaml"
+            agent_config_path: "configs/rl/exit_agent_orb_eurusd_v1.yaml"
+            data:
+              train_start: "2023-01-01"
+              train_end: "2024-12-31"
+              eval_start: "2025-01-01"
+              eval_end: "2025-06-30"
+              timeframe: "15m"
+              ohlcv_path: "data/eurusd/ohlcv_15m.parquet"
+            ftmo:
+              ftmo_rules_config: "configs/risk/ftmo_rules.yaml"
+              ftmo_plus_config: "configs/risk/ftmo_plus.yaml"
+            output:
+              run_root: "runs/train/orb_eurusd_exitagent_v1"
+              checkpoint_every_n_episodes: 50
+              eval_every_n_episodes: 50
+
+      Hinweis:
+        - Diese Struktur kann sich am existierenden train_profiles-Format orientieren.
+        - Wichtig ist, dass TrainController & CLI die Felder verstehen / mappen.
+
+  - Dateien: RL-spezifische Env-Configs (z.B. configs/rl/env_orb_eurusd_ftmo_risk.yaml, env_orb_eurusd_ftmo_exit.yaml)
+    Inhalt: >
+      Lege zwei Env-Config-Dateien an, die:
+        - auf dem bisherigen env.yaml aufsetzen,
+        - ORB- + EURUSD-spezifische Settings und FTMO-Feature-Flags setzen.
+
+      Beispiel (env_orb_eurusd_ftmo_risk.yaml):
+
+        base_env:
+          symbol: "EURUSD"
+          timeframe: "15m"
+          reward_profile: "risk"            # nutzt risk-spezifisches Reward-Profil
+          episode:
+            mode: "daily"
+            max_steps_per_episode: 96       # 24h * 4 Bars/h, adaptable
+          features:
+            base_price_features: true
+            base_pnl_features: true
+            ftmo:
+              include_daily_dd_pct: true
+              include_overall_dd_pct: true
+              include_stage: true
+              include_stage_one_hot: true
+              max_stage: 2
+              include_rolling_dd_pct: true
+              include_loss_velocity: true
+              include_profit_progress_pct: true
+              include_session_one_hot: true
+              sessions: ["Asia", "London", "NewYork"]
+              include_news_flag: true
+              include_time_fence_flag: true
+              include_spread: true
+              spread_clip_pips: 2.0
+              include_stability_kpis: true
+              stability_pf_clip: 3.0
+              stability_winrate_clip: 1.0
+              stability_pnl_std_clip: 5.0
+              include_circuit_active_flag: true
+
+      Für env_orb_eurusd_ftmo_exit.yaml:
+        - analog, aber reward_profile="exit"
+        - ggf. andere Episode-Settings (z.B. mehr Fokus auf Exit-Feinheiten).
+
+  - Dateien: Agent-Configs (configs/rl/risk_agent_orb_eurusd_v1.yaml, exit_agent_orb_eurusd_v1.yaml)
+    Inhalt: >
+      Optional eigene Agent-Configs für diese Profile, z.B.:
+
+        # risk_agent_orb_eurusd_v1.yaml
+        algorithm: "dqn"        # oder was deine RiskAgent-Logik nutzt
+        network:
+          hidden_sizes: [128, 128]
+          activation: "relu"
+        training:
+          batch_size: 64
+          buffer_size: 100000
+          learning_rate: 0.0005
+          gamma: 0.99
+          epsilon_start: 1.0
+          epsilon_end: 0.05
+          epsilon_decay_episodes: 500
+          target_update_interval: 1000
+          max_episodes: 1000   # kann später erhöht werden
+        seed: 42
+
+        # exit_agent_orb_eurusd_v1.yaml
+        algorithm: "dqn"
+        network:
+          hidden_sizes: [128, 128]
+          activation: "relu"
+        training:
+          batch_size: 64
+          buffer_size: 100000
+          learning_rate: 0.0005
+          gamma: 0.98
+          epsilon_start: 1.0
+          epsilon_end: 0.1
+          epsilon_decay_episodes: 500
+          target_update_interval: 1000
+          max_episodes: 1000
+        seed: 43
+
+      Ziel:
+        - sinnvolle, aber relativ konservative Defaults definieren,
+        - später fein-tunen möglich, ohne das Profil-Konzept zu ändern.
+
+  - Änderung: TrainController (core/train_controller.py)
+    Inhalt: >
+      - Stelle sicher, dass:
+          * neue Felder aus train_profiles.yaml (symbol, data.*, ftmo.*) korrekt
+            in Env-/DataLoader-/FTMO-Layer übergeben werden.
+      - Wenn noch nicht vorhanden:
+          * TrainController sollte basierend auf profile_name:
+              - env_config_path laden,
+              - agent_config_path laden,
+              - Datenfenster (train_start/end, eval_start/end) an den Env/DataLoader geben,
+              - FtmoRiskConfig & FtmoPlusConfig instanziieren und dem Env/RiskManager zuführen.
+      - Evtl. Utility-Funktion:
+          * load_train_profile(name) -> TrainJobConfig
+
+  - CLI-Erweiterung: afts_train_cli.py
+    Inhalt: >
+      Ergänze convenience-Kommandos, z.B.:
+
+        # Beispiel:
+        afts_train_cli.py --profile orb_eurusd_riskagent_v1
+        afts_train_cli.py --profile orb_eurusd_exitagent_v1 --override max_episodes=50
+
+      - CLI:
+          * benötigt Argument `--profile` (Name in train_profiles.yaml),
+          * optional `--override key=value` Paare.
+      - Doku (help-Text) kurz erwähnen, welche Profile existieren.
+
+  - Datei: tests/test_train_profiles_orb_eurusd.py
+    Inhalt: >
+      Tests für Profile & Training-Skelett:
+
+        - test_train_profile_configs_load:
+            * lädt train_profiles.yaml
+            * prüft, dass "orb_eurusd_riskagent_v1" und "orb_eurusd_exitagent_v1" existieren,
+              env_config_path/agent_config_path-Dateien existieren.
+
+        - test_train_controller_builds_job_from_orb_profile:
+            * mit einem minimalen Fake/DataLoader:
+                - TrainController baut Env & Agent für orb_eurusd_riskagent_v1.
+            * asserts:
+                - richtige Symbol/Timeframe,
+                - FTMO-Configs geladen,
+                - Env-Observation-Space nicht leer.
+
+        - test_train_smoke_run_orb_eurusd_riskagent:
+            * Nutze eine Mini-Train-Konfiguration:
+                - max_episodes=3
+                - sehr kleine Datenmenge (Fake oder verkleinert)
+            * train() durchlaufen lassen (ohne großen RL-Erfolg zu fordern),
+            * assert:
+                - keine Exceptions,
+                - Checkpoint/Run-Verzeichnis wurde erstellt.
+
+        - analoger Smoke-Test für exitagent-Profil.
+
+acceptance:
+  - Offizielle ORB+EURUSD-Profile vorhanden:
+      Beschreibung: >
+        train_profiles.yaml enthält mindestens:
+          - rl_train_profiles.orb_eurusd_riskagent_v1
+          - rl_train_profiles.orb_eurusd_exitagent_v1
+        Diese Profile referenzieren existierende Env- und Agent-Configs
+        und definieren symbol/timeframe/datenfenster.
+
+  - Env-/Agent-Configs FTMO-aware:
+      Beschreibung: >
+        env_orb_eurusd_ftmo_risk.yaml & env_orb_eurusd_ftmo_exit.yaml:
+          - aktivieren relevante FTMO-/FTMO-Plus-Features,
+          - nutzen passende Reward-Profile ("risk" / "exit").
+        Agent-Configs haben realistische, aber initiale Defaults.
+
+  - TrainController & CLI unterstützen Profile:
+      Beschreibung: >
+        TrainController:
+          - kann anhand eines Profilnamens Jobs erstellen,
+          - injected Env-/Agent-/FTMO-/Data-Konfigurationen korrekt.
+        CLI:
+          - erlaubt das Starten der Profile via --profile,
+          - Tests bestätigen, dass die Profile ohne Exception „aufsetzen“.
+
+  - Smoke-Train-Tests grün:
+      Beschreibung: >
+        test_train_profiles_orb_eurusd.py:
+          - verifiziert, dass Profile/Configs ladbar sind,
+          - führt kurze Smoke-Train-Runs (3 Episoden) für Risk- und Exit-Agent durch,
+          - erzeugt Checkpoints/Run-Ordner ohne Fehler.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für TrainJobConfig (falls noch nicht vorhanden)
+  - Architektur:
+      - Profiles sind reine YAML-Konfiguration (keine Hardcodings in Code).
+      - TrainController ist generisch und kennt keine hart verdrahten Profilnamen.
+      - Env-/Agent-Configs sind modular und wiederverwendbar für andere Strategien.
+  - Tests:
+      - pytest
+      - Smoke-Runs mit kleinem Episodenlimit, um Laufzeit gering zu halten.
+      - Keine echten großen Daten erforderlich; notfalls Fake-/Subsample-Daten.
+
+notes:
+  - Danach als nächster sinnvoller Schritt:
+      - AF_TASK_038: Erste Benchmark-Auswertung der ORB_EURUSD_RiskAgent/ExitAgent-Runs
+        via QuantAnalyzer (z.B. Aggregation der Trainings-KPIs + Out-of-Sample-Backtests).
+      - Optional: Spezielle „FTMO-Challenge“-Eval-Configs (max 30 Tage, FTMO-Limits aktiv,
+        PnL/Drawdown-Report wie in einer echten Challenge).

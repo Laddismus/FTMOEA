@@ -1,0 +1,275 @@
+title: AF_TASK_031_FTMO_RISK_ENGINE_CORE
+
+summary: >
+  Implementiere einen FTMO-orientierten Risk-Rule-Core, der:
+    - Max Daily Loss (5 % vom Startkapital des Tages) + Safety-Puffer (z. B. 4 %) berechnet,
+    - Max Overall Loss (10 % vom Initialkapital) + Safety-Puffer (z. B. 8,5 %) überwacht,
+    - in SIM als RiskGuard/Engine aktiv ist und Entries blockt, wenn Limits verletzt sind,
+    - die relevanten Metriken im AccountState führt (Equity, Balance, DD, Tages-Reset),
+    - später 1:1 im LIVE-Mode wiederverwendbar ist.
+  Fokus:
+    - Saubere, testbare RiskEngine-Klasse,
+    - Konfigurierbare FTMO-Parameter (inkl. Safety-Puffer),
+    - Integration in bestehende RiskManager/Guards.
+
+inputs:
+  - Name: Bestehender RiskManager / Guards
+    Beschreibung: >
+      Du hast bereits einen RiskLayer (RiskManager/Guards), der Entries blocken kann.
+      AF_TASK_031:
+        - fügt einen dedizierten FTMO-RiskGuard hinzu,
+        - oder erweitert RiskManager, FTMO-Engine zu konsultieren,
+        - ohne bestehende RiskLogik zu zerstören.
+
+  - Name: AccountState / Equity-/PnL-Tracking
+    Beschreibung: >
+      In der SIM-Pipeline gibt es bereits:
+        - Equity-/PnL-Tracking (für Reward, Analyzer, etc.).
+      AF_TASK_031 benötigt:
+        - definierte Felder für:
+            * initial_equity (oder initial_balance),
+            * current_balance / equity,
+            * daily_start_balance,
+            * daily_realized_pnl,
+            * current_drawdown_pct (vom initialen),
+            * current_daily_dd_pct (vom daily_start_balance).
+        - Tageswechsel-Erkennung & Reset der day-bezogenen Felder.
+
+  - Name: FTMO-Regeln (aus deiner Roadmap)
+    Beschreibung: >
+      Relevante Punkte:
+        - Max Daily Loss: 5 % vom Startkapital des Tages.
+            * Safety-Puffer: z.B. 4 % → technische Grenze, 5 % → harte FTMO-Grenze.
+        - Max Overall Loss: 10 % vom Initialkapital.
+            * Safety-Puffer: z.B. 8,5 % → interne Kappung.
+        - Beim Überschreiten der Safety-Grenzen sollen:
+            * weitere Entries blockiert werden,
+            * optional aktive Positionen geschlossen werden (später).
+      AF_TASK_031 implementiert die core Logik & Entry-Block.
+
+outputs:
+  - Datei: src/afts_pro/risk/ftmo_rules.py
+    Inhalt: >
+      FTMO-RiskEngine und zugehörige Config:
+
+        from dataclasses import dataclass
+        from datetime import date, datetime
+        from typing import Optional
+
+        @dataclass
+        class FtmoRiskConfig:
+            initial_equity: float | None = None   # falls None → aus AccountState initialisiert
+            max_daily_loss_pct: float = 5.0       # „offizielle“ Regel
+            max_overall_loss_pct: float = 10.0
+            safety_daily_loss_pct: float = 4.0    # interne Kappe
+            safety_overall_loss_pct: float = 8.5
+            enforce_safety: bool = True
+            close_positions_on_breach: bool = False  # für spätere Erweiterung
+
+        @dataclass
+        class FtmoDayState:
+            day: date
+            daily_start_equity: float
+            daily_realized_pnl: float = 0.0
+
+        @dataclass
+        class FtmoRiskState:
+            initial_equity: float
+            current_equity: float
+            day_state: FtmoDayState
+
+        class FtmoRiskEngine:
+            def __init__(self, cfg: FtmoRiskConfig):
+                self.cfg = cfg
+                self.state: FtmoRiskState | None = None
+
+            def ensure_initialized(self, equity: float, now: datetime) -> None:
+                """
+                Falls state None ist:
+                  - initial_equity aus cfg.initial_equity oder equity übernehmen,
+                  - day_state mit heutigem Datum und daily_start_equity=equity anlegen.
+                """
+
+            def on_new_equity(self, equity: float, realized_pnl: float, now: datetime) -> None:
+                """
+                Wird bei jedem „Step“ oder Trade-Update aufgerufen:
+                  - Tageswechsel erkennen:
+                      * wenn now.date() != day_state.day → neuen FtmoDayState mit daily_start_equity=equity.
+                  - current_equity im State aktualisieren.
+                  - daily_realized_pnl im FtmoDayState setzen (z.B. kumuliert für den Tag).
+                """
+
+            def current_overall_loss_pct(self) -> float:
+                """
+                (initial_equity - current_equity) / initial_equity * 100
+                """
+
+            def current_daily_loss_pct(self) -> float:
+                """
+                (day_state.daily_start_equity - current_equity) / day_state.daily_start_equity * 100
+                """
+
+            def is_overall_safety_breached(self) -> bool:
+                return self.current_overall_loss_pct() >= self.cfg.safety_overall_loss_pct
+
+            def is_daily_safety_breached(self) -> bool:
+                return self.current_daily_loss_pct() >= self.cfg.safety_daily_loss_pct
+
+            def can_open_new_trade(self) -> bool:
+                """
+                - Wenn enforce_safety=False → immer True.
+                - Sonst:
+                    * False, sobald eine der Safety-Grenzen erreicht oder überschritten ist.
+                """
+
+  - Datei: configs/risk/ftmo_rules.yaml
+    Inhalt: >
+      Standard-Config für FTMO-Engine:
+
+        initial_equity: null         # wird bei erstem Start aus AccountState gesetzt
+        max_daily_loss_pct: 5.0
+        max_overall_loss_pct: 10.0
+        safety_daily_loss_pct: 4.0
+        safety_overall_loss_pct: 8.5
+        enforce_safety: true
+        close_positions_on_breach: false
+
+  - Änderung: src/afts_pro/core/risk_manager.py (oder entsprechender Risk-Layer)
+    Inhalt: >
+      Integration der FtmoRiskEngine:
+
+        - RiskManager erhält optional eine FtmoRiskEngine-Instanz.
+        - Bei jedem Step/Bar:
+            * RiskManager ruft ftmo_engine.ensure_initialized(...) und ftmo_engine.on_new_equity(...)
+              mit aktuellem Equity/RealizedPnL und Zeitstempel auf.
+        - Bei der Entscheidung, ob ein Entry erlaubt ist:
+            * if ftmo_engine and not ftmo_engine.can_open_new_trade():
+                  → StrategyDecision.is_entry=False / blocked_by="ftmo_limits"
+        - Optional:
+            * Meta-Felder in Decision:
+                - meta["ftmo_daily_loss_pct"]
+                - meta["ftmo_overall_loss_pct"]
+                - meta["ftmo_blocked"] (bool)
+
+      RiskManager sollte die FTMO-Regel als separate Guard-Begründung behandeln,
+      damit später im Log/Analyzer ersichtlich ist, warum Entries blockiert wurden.
+
+  - Änderung: configs/modes/sim.yaml (und ggf. sim_orb_15m.yaml)
+    Inhalt: >
+      FTMO-RiskConfig integrieren, z.B.:
+
+        risk:
+          use_ftmo_risk: true
+          ftmo_config_path: "configs/risk/ftmo_rules.yaml"
+
+      Engine/RiskManager lädt FtmoRiskConfig aus diesem Pfad
+      und instanziiert die FtmoRiskEngine.
+
+  - Datei: tests/test_ftmo_risk_engine.py
+    Inhalt: >
+      Unit-Tests für FtmoRiskEngine:
+
+        - test_initialization_uses_current_equity_if_not_set:
+            * cfg.initial_equity=None
+            * ensure_initialized(equity=100000, now=2025-01-01 09:00)
+            * state.initial_equity == 100000
+
+        - test_daily_reset_changes_day_state:
+            * Tag 1: start_equity=100000
+            * equity fällt auf 98000 → daily_loss_pct=2 %
+            * am nächsten Tag ensure_initialized/on_new_equity mit equity=98000
+              → neuer FtmoDayState(day=Tag2, daily_start_equity=98000, daily_loss_pct=0)
+
+        - test_overall_safety_trigger:
+            * initial_equity=100000
+            * current_equity=91500 → overall_loss=8.5 %
+            * is_overall_safety_breached() == True
+
+        - test_daily_safety_trigger:
+            * daily_start_equity=100000
+            * current_equity=96000 → daily_loss=4 %
+            * is_daily_safety_breached() == True
+
+        - test_can_open_new_trade_false_when_safety_breached:
+            * safety_overall_loss_pct=8.5
+            * current_overall_loss_pct>=8.5 → can_open_new_trade()==False
+
+  - Datei: tests/test_risk_manager_ftmo_integration.py
+    Inhalt: >
+      Integration RiskManager + FtmoRiskEngine:
+
+        - test_ftmo_guard_blocks_entries_when_overall_limit_hit:
+            * FtmoRiskEngine.current_overall_loss_pct() monkeypatchen → 9.0
+            * enforce_safety=True
+            * RiskManager bewertet eine Entry-Decision:
+                - erwartet: Decision.is_entry=False
+                - meta["ftmo_blocked"] == True
+
+        - test_ftmo_guard_allows_entries_when_within_limits:
+            * overall_loss_pct=2.0, daily_loss_pct=1.0
+            * can_open_new_trade() == True
+            * Decision bleibt is_entry=True (sofern andere Guards zustimmen).
+
+        - test_ftmo_guard_updates_meta_with_current_loss_pct:
+            * RiskManager ruft ftmo_engine.on_new_equity(...) vor Prüfung.
+            * Decision.meta enthält aktuelle daily/overall_loss_pct-Werte.
+
+acceptance:
+  - FTMO-RiskEngine implementiert:
+      Beschreibung: >
+        FtmoRiskEngine verwaltet:
+          - initial_equity,
+          - current_equity,
+          - FtmoDayState (daily_start_equity, daily_realized_pnl),
+          - Berechnung von daily_loss_pct & overall_loss_pct,
+          - Safety-Grenzen (daily/overall) und can_open_new_trade().
+        Alle Unit-Tests in test_ftmo_risk_engine.py sind grün.
+
+  - Integration im RiskManager:
+      Beschreibung: >
+        RiskManager nutzt FtmoRiskEngine:
+          - on_new_equity(...) wird regelmäßig aufgerufen,
+          - bei Entries entscheidet can_open_new_trade(), ob geblockt wird,
+          - Decision.meta enthält FTMO-Infos.
+        Tests in test_risk_manager_ftmo_integration.py zeigen:
+          - Blockierung bei Safety-Verletzung,
+          - erlaubte Trades innerhalb der Limits.
+
+  - Konfigurierbarkeit:
+      Beschreibung: >
+        FTMO-Parameter (max_daily_loss_pct, safety_daily_loss_pct, etc.) sind
+        in configs/risk/ftmo_rules.yaml konfigurierbar.
+        SIM-Configs können use_ftmo_risk: true/false setzen.
+
+  - Backward-Kompatibilität:
+      Beschreibung: >
+        Wenn use_ftmo_risk=false:
+          - FtmoRiskEngine wird nicht instanziiert,
+          - RiskManager-Verhalten bleibt wie zuvor,
+          - alle bestehenden Tests bleiben grün.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für FtmoRiskConfig, FtmoDayState, FtmoRiskState
+  - Design:
+      - FtmoRiskEngine ist:
+          * SIM-/LIVE-agnostisch (keine direkte Abhängigkeit von SIM- oder Broker-Code),
+          * rein zustands-/regelbasiert,
+          * von außen über Equity/PnL/Datum gefüttert.
+      - RiskManager spricht nur über eine schlanke Schnittstelle mit der Engine
+        (can_open_new_trade(), current_*_loss_pct()).
+  - Tests:
+      - pytest
+      - Keine echte Zeitabhängigkeit (datetime in Tests fixen).
+      - Kein Zugriff auf echte Files außer optionalen Config-YAMLs.
+
+notes:
+  - Weiterer Ausbau (später):
+      - close_positions_on_breach=True:
+          * RiskManager/Liquidity-Manager sendet Exit-Orders,
+            wenn Safety-Grenzen gerissen werden.
+      - Logging/Audit:
+          * Jede FTMO-Verletzung oder Block-Entscheidung wird geloggt.
+      - Integration mit QA/QAReport:
+          * eigener QA-Check: „FTMO-RiskEngine-Smoketest“.

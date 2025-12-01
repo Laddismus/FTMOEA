@@ -1,0 +1,260 @@
+title: AF_TASK_029_STRATEGY_PROFILE_ORB_15M_V1
+
+summary: >
+  Implementiere eine saubere, wiederverwendbare ORB-Strategie (Open Range Breakout)
+  als v1-Baseline-StrategyProfile für AFTS-PRO.
+  Ziel:
+    - Ein klar definiertes StrategyProfile (z.B. "orb_15m_v1") mit:
+        * ORB-Logik (erster Zeitraum = Range, Ausbruch = Entry),
+        * SL/TP-Regeln (ATR- oder Range-basiert),
+        * Session-Zeiten (z.B. London),
+        * Konfigurierbaren Parametern (Range-Länge, Buffer, Min-Range, etc.).
+    - Integration in StrategyBridge, SIM-Mode & LAB/Train-Profile.
+    - Unit-/Interface-Tests, die definierte Entry-/No-Entry-Situationen checken.
+
+inputs:
+  - Name: StrategyBridge / Strategy-Config
+    Beschreibung: >
+      Du hast bereits eine StrategyBridge/Pipeline, die Decisions erzeugt.
+      AF_TASK_029 fokussiert auf:
+        - ein neues StrategyProfile "orb_15m_v1" mit klaren Parametern,
+        - konkrete Implementierung der ORB-Regeln innerhalb deiner Strategy-Schicht,
+        - sauberer Config → Code → Tests-Fluss.
+
+  - Name: SIM-/Mode-Configs
+    Beschreibung: >
+      SIM-Configs (sim.yaml, sim_e2e_acceptance.yaml) können auf ein StrategyProfile verweisen.
+      AF_TASK_029:
+        - führt ein eigenes StrategyProfile "orb_15m_v1" mit eigenen Parametern ein,
+        - optional ein dediziertes SIM-Profil "sim_orb_15m.yaml" hinzufügen.
+
+outputs:
+  - Datei: configs/strategy/orb_15m_v1.yaml
+    Inhalt: >
+      Konfiguration für ORB-Strategie, z.B.:
+
+        name: "orb_15m_v1"
+        description: "Baseline Open Range Breakout 15m Strategy"
+        symbol: "EURUSD"
+        timeframe: "M15"
+        session:
+          timezone: "Europe/London"
+          session_start: "08:00"
+          session_end: "18:00"
+        orb:
+          range_minutes: 15          # erste 15m Candle nach Session-Start
+          min_range_pips: 3          # minimale Range, sonst no-trade
+          breakout_buffer_pips: 0.5  # kleiner Buffer über/unter Range
+          max_entries_per_day: 1
+        sl_tp:
+          mode: "atr"                # "atr" | "range_rr"
+          atr_period: 14
+          atr_sl_mult: 1.0
+          atr_tp_mult: 2.0
+          # falls mode="range_rr":
+          range_rr_sl_mult: 1.0
+          range_rr_tp_mult: 2.0
+        filters:
+          allow_long: true
+          allow_short: true
+          trade_only_in_session: true
+
+  - Änderung: StrategyProfile-Lader (z.B. core/strategy_config.py)
+    Inhalt: >
+      Loader / Resolver, der:
+        - orb_15m_v1.yaml lädt,
+        - die Parameter in eine StrategyProfile-Struktur gießt,
+        - StrategyBridge/StrategyEngine diese Profile nutzen lässt.
+
+      z.B.:
+
+        @dataclass
+        class ORBConfig:
+            range_minutes: int
+            min_range_pips: float
+            breakout_buffer_pips: float
+            max_entries_per_day: int
+            # ...
+
+        @dataclass
+        class StrategyProfileConfig:
+            name: str
+            symbol: str
+            timeframe: str
+            session: SessionConfig
+            orb: ORBConfig | None
+            sl_tp: SLTPConfig
+            filters: FilterConfig
+
+  - Datei/Änderung: src/afts_pro/core/strategy_orb.py
+    Inhalt: >
+      ORB-spezifische Strategielogik, ausgelagert in eigene Datei:
+
+        from dataclasses import dataclass
+        from afts_pro.core.strategy_types import StrategyContext, StrategyDecision
+
+        @dataclass
+        class ORBState:
+            day: str
+            range_high: float | None = None
+            range_low: float | None = None
+            range_finalized: bool = False
+            entries_today: int = 0
+
+        class ORBStrategy:
+            def __init__(self, config: ORBConfig):
+                self.cfg = config
+                self.state_by_symbol: dict[str, ORBState] = {}
+
+            def on_bar(self, ctx: StrategyContext) -> StrategyDecision:
+                """
+                ctx enthält: symbol, timeframe, dt, ohlc, atr, session-info, etc.
+                Logik (Long-Beispiel):
+                  1) Wenn neuer Tag oder Session-Reset, ORBState zurücksetzen.
+                  2) Während der ersten range_minutes:
+                       - range_high/low updaten.
+                  3) Nach range_minutes:
+                       - Range fixiert, Breakout-Levels berechnen:
+                           long_level = range_high + buffer
+                           short_level = range_low - buffer
+                  4) Wenn Preis (close oder high/low) über/unter Level bricht:
+                       - Ein Entry-Signal generieren (sofern entries_today < max).
+                  5) SL/TP gemäß Config:
+                       - ATR- oder Range-basierte Distanz berechnen.
+                Rückgabe:
+                  - StrategyDecision mit:
+                      * is_entry (True/False)
+                      * side ("long" oder "short")
+                      * sl_price, tp_price
+                      * meta Info: orb_range, orb_breakout_dir, etc.
+                """
+                ...
+
+      Ziel: ORBStrategy ist eigenständig testbar und wird von StrategyBridge gerufen.
+
+  - Änderung: StrategyBridge → ORBStrategy
+    Inhalt: >
+      StrategyBridge (oder dein StrategyEngine) soll:
+        - StrategyProfileConfig erkennen,
+        - falls profile.orb gesetzt ist:
+            * eine ORBStrategy-Instanz verwenden,
+            * on_bar(ctx) aufrufen,
+        - die resultierende StrategyDecision in die Pipeline weitergeben.
+
+  - Datei: configs/modes/sim_orb_15m.yaml
+    Inhalt: >
+      Dedizierter SIM-Mode für ORB-Test:
+
+        profile_name: "sim_orb_15m"
+        description: "SIM run for ORB 15m baseline strategy"
+        data:
+          symbol: "EURUSD"
+          timeframe: "M15"
+          start: "2024-01-01"
+          end: "2024-01-31"
+        strategy_profile: "configs/strategy/orb_15m_v1.yaml"
+        use_risk_agent: true
+        use_exit_agent: true
+        use_position_sizer: true
+        use_exit_policy: true
+        rl_agents:
+          risk_path: "models/risk_agent/orb_test"
+          exit_path: "models/exit_agent/orb_test"
+        output_root: "runs/sim/orb_15m"
+
+  - Datei: tests/test_strategy_orb_component.py
+    Inhalt: >
+      Komponententests nur für ORBStrategy (kein kompletter SIM-Run):
+
+        - test_orb_builds_range_and_triggers_long_breakout:
+            * Baue synthetische 15m-Bars:
+                - Bar 1 (ORB-Range): high=1.1010, low=1.1000
+                - Bar 2 (nach Range): high=1.1013 (über high+buffer)
+            * ORBConfig: range_minutes=15, breakout_buffer_pips=0.5, min_range_pips=0.5 etc.
+            * Ablauf:
+                - on_bar(bar1) → no entry, range_high/low gesetzt.
+                - on_bar(bar2) → is_entry=True, side="long", sl/tp gesetzt.
+        - test_orb_short_breakout_works_symmetrically:
+            * Range, dann Breakout nach unten.
+        - test_orb_ignores_too_small_range:
+            * Range-Spanne < min_range_pips → keine Trades.
+        - test_orb_respects_max_entries_per_day:
+            * Bei max_entries_per_day=1 → zweiter Breakout am selben Tag → kein Entry.
+
+  - Datei: tests/test_interface_orb_to_pipeline.py
+    Inhalt: >
+      Interface-Test: ORBStrategy → StrategyBridge → restliche Pipeline (minimal):
+
+        - test_orb_strategy_profile_plugs_into_pipeline:
+            * Lade StrategyProfile orb_15m_v1.
+            * StrategyBridge mit diesem Profile instanziieren.
+            * Führe 2–3 Bar-Events (synthetisch) durch.
+            * Assertions:
+                - bei Breakout:
+                    * StrategyDecision.is_entry=True
+                    * side korrekt
+                    * sl_price/tp_price gesetzt
+                - Decision fließt durch Risk→RL→Sizer→OrderBuilder
+                  (z.B. OrderSpec entsteht, PositionSizer benutzt SL).
+
+acceptance:
+  - ORB-Profile existiert:
+      Beschreibung: >
+        configs/strategy/orb_15m_v1.yaml definiert:
+          - Session,
+          - ORB-Parameter (range_minutes, min_range, Buffer),
+          - SL/TP-Mode,
+          - Filter (allow_long/short etc.).
+        StrategyProfileConfig/Loader kann dieses Profile laden.
+
+  - ORB-Strategie implementiert:
+      Beschreibung: >
+        ORBStrategy.on_bar(...) setzt:
+          - in der Range-Phase korrekt high/low,
+          - nach Range-Phase Breakout-Level,
+          - Entry-Signal bei Durchbruch,
+          - SL/TP gemäß Config (ATR oder Range-basiert).
+        Tests in test_strategy_orb_component.py laufen grün.
+
+  - Pipeline-Integration:
+      Beschreibung: >
+        StrategyBridge erkennt orb_15m_v1 und verwendet ORBStrategy.
+        Interface-Test zeigt:
+          - aus ORB-Breakout wird eine StrategyDecision mit Entry,
+          - diese Decision erreicht PositionSizer & OrderBuilder,
+          - es entsteht eine konkrete Entry-Order in der Pipeline.
+
+  - ORB-SIM-Profil funktionsfähig (Smoke):
+      Beschreibung: >
+        sim_orb_15m.yaml erlaubt einen kurzen SIM-Run (muss kein Riesen-Backtest sein).
+        Ein kleiner Smoke-Test (kann optional in bestehende E2E-/QA-Struktur integriert werden)
+        zeigt:
+          - PL-Lauf bricht nicht,
+          - es gibt zumindest potenziell ORB-basierte Trades (sofern Daten es hergeben).
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für ORBConfig, ORBState, StrategyProfileConfig
+  - Design:
+      - ORBStrategy ist eigenständig, aber Strategy-agnostisch:
+          * kein direkter Bezug auf RL, Risk, Execution.
+          * gibt nur StrategyDecision + Meta-Infos zurück.
+      - StrategyBridge bleibt generisch und kennt „StrategyProfile“,
+        nicht speziell ORB – ORB ist einfach ein Profil-Typ.
+  - Tests:
+      - pytest
+      - Synthetische OHLC-Sequenzen für ORB-Tests (keine echten Daten nötig).
+      - Tests deterministisch, schnell.
+
+notes:
+  - Rolle im Gesamtbild:
+      - ORB_15m_v1 ist dein „Baseline“-StrategyProfile:
+          * perfekt geeignet für:
+              - RL-Experimente,
+              - LAB-Sweeps,
+              - Quant-Analysen,
+              - E2E- und QA-Szenarien.
+      - Später kannst du:
+          * weitere Profile (Trendfolger, Range, SMC) hinzufügen,
+          * die alle auf dieselbe Pipeline & RL-Layer aufsetzen.

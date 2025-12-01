@@ -1,0 +1,7 @@
+base_profile: sim
+id: qa
+meta: {}
+mode: strategy_backtest
+name: qa
+params: {}
+seed: null

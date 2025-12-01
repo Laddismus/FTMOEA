@@ -1,0 +1,237 @@
+title: AF_TASK_027_SYSTEM_GATE_READY_FOR_LIVE
+
+summary: >
+  Implementiere einen formalen System-Gate-Mechanismus ("Ready for LIVE / Ready for Release"),
+  der auf dem QAReport (AF_TASK_026) basiert.
+  Ziel:
+    - Eine zentrale Funktion und ein CLI-Kommando, die:
+        * die QA-Suite ausführen (oder einen bestehenden Report laden),
+        * nach definierter Logik entscheiden:
+            - ready_for_live = True/False
+        * das Ergebnis als Flag + Exit-Code bereitstellen.
+    - Optionale einfache Policy-Regeln, z.B.:
+        * Alle Kern-Sektionen (e2e_sim_rl, train_smoke, lab_smoke, quant_smoke) müssen PASS sein.
+        * Einzelne optionale Checks (pytest_smoke) dürfen failen, ohne das Gate zu blocken (konfigurierbar).
+
+inputs:
+  - Name: QAReport & QAConfig (core/qa_report.py, core/qa_config.py)
+    Beschreibung: >
+      AF_TASK_026 liefert:
+        - QAReport mit:
+            * sections: list[QASectionResult]
+            * all_passed: bool
+            * details je Sektion/Check
+        - QAConfig / qa.yaml
+      AF_TASK_027 nutzt QAReport als Basis und ergänzt:
+        - Policy-Ebene: welche Sektionen sind "blocking" für LIVE?
+        - Möglichkeit, QA entweder:
+            * neu auszuführen,
+            * oder einen existierenden Report (z. B. aus CI) zu laden und auszuwerten.
+
+outputs:
+  - Datei: src/afts_pro/core/system_gate.py
+    Inhalt: >
+      Neues Modul für System-Gate-Logik.
+      Enthält u. a.:
+        @dataclass
+        class GatePolicy:
+            required_sections: list[str] = field(default_factory=lambda: [
+                "e2e_sim_rl",
+                "train_smoke",
+                "lab_smoke",
+                "quant_smoke",
+            ])
+            optional_sections: list[str] = field(default_factory=list)
+            allow_optional_fail: bool = True
+
+        @dataclass
+        class GateDecision:
+            ready_for_live: bool
+            failed_sections: list[str]
+            report: QAReport
+
+        def evaluate_gate(report: QAReport, policy: GatePolicy | None = None) -> GateDecision:
+            """
+            Bewertet einen QAReport anhand einer GatePolicy:
+
+              - Alle required_sections müssen existieren UND passed=True liefern.
+              - optional_sections dürfen (abhängig von allow_optional_fail) FAIL sein,
+                ohne ready_for_live=False auszulösen.
+
+              Rückgabe: GateDecision mit:
+                - ready_for_live (bool)
+                - failed_sections (Liste der Section-Namen, die fehlten oder failed sind)
+                - vollständigem QAReport.
+            """
+
+        def load_latest_report(report_dir: Path) -> QAReport | None:
+            """
+            Lädt den aktuellsten QA-Report (z.B. nach Timestamp sortiert) aus report_dir
+            und deserialisiert ihn aus JSON.
+            """
+
+        def run_gate_from_scratch(qa_config: QAConfig, policy: GatePolicy) -> GateDecision:
+            """
+            Führt:
+              - run_qa_suite(qa_config)
+              - evaluate_gate(report, policy)
+            in einem Rutsch aus.
+            Geeignet für lokale Checks oder CI-Jobs.
+            """
+
+  - Datei: configs/qa/gate_policy.yaml
+    Inhalt: >
+      Konfigurierbare Gate-Policy, z.B.:
+
+        required_sections:
+          - "e2e_sim_rl"
+          - "train_smoke"
+          - "lab_smoke"
+          - "quant_smoke"
+        optional_sections:
+          - "pytest_smoke"
+        allow_optional_fail: true
+
+      So kann man z. B. pytest_smoke als optionalen Check behandeln.
+
+  - Datei: src/afts_pro/cli/afts_gate_cli.py
+    Inhalt: >
+      CLI-Entry für System-Gate:
+
+        - Command: `afts-gate`
+        - Optionen:
+            * --mode:
+                - "run"        -> QA neu ausführen und Gate evaluieren
+                - "from-last"  -> letzten vorhandenen QA-Report laden und Gate evaluieren
+            * --qa-config configs/qa/qa.yaml
+            * --policy-config configs/qa/gate_policy.yaml
+            * --report-dir runs/qa
+
+        Verhalten:
+
+          - Mode "run":
+              * Lädt QAConfig + GatePolicy.
+              * Führt run_qa_suite(...) aus.
+              * Speichert QAReport (wie in AF_TASK_026).
+              * Evaluiert Gate mit evaluate_gate(...).
+              * Gibt auf stdout eine kurze Zusammenfassung, z. B.:
+
+                AFTS-PRO SYSTEM GATE
+                ====================
+                Ready for LIVE: YES
+                Failed sections: []
+                Report: runs/qa/qa_report_20251128_213000.json
+
+              * Exit-Code:
+                  - 0  -> ready_for_live = True
+                  - 1  -> ready_for_live = False
+
+          - Mode "from-last":
+              * Lädt latest report aus --report-dir.
+              * Evaluiert Gate.
+              * Gleiche Ausgabe/Exit-Codes wie oben.
+
+  - Datei: tests/test_system_gate.py
+    Inhalt: >
+      Tests für System-Gate-Logik (keine echten langen QA-Runs, sondern Mocks):
+
+        - test_evaluate_gate_all_required_sections_pass:
+            * Baue einen QAReport mit:
+                - sections: ["e2e_sim_rl", "train_smoke", "lab_smoke", "quant_smoke"]
+                  alle passed=True
+            * GatePolicy mit diesen required_sections.
+            * evaluate_gate(...) → ready_for_live == True, failed_sections == [].
+
+        - test_evaluate_gate_missing_required_section_fails:
+            * QAReport ohne "lab_smoke"-Section (oder mit passed=False).
+            * evaluate_gate(...) → ready_for_live == False,
+              failed_sections enthält "lab_smoke".
+
+        - test_evaluate_gate_optional_section_can_fail:
+            * QAReport mit:
+                - required_sections alle PASS
+                - optional_section "pytest_smoke" mit passed=False.
+            * Policy: allow_optional_fail=True, optional_sections=["pytest_smoke"].
+            * evaluate_gate(...) → ready_for_live == True,
+              failed_sections == [] (oder nur optional markiert, aber nicht blocking).
+
+        - test_run_gate_from_scratch_uses_qa_suite(monkeypatch):
+            * Monkeypatch run_qa_suite(...) → liefert Dummy-QAReport.
+            * evaluate_gate(...) wird aufgerufen.
+            * Sicherstellen, dass GateDecision entsprechend Dummy-Report entsteht.
+
+        - test_gate_cli_exit_codes(monkeypatch, tmp_path):
+            * Monkeypatch run_qa_suite/evaluate_gate, um ready_for_live=True/False zu simulieren.
+            * CLI-Hauptfunktion (oder deren Kernlogik) mit mode="run" aufrufen.
+            * Prüfen:
+                - bei ready_for_live=True → Exit-Code 0.
+                - bei ready_for_live=False → Exit-Code != 0.
+
+acceptance:
+  - Formales Gate vorhanden:
+      Beschreibung: >
+        Es existiert ein zentrales Modul (system_gate.py) und ein CLI (`afts-gate`),
+        die anhand des QAReports bestimmen:
+          - ready_for_live: True/False,
+          - welche Sektionen ggf. das Gate blockieren.
+        Exit-Code und Textausgabe sind konsistent.
+
+  - Policy-basiert:
+      Beschreibung: >
+        Die Logik ist nicht hardcodiert:
+          - GatePolicy (per YAML) definiert:
+              * required_sections
+              * optional_sections
+              * allow_optional_fail
+          - evaluate_gate(...) verwendet diese Policy.
+        Änderungen können über Config erfolgen ohne Code-Anpassung.
+
+  - Integration mit QAReport:
+      Beschreibung: >
+        run_gate_from_scratch(...) nutzt:
+          - QAConfig (qa.yaml)
+          - GatePolicy (gate_policy.yaml)
+          - run_qa_suite(...) aus AF_TASK_026.
+        „from-last“-Modus lädt den aktuellen QAReport aus runs/qa
+        und entscheidet darauf basierend.
+
+  - Tests grün:
+      Beschreibung: >
+        test_system_gate.py deckt:
+          - Positivfall (alles PASS),
+          - Required-FAIL-Fall,
+          - Optional-FAIL-Fall,
+          - Integration mit run_qa_suite (monkeypatch),
+          - CLI-Exitcodes.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für GatePolicy und GateDecision
+      - JSON-kompatible QAReport-Struktur
+  - Struktur:
+      - System-Gate-Logik klar vom CLI getrennt:
+          * business logic: system_gate.py
+          * user interaction: afts_gate_cli.py
+      - Exceptions in QA- oder Gate-Logik:
+          * sollten sauber gefangen werden,
+          * zu failed_sections + ready_for_live=False führen,
+          * nicht unkontrolliert bis zur CLI durchrauschen (außer explizit gewünscht).
+  - Erweiterbarkeit:
+      - Später können zusätzliche Sektionen (z. B. Live-Sim, Broker-Connectivity-Check)
+        leicht hinzugefügt werden, indem:
+          * neue QASectionResult in QAReport,
+          * Policy erweitert wird.
+
+notes:
+  - Nutzung:
+      - In Zukunft kannst du z. B. in einem Deployment-Script:
+            afts-qa
+            afts-gate --mode from-last
+        laufen lassen und bei Exit-Code != 0 das Deployment/LIVE-Start abbrechen.
+      - Oder im Web-UI:
+          * Systemstatus-Anzeige basierend auf dem letzten GateDecision.
+
+  - Weiterer Ausbau (später):
+      - Du könntest GateDecision in einer DB speichern,
+      - oder mit einem Audit-Log kombinieren (Wer hat wann LIVE freigegeben?).

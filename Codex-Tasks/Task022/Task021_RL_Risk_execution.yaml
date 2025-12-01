@@ -1,0 +1,294 @@
+title: AF_TASK_022_RL_RISK_EXECUTION_INTEGRATION
+
+summary: >
+  Integriere den RiskAgent sauber in die Positionsgrößen-Berechnung der SIM-Pipeline.
+  Ziel:
+    - RiskAgent liefert risk_pct.
+    - Dieses risk_pct wird in eine konkrete Positionsgröße (Kontrakte/Lots) übersetzt,
+      basierend auf Account-Equity, SL-Distanz, Kostenmodell und Sicherheits-Caps.
+    - Die PositionSizing-Logik ist konfigurierbar, deterministisch und voll getestet.
+  Fokus: Nur SIM-Mode (Backtest / Simulation). LIVE bleibt weiterhin stub.
+
+inputs:
+  - Name: RiskAgent + RLInferenceHook
+    Beschreibung: >
+      Aus den bisherigen Tasks:
+        - RiskAgent.act(...) gibt einen risk_pct-Wert in [min_risk_pct, max_risk_pct] zurück.
+        - RLInferenceHook schreibt diesen Wert bereits in StrategyDecision.update["risk_pct"]
+          oder meta["risk_pct"] (abhängig von aktueller Implementierung).
+      In Task 022 soll dieses risk_pct zur Berechnung der Positionsgröße genutzt werden.
+
+  - Name: StrategyDecision / OrderIntention
+    Beschreibung: >
+      StrategyBridge erzeugt ein Strategie-Entry-Signal (Long/Short, Entry-Type, etc.).
+      RiskManager/Guards können dieses Signal schon filtern.
+      Danach:
+        - StrategyDecision beschreibt:
+            * ob Entry erlaubt
+            * welches Symbol, Richtung
+            * (durch RL) welches risk_pct angedacht ist
+      Die PositionSizing-Schicht soll diesen Decision um ein Feld "position_size" erweitern,
+      das vom OrderBuilder umgesetzt wird.
+
+  - Name: PositionState / SL-Logik
+    Beschreibung: >
+      Für sinnvolles PositionSizing brauchst du:
+        - eine definierte SL-Logik:
+            * geplanter SL-Preis (oder SL-Distanz in Pips/Ticks/ATR)
+        - ohne SL-Distanz ist kein seriöses prozentuales Risk-Management möglich.
+      Entweder:
+        - die Strategie liefert bereits einen SL,
+        - oder es gibt eine Default-SL-Heuristik (z.B. ATR * Faktor).
+      Task 022 darf eine einfache Fallback-Logik einbauen, falls kein SL gesetzt ist
+      (z.B. default_sl_atr_factor).
+
+  - Name: AccountState / RiskLimits
+    Beschreibung: >
+      AccountState enthält mindestens:
+        - current_equity
+        - realized_pnl_day (oder du führst das für Task 022 ein)
+      Optional:
+        - max_daily_loss_limit
+      PositionSizing soll:
+        - pro Trade eine Max-Risk-Kappe einhalten,
+        - optional Tages-Risk-Kappen berücksichtigen (z.B. nicht mehr als X% nach aktuellem DD).
+
+  - Name: Configs (risk_agent.yaml, modes/sim.yaml, ggf. risk_limits.yaml)
+    Beschreibung: >
+      Neue Konfigurationswerte werden benötigt:
+        - min/max Risk, Hardcaps, optional FTMO-ähnliche Regeln:
+            * max_risk_per_trade_pct
+            * max_risk_per_day_pct
+        - default_sl_atr_factor (falls kein SL gesetzt)
+      Diese sollen zentral konfigurierbar und nicht hardcodiert sein.
+
+outputs:
+  - Datei: src/afts_pro/exec/position_sizer.py
+    Inhalt: >
+      Neues Modul, das alle PositionSizing-Regeln kapselt.
+      Enthält:
+        - PositionSizerConfig (pydantic/dataclass):
+            * base_risk_mode: "agent" | "fixed" | "hybrid"
+            * fixed_risk_pct: float           # Fallback oder Basisrisiko
+            * min_risk_pct: float             # Sicherheitsminimum (z.B. 0.0)
+            * max_risk_pct: float             # Hardcap unabhängig vom Agent
+            * max_risk_per_trade_pct: float   # z.B. 1.0 (vom Equity)
+            * max_risk_per_day_pct: float     # z.B. 4.0 (optional)
+            * default_sl_atr_factor: float    # z.B. 1.5 (wenn SL fehlt)
+            * cost_per_unit: float | None     # optional, für Gebühr + Spread Approx
+        - PositionSizingResult (dataclass):
+            * size: float
+            * effective_risk_pct: float
+            * capped_by: list[str]  # e.g. ["max_risk_per_trade", "max_risk_per_day"]
+        - Klasse PositionSizer:
+            class PositionSizer:
+                def __init__(self, cfg: PositionSizerConfig):
+                    ...
+
+                def compute_position_size(
+                    self,
+                    symbol: str,
+                    side: str,  # "long" oder "short"
+                    entry_price: float,
+                    sl_price: float | None,
+                    equity: float,
+                    agent_risk_pct: float | None,
+                    daily_realized_pnl: float | None = None,
+                    atr: float | None = None,
+                ) -> PositionSizingResult:
+                    """
+                    Schritte:
+                      1. SL-Distanz bestimmen:
+                          - Wenn sl_price vorhanden:
+                              risk_distance = abs(entry_price - sl_price)
+                          - Sonst:
+                              - ATR-basierten SL approximieren:
+                                  risk_distance = atr * default_sl_atr_factor
+                                (falls atr=None → Exception oder definierter Fallback)
+                      2. Basis-risk_pct bestimmen:
+                          - base_risk_pct abhängig von base_risk_mode:
+                              "agent":  agent_risk_pct (geclamped zwischen min/max)
+                              "fixed":  fixed_risk_pct
+                              "hybrid": Kombination (z.B. fixed + agent_offset)
+                      3. monetären Risk-Betrag berechnen:
+                          risk_amount = equity * (base_risk_pct / 100.0)
+                      4. Positionsgröße aus Risiko:
+                          size = risk_amount / risk_per_unit
+                          wobei risk_per_unit ~ risk_distance * contract_value_per_price_unit
+                          (für simple Approx: contract_value_per_price_unit = 1.0)
+                      5. Caps anwenden:
+                          - max_risk_per_trade_pct: stellt sicher,
+                            dass risk_amount <= equity * max_risk_per_trade_pct/100
+                          - max_risk_per_day_pct (wenn daily_realized_pnl verfügbar):
+                            - prüft, ob zusätzlicher Trade das Tagesrisiko überzieht;
+                              ggf. risk_pct/size reduzieren.
+                      6. Kein negativer oder NaN size; bei Problemen size=0 mit "capped_by" Marker.
+                    """
+
+  - Datei: configs/exec/position_sizer.yaml
+    Inhalt: >
+      Konfigurationsdatei für PositionSizer, z.B.:
+        base_risk_mode: "agent"
+        fixed_risk_pct: 0.5
+        min_risk_pct: 0.0
+        max_risk_pct: 3.0
+        max_risk_per_trade_pct: 1.0
+        max_risk_per_day_pct: 4.0
+        default_sl_atr_factor: 1.5
+        cost_per_unit: null
+
+  - Änderung: src/afts_pro/core/engine.py (SIM-Pipeline)
+    Inhalt: >
+      Integration von PositionSizer in den SIM-Entry-Flow:
+        Bisher (vereinfacht):
+          StrategyBridge -> RiskManager -> RLInferenceHook (RiskAgent) -> Guards -> OrderBuilder
+        Neu:
+          StrategyBridge
+            -> RiskManager
+            -> RLInferenceHook (setzt risk_pct)
+            -> PositionSizer.compute_position_size(...)  # WENN Entscheidung ein Entry ist
+            -> StrategyDecision.update["position_size"] = result.size
+            -> StrategyDecision.meta["effective_risk_pct"] = result.effective_risk_pct
+            -> StrategyDecision.meta["risk_capped_by"] = result.capped_by
+            -> Guards
+            -> OrderBuilder
+        Anforderungen:
+          - PositionSizer wird nur bei Entry-Decisions aufgerufen, nicht bei Exits.
+          - Wenn agent_risk_pct=None:
+              * Fallback je nach base_risk_mode (z.B. fixed_risk_pct).
+          - Logging:
+              * INFO: "position_size computed: size=..., eff_risk=..., caps=[...]"
+
+  - Änderung: src/afts_pro/exec/order_builder.py
+    Inhalt: >
+      Sicherstellen, dass StrategyDecision.update["position_size"] vom PositionSizer
+      tatsächlich genutzt wird:
+        - Bei einer Entry-Order:
+            * size = decision.update["position_size"] (falls vorhanden),
+              sonst Fallback (z.B. bisheriges Lotschema).
+        - Keine direkte Eigenberechnung der Size mehr, wenn PositionSizer aktiv ist.
+      Falls notwendig:
+        - Konfig Flag: use_position_sizer: true/false
+          (auch in sim.yaml eintragbar).
+
+  - Änderung: configs/modes/sim.yaml
+    Inhalt: >
+      Neue Flags:
+        use_risk_agent_for_sizing: true
+        position_sizer_config: "configs/exec/position_sizer.yaml"
+      Optional:
+        fallbacks:
+          if_agent_missing: "fixed"   # "fixed" | "zero" | "error"
+
+  - Datei: tests/test_position_sizer_unit.py
+    Inhalt: >
+      Unit-Tests für PositionSizer:
+        - test_basic_sizing_from_agent_risk:
+            * equity=10000, agent_risk_pct=1.0, entry=100, sl=99
+            * risk_distance=1
+            * risk_amount=100 (1% von 10k)
+            * size ≈ 100 (bei contract_value_per_price_unit=1)
+        - test_min_max_risk_clamping:
+            * agent_risk_pct=-1 → effective_risk_pct=min_risk_pct
+            * agent_risk_pct=10 → effective_risk_pct=max_risk_pct
+        - test_max_risk_per_trade_cap:
+            * agent_risk_pct=5, max_risk_per_trade_pct=1
+            * effective_risk_pct=1 (und "capped_by" enthält "max_risk_per_trade")
+        - test_default_sl_via_atr:
+            * sl_price=None, atr=2, default_sl_atr_factor=1.5
+            * risk_distance=3
+        - test_no_atr_and_no_sl_raises_or_zeros:
+            * Wenn weder SL noch ATR → definierte Strategie:
+                - Entweder Exception mit klarer Message
+                - oder size=0 und "capped_by" enthält "missing_sl_info".
+
+  - Datei: tests/test_risk_execution_integration.py
+    Inhalt: >
+      Integrationstests für SIM-Pipeline + RiskAgent + PositionSizer:
+        - test_risk_agent_influences_position_size:
+            * Dummy-RiskAgent liefert agent_risk_pct=2.0
+            * PositionSizer aktiv
+            * Entry-Decision resultiert in position_size > 0
+            * Wenn agent_risk_pct halbiert (1.0), dann ungefähr halbe size
+              (bei sonst gleichen Bedingungen).
+        - test_position_sizer_respects_daily_cap:
+            * equity=10000, daily_realized_pnl=-300 (also -3%)
+            * max_risk_per_day_pct=4%
+            * agent will 2% risk
+            * Prüfen, dass effektives Risk so begrenzt wird, dass Tages-DD-Kappe
+              nicht überschritten wird (vereinfachte Logik zulässig).
+        - test_pipeline_without_risk_agent_uses_fallback:
+            * use_risk_agent_for_sizing=false
+            * base_risk_mode="fixed", fixed_risk_pct=0.5
+            * Größe basiert auf fixed_risk_pct, Agent wird ignoriert.
+        - test_no_position_sizer_flag_keeps_legacy_behavior:
+            * wenn use_position_sizer=false (oder Flag nicht gesetzt):
+                - OrderBuilder verhält sich wie vorher
+                - keine Exceptions durch fehlende position_size.
+
+acceptance:
+  - RL-Risk wirkt wirklich auf Positionsgröße:
+      Beschreibung: >
+        Ein Entry mit höherem agent_risk_pct erzeugt eine größere Positionsgröße
+        als derselbe Entry mit geringerem agent_risk_pct (innerhalb der Caps).
+        Tests in test_risk_execution_integration.py belegen diesen Zusammenhang.
+
+  - Safety-Caps funktionieren:
+      Beschreibung: >
+        max_risk_per_trade_pct und max_risk_per_day_pct verhindern,
+        dass effektives Risiko über die Limits steigt:
+          - risk_pct wird entsprechend reduziert,
+          - PositionSizingResult.capped_by spiegelt das wider.
+        Keine Möglichkeit für "unbounded risk".
+
+  - Keine SL-Aufweichen über PositionSizing:
+      Beschreibung: >
+        PositionSizer berechnet nur Größe, verändert SL NICHT.
+        SL-Manipulation bleibt vollständig bei ExitPolicyApplier (Task 021).
+
+  - Backward Compatibility:
+      Beschreibung: >
+        Wenn use_position_sizer=false oder use_risk_agent_for_sizing=false:
+          - System verhält sich wie vor Task 022 (Legacy Behaviour),
+          - keine Exceptions in Pipeline,
+          - alle bisherigen Tests laufen weiter grün.
+
+  - Logging & Transparenz:
+      Beschreibung: >
+        Bei aktivem PositionSizer und Entry-Order:
+          - Eine INFO-Log-Meldung pro Entry:
+              "Position size computed: size=X, eff_risk=Y%, caps=[...]."
+          - Diese unterstützt Debugging und später QA/Monitoring.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - PositionSizerConfig als dataclass oder pydantic BaseModel
+      - Keine Hardcodings für Risk-Konstanten; alles über Config.
+  - Struktur:
+      - PositionSizer ist RL-agnostisch:
+          * Er kennt nur agent_risk_pct (float|None), nicht den Agenten selbst.
+          * Er kann später auch von nicht-RL-Strategien genutzt werden.
+      - Engine/OrderBuilder importieren PositionSizer, nicht umgekehrt.
+  - Numerik:
+      - Defensive Checks:
+          * Vermeidung Division durch 0 (risk_distance > 0 sicherstellen).
+          * size niemals NaN oder -inf; im Fehlerfall size=0 mit Flag.
+  - Tests:
+      - pytest, schnell ausführbar.
+      - Synthetische Beispiele, keine echten historischen Daten nötig.
+
+notes:
+  - Intuition:
+      - RiskAgent ist ab jetzt kein „nice to have“-Signal mehr,
+        sondern direkt verantwortlich für die Größe deiner Trades im SIM.
+      - Dadurch:
+          * kann RL auf Reward-Shaping (MFE/MAE, DD) wirklich wirken,
+          * kannst du später LAB-/Quant-Analysen nutzen, um Agent-Policies
+            zu vergleichen (z.B. aggressiver vs. konservativer RiskAgent).
+
+  - Zukunft:
+      - Dieser PositionSizer wird später:
+          * 1:1 im LIVE-Mode wiederverwendet (mit Broker-Konvertierung),
+          * in QA-/E2E-Tests (022–026) als kritische Komponente geprüft,
+          * mit FTMO-Regeln noch schärfer verknüpft (max daily loss, max overall).

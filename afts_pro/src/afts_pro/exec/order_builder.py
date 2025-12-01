@@ -24,8 +24,9 @@ class OrderBuilder:
     Translates StrategyDecisions into executable Orders.
     """
 
-    def __init__(self, asset_specs: dict[str, AssetSpec] | None = None) -> None:
+    def __init__(self, asset_specs: dict[str, AssetSpec] | None = None, use_position_sizer: bool = False) -> None:
         self.asset_specs = asset_specs or {}
+        self.use_position_sizer = use_position_sizer
 
     def build_entry_orders(
         self,
@@ -37,11 +38,14 @@ class OrderBuilder:
             return []
 
         side = OrderSide.BUY if decision.side == "long" else OrderSide.SELL
+        qty_override = None
+        if self.use_position_sizer and decision.update.get("position_size") is not None:
+            qty_override = float(decision.update.get("position_size"))
         order = self._build_order(
             symbol=market_state.symbol,
             side=side,
             order_type=OrderType.MARKET,
-            qty=self._default_qty(account_state, market_state.symbol),
+            qty=qty_override if qty_override is not None else self._default_qty(account_state, market_state.symbol),
             price=market_state.close,
             reduce_only=False,
         )
@@ -60,12 +64,13 @@ class OrderBuilder:
         orders: List[Order] = []
         updates = decision.update or {}
 
-        if "new_sl" in updates:
+        if "new_sl" in updates or "sl_price" in updates:
+            price_val = float(updates.get("new_sl", updates.get("sl_price")))
             orders.append(
                 self._build_sl_order(
                     symbol=market_state.symbol,
                     side=decision.side or "long",
-                    price=float(updates["new_sl"]),
+                    price=price_val,
                 )
             )
         if "new_tp" in updates:
@@ -110,6 +115,16 @@ class OrderBuilder:
                     account_state=account_state,
                 )
             )
+        meta_partial = decision.meta.get("exit_partial_close_fraction") if decision.meta else None
+        if meta_partial is not None:
+            orders.append(
+                self._build_partial_close_order(
+                    symbol=market_state.symbol,
+                    side=decision.side or "long",
+                    pct=float(meta_partial),
+                    account_state=account_state,
+                )
+            )
 
         if orders:
             logger.debug("Manage orders built: %s", orders)
@@ -125,11 +140,13 @@ class OrderBuilder:
             return []
 
         orders: List[Order] = []
+        pct_meta = decision.meta.get("exit_partial_close_fraction") if decision.meta else None
+        pct = float(pct_meta) if pct_meta is not None else 1.0
         orders.append(
             self._build_partial_close_order(
                 symbol=market_state.symbol,
                 side=decision.side or "long",
-                pct=1.0,
+                pct=pct,
                 account_state=account_state,
             )
         )

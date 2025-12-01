@@ -58,6 +58,13 @@ class RiskAgent:
         Map observation to a risk percentage within configured bounds.
         """
         obs = np.asarray(obs, dtype=np.float32)
+        if obs.shape[0] != self.weights.shape[0]:
+            if obs.shape[0] < self.weights.shape[0]:
+                self.weights = self.weights[: obs.shape[0]]
+            else:
+                pad_len = obs.shape[0] - self.weights.shape[0]
+                self.weights = np.concatenate([self.weights, np.zeros(pad_len, dtype=self.weights.dtype)])
+            self.obs_dim = obs.shape[0]
         base_action = self._squash(float(np.dot(obs, self.weights) + self.bias))
         if deterministic:
             return base_action

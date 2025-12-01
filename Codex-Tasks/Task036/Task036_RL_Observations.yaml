@@ -1,0 +1,345 @@
+title: AF_TASK_036_RL_OBSERVATIONS_FTMO_AWARE
+
+summary: >
+  Erweitere die RL-Observationen so, dass FTMO-Core- und FTMO-Plus-Signale explizit
+  in den State einfließen. Ziel:
+    - RL-RiskAgent und RL-ExitAgent sehen Stage, DD, Profit-Progress, Session, News-Flags etc.
+    - Feature-Set ist konfigurierbar (ein-/ausschaltbar pro Profil).
+    - Shapes bleiben stabil, Tests prüfen Korrektheit und Determinismus.
+  Dadurch lernt RL von Beginn an „innerhalb“ der FTMO-/FTMO-Plus-Realität statt rein blind
+  auf PnL.
+
+inputs:
+  - Name: RLTradingEnv & ObservationBuilder
+    Beschreibung: >
+      Bereits vorhanden:
+        - RLTradingEnv, der:
+            * mit einer Event-/Step-Struktur arbeitet,
+            * Observationen normalisiert,
+            * RewardContext/RewardCalculator nutzt.
+        - ObservationBuilder (z.B. in rl/rl_inference.py oder rl/env.py),
+          der aus SIM-/Account-/MarketState den Observation-Vektor baut.
+      AF_TASK_036:
+        - erweitert diesen Builder um FTMO-bezogene Features,
+        - macht die einzelnen Feature-Gruppen per Config aktivierbar.
+
+  - Name: AccountState / Decision.meta mit FTMO-Daten
+    Beschreibung: >
+      Aus RiskManager & FTMO-Schicht liegen bereits folgende Infos vor:
+        - ftmo_daily_loss_pct
+        - ftmo_overall_loss_pct
+        - ftmo_blocked, ftmo_force_flatten
+        - ftmo_plus_stage
+        - ftmo_plus_rolling_loss_pct
+        - ftmo_plus_loss_velocity
+        - ftmo_plus_session_name, ftmo_plus_session_loss_pct
+        - ftmo_plus_profit_progress_pct
+        - ftmo_plus_blocked_news/time/profit_hard/spread/exposure/circuit
+        - stability-KPIs (pf, winrate, pnl_std)
+      AF_TASK_036:
+        - wählt hiervon sinnvolle Subsets aus,
+        - mappt sie in numerische Features (inkl. One-Hot-Session),
+        - stellt sicher, dass RL-Obs konsistent & bounded sind.
+
+  - Name: RL Env Configs (configs/rl/env.yaml)
+    Beschreibung: >
+      Die Env-Config enthält bereits Reward-Profile etc.
+      AF_TASK_036:
+        - erweitert sie um eine Section `ftmo_features`, in der konfiguriert wird:
+            * welche FTMO-/FTMO-Plus-Features in die Observation aufgenommen werden,
+            * ggf. Scaling/Clipping-Parameter,
+            * Session-One-Hot-Definitionen.
+
+outputs:
+  - Änderung: rl/env_features.py (oder entsprechende Datei anlegen)
+    Inhalt: >
+      Lege ein dediziertes Modul für Feature-Spezifikation an, z.B.:
+
+        from dataclasses import dataclass
+        from typing import List
+
+        @dataclass
+        class FtmoFeatureConfig:
+            include_daily_dd_pct: bool = True
+            include_overall_dd_pct: bool = True
+            include_stage: bool = True
+            include_stage_one_hot: bool = True
+            max_stage: int = 2
+            include_rolling_dd_pct: bool = True
+            include_loss_velocity: bool = True
+            include_profit_progress_pct: bool = True
+            include_session_one_hot: bool = True
+            sessions: List[str] = None  # z.B. ["Asia", "London", "NewYork"]
+            include_news_flag: bool = True
+            include_time_fence_flag: bool = True
+            include_spread: bool = True
+            spread_clip_pips: float = 2.0
+            include_stability_kpis: bool = True
+            stability_pf_clip: float = 3.0
+            stability_winrate_clip: float = 1.0
+            stability_pnl_std_clip: float = 5.0
+            include_circuit_active_flag: bool = True
+
+        @dataclass
+        class EnvFeatureConfig:
+            base_price_features: bool = True
+            base_pnl_features: bool = True
+            ftmo: FtmoFeatureConfig = FtmoFeatureConfig()
+
+      Diese Config wird aus YAML geladen (s.u.) und an den ObservationBuilder übergeben.
+
+  - Änderung: configs/rl/env.yaml
+    Inhalt: >
+      Ergänze eine neue Section:
+
+        features:
+          base_price_features: true
+          base_pnl_features: true
+          ftmo:
+            include_daily_dd_pct: true
+            include_overall_dd_pct: true
+            include_stage: true
+            include_stage_one_hot: true
+            max_stage: 2
+            include_rolling_dd_pct: true
+            include_loss_velocity: true
+            include_profit_progress_pct: true
+            include_session_one_hot: true
+            sessions: ["Asia", "London", "NewYork"]
+            include_news_flag: true
+            include_time_fence_flag: true
+            include_spread: true
+            spread_clip_pips: 2.0
+            include_stability_kpis: true
+            stability_pf_clip: 3.0
+            stability_winrate_clip: 1.0
+            stability_pnl_std_clip: 5.0
+            include_circuit_active_flag: true
+
+      Hinweis:
+        - Wenn ganze ftmo-Section fehlt oder einzelne Flags=false sind,
+          werden diese Features nicht in den Obs-Vektor aufgenommen.
+
+  - Änderung: ObservationBuilder (z.B. rl/rl_inference.py oder rl/env.py)
+    Inhalt: >
+      Erweitere den ObservationBuilder um FTMO-Features:
+
+        class ObservationBuilder:
+            def __init__(self, cfg: EnvFeatureConfig, normalizer: ...):
+                self.cfg = cfg
+                self.normalizer = normalizer
+                # precompute session mapping:
+                self.session_to_idx = {}
+                if self.cfg.ftmo.sessions:
+                    self.session_to_idx = {
+                        name: i for i, name in enumerate(self.cfg.ftmo.sessions)
+                    }
+
+            def build(self, state: EnvState, account: AccountState, decision_meta: dict) -> np.ndarray:
+                """
+                state: Basismarktdaten (Preis, Returns etc.)
+                account: Equity, offene Positionen, risk exposure
+                decision_meta: vom RiskManager/FTMO-Layer befüllte Meta-Infos
+                """
+
+                features = []
+
+                # 1) Basisfeatures (sofern aktiviert)
+                if self.cfg.base_price_features:
+                    # z.B. normalized returns, OHLC-Ratios etc.
+                    features.extend(self._build_price_features(state))
+
+                if self.cfg.base_pnl_features:
+                    features.extend(self._build_pnl_features(account))
+
+                # 2) FTMO-Core-Features
+                fcfg = self.cfg.ftmo
+
+                if fcfg.include_daily_dd_pct:
+                    dd = float(decision_meta.get("ftmo_daily_loss_pct", 0.0))
+                    # Normalisierung: z.B. DD in [-1, 1] über Clip
+                    dd_norm = self._clip_scale(dd / 10.0, -1.0, 1.0)
+                    features.append(dd_norm)
+
+                if fcfg.include_overall_dd_pct:
+                    odd = float(decision_meta.get("ftmo_overall_loss_pct", 0.0))
+                    odd_norm = self._clip_scale(odd / 20.0, -1.0, 1.0)
+                    features.append(odd_norm)
+
+                # Stage: scalar + optional one-hot
+                stage = int(decision_meta.get("ftmo_plus_stage", 0))
+                if fcfg.include_stage:
+                    stage_norm = self._clip_scale(stage / max(fcfg.max_stage, 1), 0.0, 1.0)
+                    features.append(stage_norm)
+
+                if fcfg.include_stage_one_hot and self.cfg.ftmo.max_stage >= 0:
+                    one_hot = [0.0] * (fcfg.max_stage + 1)
+                    if 0 <= stage <= fcfg.max_stage:
+                        one_hot[stage] = 1.0
+                    features.extend(one_hot)
+
+                # Rolling DD & Loss-Velocity
+                if fcfg.include_rolling_dd_pct:
+                    rdd = float(decision_meta.get("ftmo_plus_rolling_loss_pct", 0.0))
+                    rdd_norm = self._clip_scale(rdd / 5.0, -1.0, 1.0)
+                    features.append(rdd_norm)
+
+                if fcfg.include_loss_velocity:
+                    vel = float(decision_meta.get("ftmo_plus_loss_velocity", 0.0))
+                    vel_norm = self._clip_scale(vel / 10.0, -1.0, 1.0)
+                    features.append(vel_norm)
+
+                # Profit-Target-Progress
+                if fcfg.include_profit_progress_pct:
+                    prog = float(decision_meta.get("ftmo_plus_profit_progress_pct", 0.0))
+                    prog_norm = self._clip_scale(prog / 20.0, 0.0, 1.0)
+                    features.append(prog_norm)
+
+                # Session One-Hot
+                if fcfg.include_session_one_hot and self.session_to_idx:
+                    sess = decision_meta.get("ftmo_plus_session_name")
+                    sess_vec = [0.0] * len(self.session_to_idx)
+                    if sess in self.session_to_idx:
+                        sess_vec[self.session_to_idx[sess]] = 1.0
+                    features.extend(sess_vec)
+
+                # News & Time-Fence Flags
+                if fcfg.include_news_flag:
+                    news_flag = 1.0 if decision_meta.get("ftmo_plus_blocked_news", False) else 0.0
+                    features.append(news_flag)
+
+                if fcfg.include_time_fence_flag:
+                    tf_flag = 1.0 if decision_meta.get("ftmo_plus_blocked_time", False) else 0.0
+                    features.append(tf_flag)
+
+                # Spread
+                if fcfg.include_spread:
+                    spread = float(account.current_spread_pips or 0.0)
+                    spread = min(spread, fcfg.spread_clip_pips)
+                    spread_norm = spread / max(fcfg.spread_clip_pips, 1e-6)
+                    features.append(spread_norm)
+
+                # Stability-KPIs
+                if fcfg.include_stability_kpis:
+                    pf = float(decision_meta.get("ftmo_plus_pf", 1.0))
+                    winr = float(decision_meta.get("ftmo_plus_winrate", 0.5))
+                    std = float(decision_meta.get("ftmo_plus_pnl_std", 0.0))
+
+                    pf_norm = self._clip_scale(pf / fcfg.stability_pf_clip, 0.0, 1.0)
+                    winr_norm = self._clip_scale(winr / fcfg.stability_winrate_clip, 0.0, 1.0)
+                    std_norm = self._clip_scale(std / fcfg.stability_pnl_std_clip, 0.0, 1.0)
+
+                    features.extend([pf_norm, winr_norm, std_norm])
+
+                # Circuit-Flag
+                if fcfg.include_circuit_active_flag:
+                    circ = 1.0 if decision_meta.get("ftmo_plus_blocked_circuit", False) else 0.0
+                    features.append(circ)
+
+                obs = np.asarray(features, dtype=np.float32)
+                # ggf. nochmal durch globalen Normalizer jagen
+                return obs
+
+            def _clip_scale(self, x: float, lo: float, hi: float) -> float:
+                return max(lo, min(hi, x))
+
+  - Änderung: RLTradingEnv / Env-Specs
+    Inhalt: >
+      - Passe die Obs-Specs (Shape) dynamisch an:
+          * Der ObservationBuilder sollte eine Methode bereitstellen:
+              len = builder.get_obs_dim()
+              spec = gym.spaces.Box(low=-1.0, high=1.0, shape=(len,))
+        oder
+          * Env berechnet bei Init einmal eine Dummy-Observation und nimmt deren shape.
+      - Tests:
+          * sicherstellen, dass Änderungen in ftmo-Feature-Flags die Shape korrekt ändern.
+      - EnvConfig-Lader:
+          * liest die neue `features`-Section aus env.yaml,
+          * baut EnvFeatureConfig & FtmoFeatureConfig.
+
+  - Datei: tests/test_rl_ftmo_obs_features.py
+    Inhalt: >
+      Neue Tests für FTMO-Aware-Observationen:
+
+        - test_obs_includes_ftmo_features_when_enabled:
+            * EnvFeatureConfig.ftmo.* Flags alle auf True.
+            * Decision_meta mit:
+                - ftmo_daily_loss_pct=2.0
+                - ftmo_overall_loss_pct=4.0
+                - ftmo_plus_stage=1
+                - ftmo_plus_rolling_loss_pct=1.2
+                - ftmo_plus_loss_velocity=5.0
+                - ftmo_plus_profit_progress_pct=60.0
+                - ftmo_plus_session_name="London"
+                - ftmo_plus_pf=1.5
+                - ftmo_plus_winrate=0.55
+                - ftmo_plus_pnl_std=0.8
+                - ftmo_plus_blocked_news=True
+            * AccountState.current_spread_pips=0.5
+            * ObservationBuilder.build(...) -> obs:
+                - assert len(obs) == erwartete_dim
+                - prüfe ein paar Werte (z.B. Stage-One-Hot, News-Flag == 1.0)
+
+        - test_obs_omits_ftmo_features_when_disabled:
+            * ftmo.include_daily_dd_pct=False, etc.
+            * Nur Basisfeatures übrig.
+            * Dimensionalität deutlich kleiner.
+
+        - test_obs_deterministic_given_same_input:
+            * gleiche state/account/meta, mehrfach build → identische Obs.
+
+        - test_obs_values_are_within_minus1_plus1:
+            * alle Features liegen im Bereich [-1, 1] (oder [0, 1] je nach Norm-Design).
+
+acceptance:
+  - FTMO-Features konfigurierbar:
+      Beschreibung: >
+        EnvFeatureConfig und Env-Config (env.yaml) erlauben, FTMO-Core- und FTMO-Plus-
+        Featuregruppen explizit ein- oder auszuschalten.
+        Änderungen in der Config führen zu reproduzierbaren Änderungen in der Obs-Dimension.
+
+  - ObservationBuilder nutzt FTMO-Meta:
+      Beschreibung: >
+        ObservationBuilder:
+          - liest relevante Meta-Felder (`ftmo_*` und `ftmo_plus_*`) aus decision_meta
+            und AccountState,
+          - skaliert/clipped sie in sinnvolle Bänder,
+          - baut daraus einen konsistenten Feature-Vektor.
+        test_rl_ftmo_obs_features.py validiert:
+          - Inclusion/Exclusion,
+          - Value-Ranges,
+          - Determinismus.
+
+  - RLTradingEnv-Specs korrekt:
+      Beschreibung: >
+        Die RL-Env:
+          - setzt ihre Observation-Space-Shape basierend auf dem Builder.
+          - Alle Env-Tests bleiben grün und sind mit/ohne FTMO-Features stabil.
+
+  - Backwards-kompatibel:
+      Beschreibung: >
+        Wenn ftmo-Feature-Flags in env.yaml deaktiviert sind
+          - bleibt Obs-Struktur nah an der „alten“ Basis,
+          - RL-Agents und Tests laufen weiter.
+        FTMO-/FTMO-Plus-Schicht ist dadurch ein Add-on, kein Must-have.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für Feature-Configs
+  - Architektur:
+      - FTMO-/FTMO-Plus-Features werden im ObservationBuilder aggregiert,
+        nicht direkt im Env/Engine verstreut.
+      - Nur numerische, normalisierte Features im Obs-Vektor – keine Strings.
+      - Session-Namen strikt über One-Hot und konfiguriertes Mapping.
+  - Tests:
+      - pytest
+      - keine Abhängigkeit von echten Backtest-Daten; synthetische Meta-Inputs genügen.
+      - deterministische Ergebnisse bei gleichen Inputs.
+
+notes:
+  - Nächster logischer Schritt nach AF_TASK_036:
+      - AF_TASK_037: Offizielle RL-Train-Profile für ORB+EURUSD mit FTMO-Features
+        (Train/Eval-Splits, Standard-Hyperparameter, erste Benchmark-Runs).
+      - Optional: RL-Reward leicht anpassen, um FTMO-spezifische Ziele (DD-Aversion,
+        Profit-Target-Nähe) stärker zu reflektieren, jetzt wo FTMO-Infos im State sind.

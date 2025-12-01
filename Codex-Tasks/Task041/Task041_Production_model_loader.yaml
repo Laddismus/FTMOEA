@@ -1,0 +1,333 @@
+title: AF_TASK_041_PRODUCTION_MODEL_LOADER_FOR_SIM_AND_LIVE
+
+summary: >
+  Integriere ein Production-Model-Loading in SIM- und LIVE-Mode.
+  Ziel:
+    - Engine kann automatisch die aktuell gepromoteten Risk-/Exit-Modelle laden,
+      statt hart verdrahtete Checkpoint-Pfade zu verwenden.
+    - Die „Production“-Modelle werden über die Ergebnisse von AF_TASK_040 (ModelSelection & Promotion)
+      bestimmt (Pointer/CURRENT.txt + Metadata).
+    - SIM erhält einen „PROD“-Modus (prod-SIM), der mit Production-Modellen testet.
+    - LIVE-Mode lädt bei Bedarf ausschließlich Production-Modelle und kann optional
+      an SystemGate/QA-Gate gekoppelt werden.
+
+inputs:
+  - Name: Model Selection & Promotion Outputs
+    Beschreibung: >
+      Nach AF_TASK_040 existieren:
+        - model_selection.yaml mit Profilen wie:
+            * orb_eurusd_risk_v1
+            * orb_eurusd_exit_v1
+        - Promotion-Mechanik:
+            * promotion_root/promotion_tag/
+                - CURRENT.txt (oder Pointer zur Checkpoint-Datei)
+                - selection_info.json (Score, PF, DD, FTMO-Pass etc.)
+        - Optionale Promotion-Registry (promotions.json).
+      AF_TASK_041:
+        - nutzt diese Files, um „Production“-Modelle zu finden und beim Engine-Start zu laden.
+
+  - Name: RL-Agent-Load-Mechanik (RiskAgent/ExitAgent)
+    Beschreibung: >
+      Bereits vorhanden:
+        - RiskAgent & ExitAgent mit:
+            * save/load-Funktionen,
+            * Configs (rl/risk_agent*.yaml, rl/exit_agent*.yaml).
+      AF_TASK_041:
+        - verwendet diese load-Funktionen, um aus Production-Checkpoint-Pfaden
+          lauffähige Agenteninstanzen für SIM & LIVE zu bauen.
+
+  - Name: SIM- & LIVE-Engine
+    Beschreibung: >
+      Vorhandene Module:
+        - SIM-Engine & Runner (engine/engine.py & CLI/Mode),
+        - RL-Inference-Hook,
+        - LiveEngine & LiveRunner (core/live_engine.py, core/live_runner.py),
+        - Mode-Configs (configs/modes/sim.yaml, sim_e2e_acceptance.yaml, live.yaml, eval.yaml).
+      AF_TASK_041:
+        - erweitert SIM & LIVE:
+            * um Konfig-Felder für „use_production_models“,
+            * um das Laden der richtigen Production-Modelle via Registry-Loader,
+            * um sinnvolles Error-Handling, wenn kein Production-Model verfügbar ist.
+
+outputs:
+  - Datei: core/model_registry_loader.py
+    Inhalt: >
+      Implementiere einen Loader/Lese-Layer für Production-Modelle:
+
+        from dataclasses import dataclass
+        from pathlib import Path
+        from typing import Optional
+        import json
+
+        @dataclass
+        class ProductionModelRef:
+            agent_type: str           # "risk" | "exit" | etc.
+            tag: str                  # z.B. "orb_eurusd_risk_v1"
+            checkpoint_path: Path
+            selection_meta: dict      # lädt z.B. selection_info.json
+            pointer_file: Path        # CURRENT.txt
+            root_dir: Path            # promotion_root/tag
+
+        @dataclass
+        class ModelRegistryConfig:
+            promotion_root: str       # z.B. "models/production"
+            registry_path: Optional[str] = None  # optional promotions.json
+
+        class ModelRegistryLoader:
+            def __init__(self, cfg: ModelRegistryConfig):
+                self.cfg = cfg
+                self.root = Path(cfg.promotion_root)
+
+            def load_production_ref(self, tag: str, agent_type: str) -> ProductionModelRef:
+                """
+                Erwartet:
+                  - Verzeichnis: promotion_root/tag/
+                  - CURRENT.txt mit Pfad zur Checkpoint-Datei (relativ oder absolut).
+                  - selection_info.json mit Score, KPIs etc. (optional, aber empfohlen).
+                Schritte:
+                  1) tag_dir = root / tag
+                  2) pointer_file = tag_dir / "CURRENT.txt"
+                  3) checkpoint_path = Inhalt der Pointer-Datei (resolve() falls nötig)
+                  4) selection_info.json laden, falls vorhanden
+                  5) Rückgabe eines ProductionModelRef
+                Raises:
+                  - FileNotFoundError / ValueError bei fehlender oder inkonsistenter Struktur.
+                """
+
+            def has_production_model(self, tag: str) -> bool:
+                """
+                True, wenn tag_dir + CURRENT.txt existieren.
+                """
+
+            def load_registry(self) -> list[dict]:
+                """
+                Optional: Lädt promotions.json, falls cfg.registry_path gesetzt ist.
+                Nur lesend, für spätere Auswertungen/Logs.
+                """
+
+  - Datei: configs/model_registry.yaml
+    Inhalt: >
+      Konfiguration für Registry & Tags:
+
+        model_registry:
+          promotion_root: "models/production"
+          registry_path: "models/production/promotions.json"
+
+        production_profiles:
+          orb_eurusd:
+            risk_tag: "orb_eurusd_risk_v1"
+            exit_tag: "orb_eurusd_exit_v1"
+
+      Hinweis:
+        - promotion_root muss konsistent zu model_selection.yaml sein.
+        - production_profiles können pro Asset/Strategie gruppiert werden.
+
+  - Änderung: configs/modes/sim.yaml (oder neue sim_prod.yaml)
+    Inhalt: >
+      Variante 1 – Erweiterung von sim.yaml:
+
+        rl:
+          enabled: true
+          use_production_models: false     # default
+          production_profile: null         # z.B. "orb_eurusd"
+          risk_tag_override: null          # optional
+          exit_tag_override: null          # optional
+          # falls use_production_models=false:
+          #   nutzt wie bisher agent_checkpoint_path o.ä.
+
+      Variante 2 – zusätzliche Mode-Datei:
+        - configs/modes/sim_prod.yaml:
+            * inherits sim.yaml / base config
+            * setzt use_production_models: true
+            * setzt production_profile: "orb_eurusd"
+
+      AF_TASK_041:
+        - du kannst Option wählen:
+            * ergonomisch ist meist: sim.yaml + eigener sim_prod.yaml.
+
+  - Änderung: configs/modes/live.yaml
+    Inhalt: >
+      Live-Config ergänzen:
+
+        live:
+          use_production_models: true
+          production_profile: "orb_eurusd"
+          risk_tag_override: null
+          exit_tag_override: null
+          require_gate_pass: true     # falls bereits vorhanden vom SystemGate
+          # optional: require_production_model: true
+
+      Ziel:
+        - Standard-LIVE startet nur, wenn Production-Modelle vorhanden & ladbar sind.
+
+  - Änderung: core/rl_hook_integration.py (oder Engine-Stelle, wo Agents geladen werden)
+    Inhalt: >
+      - Bisher:
+          * RL-Inference wird mit Agenten geladen, deren Pfade/Configs im SIM- oder TRAIN-Config stehen.
+      - Neu:
+          * Wenn use_production_models=True:
+              1) ModelRegistryLoader mit model_registry.yaml initialisieren.
+              2) production_profile aus sim/live-Config auflösen:
+                   - risk_tag, exit_tag aus production_profiles[
+                       profile_name
+                     ] bzw. Overrides.
+              3) risk_ref = loader.load_production_ref(risk_tag, "risk")
+                 exit_ref = loader.load_production_ref(exit_tag, "exit")
+              4) RiskAgent.load_from_checkpoint(risk_ref.checkpoint_path, config_path=...)
+                 ExitAgent.load_from_checkpoint(exit_ref.checkpoint_path, config_path=...)
+                 (Config-Pfad kann z.B. im Report/selection_meta oder in train_profiles.yaml stehen.)
+              5) RLInferenceHook mit diesen Agenten instanziieren.
+
+      - Error-Handling:
+          * Wenn use_production_models=True, aber kein Model vorhanden:
+              - Engine soll klar und frühzeitig mit verständlicher Fehlermeldung abbrechen,
+                z.B. "No production model found for orb_eurusd_risk_v1".
+
+  - Änderung: core/live_engine.py / core/live_runner.py
+    Inhalt: >
+      - Beim Start der LiveEngine:
+          * prüfe live.use_production_models:
+              - True:
+                  * nutzt ModelRegistryLoader analog wie SIM.
+              - False:
+                  * optional fallback auf explizite Pfade (für Dev-/Test-Setups).
+          * Wenn live.require_gate_pass=True:
+              - vor dem Laden der Modelle:
+                  * SystemGate ausführen (wie bereits umgesetzt),
+                  * bei Fail exit mit non-zero.
+          * Zusätzlich sinnvoll:
+              - check: Model-Score aus selection_meta erfüllt Minimalanforderungen:
+                  * z.B. min_score oder ftmo_pass,
+                  * harte Policy kann später in gate_policy.yaml erweitert werden.
+
+  - CLI-Erweiterung: afts_sim_cli.py & afts_live_cli.py
+    Inhalt: >
+      - SIM-CLI:
+          * neues Flag: --prod / --use-production:
+                - setzt use_production_models=True
+          * neues Flag: --production-profile <name>
+                - überschreibt production_profile aus Config.
+      - LIVE-CLI:
+          * Flag --no-production:
+                - erlaubt (optional) LIVE ohne Production-Modelle zu fahren (nur Dev/Test),
+                  im Normalfall in PROD nicht nutzen.
+          * Flag --production-profile <name>:
+                - analog SIM.
+
+  - Datei: tests/test_production_model_loader.py
+    Inhalt: >
+      Tests für den ModelRegistryLoader & Integration:
+
+        - test_load_production_ref_reads_current_and_meta:
+            * temporäres promotion_root mit:
+                - /orb_eurusd_risk_v1/CURRENT.txt (mit Pfad "ckpt_risk.pt")
+                - /orb_eurusd_risk_v1/selection_info.json (Score, pf)
+            * loader.load_production_ref("orb_eurusd_risk_v1", "risk")
+            * asserts:
+                - checkpoint_path.name == "ckpt_risk.pt"
+                - selection_meta["score"] == erwarteter Wert
+
+        - test_has_production_model_true_false:
+            * Promotion-Ordner mit und ohne CURRENT.txt
+            * has_production_model(tag) entsprechend True/False.
+
+        - test_load_production_ref_missing_files_raises:
+            * fehlende CURRENT.txt -> FileNotFoundError oder ValueError.
+
+  - Datei: tests/test_sim_prod_mode.py
+    Inhalt: >
+      Tests für Production-Mode in SIM:
+
+        - test_sim_uses_production_models_when_enabled:
+            * Dummy promotion_root mit Risk/Exit-Checkpoints.
+            * sim_config:
+                - rl.use_production_models=True
+                - rl.production_profile="orb_eurusd"
+            * Engine/Runner in Test-Konfiguration starten (kleiner Smoke-Run).
+            * Assertions:
+                - RiskAgent wurde von Production-Pfad geladen (z.B. via Spy/Mock),
+                - keine Nutzung von statischen, in Config hinterlegten Pfaden.
+
+        - test_sim_prod_fails_when_no_production_model:
+            * sim_config: use_production_models=True
+            * promotion_root ohne passenden Tag/CURRENT.txt
+            * Engine-Start -> Exception oder sauberer Fehlerstatus.
+
+  - Datei: tests/test_live_prod_mode.py
+    Inhalt: >
+      Tests für Production-Mode in LIVE:
+
+        - test_live_mode_loads_production_models_and_respects_gate:
+            * FakeBroker in Testmodus.
+            * Gate konfiguriert als „always pass“ (oder gemockt).
+            * promotion_root mit Risk/Exit-Production.
+            * live_config.use_production_models=True
+            * Start eines kurzen LiveRunner-Loops.
+            * Assertions:
+                - RL-Agenten wurden via Production-Loader geladen.
+                - kein Fehler.
+
+        - test_live_mode_aborts_when_production_missing:
+            * kein Production-Model vorhanden.
+            * live_config.use_production_models=True
+            * Start -> Exception oder definierter Fehler-Code.
+
+acceptance:
+  - Production Model Loader vorhanden:
+      Beschreibung: >
+        ModelRegistryLoader & ModelRegistryConfig:
+          - können CURRENT.txt + selection_info.json aus promotion_root/tag lesen.
+          - geben ProductionModelRef mit checkpoint_path & meta zurück.
+          - Tests in test_production_model_loader.py sind grün.
+
+  - SIM-Prod-Mode nutzbar:
+      Beschreibung: >
+        SIM-Config & CLI erlauben, einen „Production“-RUN zu starten:
+          - use_production_models=True -> Engine lädt Risk/Exit Agents aus der Production-Registry.
+          - Fallback/Fehler, wenn kein Production-Model vorhanden.
+        Tests in test_sim_prod_mode.py zeigen, dass:
+          - Production-Pfade genutzt werden,
+          - bei fehlender Production sinnvolle Fehler ausgelöst werden.
+
+  - LIVE nutzt Production-Modelle:
+      Beschreibung: >
+        LIVE-Config & CLI:
+          - laden bei use_production_models=True ausschließlich Production-Modelle.
+          - bei require_gate_pass=True:
+              * wird zusätzlich SystemGate ausgeführt.
+        Tests in test_live_prod_mode.py bestätigen:
+          - erfolgreiche Live-Initialisierung mit Production-Models,
+          - Fehlerfall, wenn keine Production-Modelle da sind.
+
+  - Keine Regression:
+      Beschreibung: >
+        Wenn use_production_models=False:
+          - verhält sich SIM & LIVE wie bisher (z.B. laden Agents aus direkt angegebenen Pfaden).
+        Bestehende Tests (SIM, LIVE, E2E, QA, Gate, Eval) bleiben grün.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für ModelRegistryConfig & ProductionModelRef
+  - Architektur:
+      - ModelRegistryLoader ist generischer Service:
+          * kennt keine Strategiedetails,
+          * nur Filesystem & Promotion-Struktur.
+      - Engine/Runner nutzen Loader via klar definierter Schnittstelle,
+        keine Hardcoded-Pfade für Production.
+      - Konfiguration (model_registry.yaml, modes/*.yaml) steuert das Verhalten,
+        nicht Code-Ifs mit Magic Strings.
+  - Tests:
+      - pytest
+      - Verwendung temporärer Verzeichnisse (tmp_path) für Promotion-Root in Tests.
+      - Keine echten RL-Trainings/Simulations, nur minimaler Smoke-Betrieb mit Fakes/Mocks.
+
+notes:
+  - Damit ist die Kette komplett:
+      TRAIN → EVAL → BENCHMARK (JSON+HTML) → MODEL SELECTION → PROMOTION → PROD-LOADER → SIM/LIVE.
+  - Später kann SystemGate noch erweitert werden, um:
+      - die Existence & Qualität eines Production-Modells direkt als Gate-Kriterium zu prüfen
+        (z.B. min_score, ftmo_pass=true).
+  - Für Multi-Asset-/Multi-Strategie-Setup:
+      - production_profiles in model_registry.yaml können pro Kombination aus Asset/Strategie
+        eine eigene Risk-/Exit-Tag-Paarung definieren (z.B. orb_eurusd, trend_xauusd, etc.).

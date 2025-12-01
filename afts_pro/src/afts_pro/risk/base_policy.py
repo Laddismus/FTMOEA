@@ -24,14 +24,14 @@ class RiskDecision(BaseModel):
 class BaseRiskPolicy(ABC):
     name: str
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str = "risk_policy") -> None:
         self.name = name
 
-    @abstractmethod
-    def on_new_day(self, account_state: AccountState, ts: datetime) -> None:
+    def on_new_day(self, account_state: AccountState, ts: datetime) -> None:  # pragma: no cover - default no-op
         """
         Hook to reset daily counters; invoked when a new trading day starts.
         """
+        logger.debug("on_new_day default no-op for policy %s", self.name)
 
     @abstractmethod
     def evaluate(self, *, account_state: AccountState, ts: datetime) -> RiskDecision:

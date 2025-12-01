@@ -1,0 +1,18 @@
+profile_name: "sim_orb_15m"
+description: "SIM run for ORB 15m baseline strategy"
+data:
+  symbol: "EURUSD"
+  timeframe: "M15"
+  start: "2024-01-01"
+  end: "2024-01-31"
+strategy_profile: "configs/strategy/orb_15m_v1.yaml"
+use_risk_agent: true
+use_exit_agent: true
+use_position_sizer: true
+use_exit_policy: true
+rl_agents:
+  risk_path: "models/risk_agent/orb_test"
+  exit_path: "models/exit_agent/orb_test"
+position_sizer_config: "configs/exec/position_sizer.yaml"
+exit_policy_config: "configs/exec/exit_policy.yaml"
+output_root: "runs/sim/orb_15m"

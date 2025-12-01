@@ -1,0 +1,6 @@
+tighten_factor_atr: 0.5
+tighten_min_distance_pct: 0.1
+trail_factor_atr: 1.0
+be_offset_ticks: 0.0
+partial_close_fraction: 0.3
+allow_looser_sl: false

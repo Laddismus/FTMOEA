@@ -1,0 +1,8 @@
+required_sections:
+  - "e2e_sim_rl"
+  - "train_smoke"
+  - "lab_smoke"
+  - "quant_smoke"
+optional_sections:
+  - "pytest_smoke"
+allow_optional_fail: true

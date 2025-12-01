@@ -1,0 +1,389 @@
+title: AF_TASK_033_FTMO_PLUS_STAGE_1
+
+summary: >
+  Erweitere die bestehende FTMO-RiskEngine um FTMO-Plus Stage 1:
+    - Session-basierte Risk-Limits (z.B. London/NY).
+    - Rolling 60-Minuten-Drawdown-Check.
+    - Loss-Velocity-Klassifikation (Drawdown-Geschwindigkeit).
+    - 3-stufiges Risk-Staging (Stage 0/1/2) mit Risk-Multiplikatoren.
+    - Exposure-Caps (max offene Trades, max Risk gesamt).
+    - Spread-Safety-Guard.
+  Ziel:
+    - Ein erweiterter Risk-Layer, der oberhalb der RL-Agents als "Risk Governor" fungiert
+      und RiskAgent/ExitAgent in einen dynamischen, aber kontrollierten Rahmen einbettet.
+
+inputs:
+  - Name: FtmoRiskEngine & RiskManager (FTMO-Core)
+    Beschreibung: >
+      Stand nach AF_TASK_031/032:
+        - FtmoRiskEngine mit daily soft/hard Stops + overall safety.
+        - RiskManager ruft FtmoRiskEngine an, blockt Entries (soft) und kann flatten (hard).
+      AF_TASK_033:
+        - erweitert diese Logik um Session-, Rolling- und Exposure-Regeln,
+          ohne das bestehende Verhalten zu zerstören.
+
+  - Name: PositionSizer & RL-RiskAgent
+    Beschreibung: >
+      Der RiskAgent liefert risk_pct; PositionSizer wendet Caps an.
+      AF_TASK_033:
+        - ergänzt Staging-Informationen (stage, stage_multiplier, max_stage_risk_pct),
+        - PositionSizer berücksichtigt diese (risk_pct * stage_multiplier, clamp),
+        - RL-RiskAgent bleibt unverändert, bekommt aber Staging-Infos als Observation (später).
+
+outputs:
+  - Datei: src/afts_pro/risk/ftmo_plus.py
+    Inhalt: >
+      Neues Modul für FTMO-Plus-Erweiterungen. Enthält u.a.:
+
+        from dataclasses import dataclass
+        from datetime import datetime, timedelta
+        from typing import Literal
+
+        RiskStage = Literal[0, 1, 2]  # 0=Normal, 1=Reduced, 2=Freeze-Near
+
+        @dataclass
+        class SessionRiskConfig:
+            name: str
+            start_time: str   # "HH:MM", in Account-TZ
+            end_time: str     # "HH:MM"
+            max_session_loss_pct: float  # z.B. 1.5 %
+            soft_factor: float = 0.7     # ab 70 % Session-DD Stage erhöhen
+
+        @dataclass
+        class RollingRiskConfig:
+            window_minutes: int = 60
+            max_rolling_loss_pct: float = 1.5  # z.B. 1.5 % in 60min
+
+        @dataclass
+        class LossVelocityConfig:
+            dd_fast_threshold_pct_per_hour: float = 4.0  # "zu steil" ab 4 %/h
+
+        @dataclass
+        class RiskStageConfig:
+            stage0_risk_mult: float = 1.0   # Normal
+            stage1_risk_mult: float = 0.5   # Reduced
+            stage2_risk_mult: float = 0.0   # Freeze (kein neues Risk)
+            stage0_max_risk_pct: float = 1.0
+            stage1_max_risk_pct: float = 0.5
+            stage2_max_risk_pct: float = 0.0
+            new_stage_min_trades: int = 5        # Mindestanzahl Trades für Stage-Absenkung/Erhöhung
+            cooldown_minutes: int = 60          # Mindestdauer bevor Stage wieder zurück darf
+
+        @dataclass
+        class ExposureCapsConfig:
+            max_open_trades: int = 3
+            max_total_risk_pct: float = 2.0    # Summe risk_pct aller offenen Trades
+
+        @dataclass
+        class SpreadGuardConfig:
+            max_spread_pips: float = 0.8
+            enabled: bool = True
+
+        @dataclass
+        class FtmoPlusConfig:
+            sessions: list[SessionRiskConfig]
+            rolling: RollingRiskConfig
+            loss_velocity: LossVelocityConfig
+            stages: RiskStageConfig
+            exposure_caps: ExposureCapsConfig
+            spread_guard: SpreadGuardConfig
+
+        @dataclass
+        class FtmoPlusState:
+            current_stage: RiskStage = 0
+            last_stage_change: datetime | None = None
+            rolling_window: list[tuple[datetime, float]] = None  # (timestamp, equity)
+            # Optional: weitere Telemetrie (dd_speed, session_loss, etc.)
+
+        class FtmoPlusEngine:
+            def __init__(self, cfg: FtmoPlusConfig):
+                self.cfg = cfg
+                self.state = FtmoPlusState(rolling_window=[])
+
+            def update_rolling_equity(self, now: datetime, equity: float) -> None:
+                """
+                Führt eine Rolling-Equity-Spur (timestamp, equity):
+                  - fügt aktuellen Punkt an,
+                  - entfernt alles, was älter als window_minutes ist.
+                """
+
+            def rolling_loss_pct(self) -> float:
+                """
+                Berechnet den Verlust innerhalb des Rolling-Fensters in %.
+                (max_equity_in_window - current_equity) / max_equity_in_window * 100
+                """
+
+            def loss_velocity_pct_per_hour(self) -> float:
+                """
+                Approximiert die Drawdown-Geschwindigkeit:
+                  - (equity_start_window - equity_now) / equity_start_window / (delta_t_in_hours) * 100
+                """
+
+            def session_for_time(self, now: datetime) -> SessionRiskConfig | None:
+                """
+                Bestimmt, in welcher Session sich now befindet (falls eine).
+                """
+
+            def session_loss_pct(self, session_start_equity: float, current_equity: float) -> float:
+                """
+                Hilfsfunktion für Session-DD %.
+                """
+
+            def update_stage(self, *, ftmo_daily_loss_pct: float, ftmo_overall_loss_pct: float,
+                             rolling_loss_pct: float, loss_velocity_pct_per_hour: float,
+                             session_loss_pct: float | None, num_recent_trades: int) -> None:
+                """
+                Setzt current_stage abhängig von:
+                  - FTMO-DD (soft/hard Nähe),
+                  - Rolling-DD,
+                  - Loss-Velocity,
+                  - Session-DD,
+                  - Mindestanzahl Trades & Cooldown.
+                z.B.:
+                  - Stage2, wenn:
+                      * FTMO-Soft/Hart nahe oder überschritten,
+                      * Rolling-DD > Max,
+                      * oder Loss-Velocity > Threshold.
+                  - Stage1, wenn:
+                      * Rolling-DD "erhöht", aber nicht katastrophal.
+                  - Stage0, wenn:
+                      * DD gering, Velocity normal, keine Lupen-Gründe,
+                      * Cooldown abgelaufen.
+                """
+
+            def current_stage_risk_mult(self) -> float:
+                # Rückgabe je nach current_stage und Config
+
+            def current_stage_max_risk_pct(self) -> float:
+                # Rückgabe je nach current_stage und Config
+
+            def exposure_allows_new_trade(self, *, open_trades_count: int,
+                                          total_open_risk_pct: float) -> bool:
+                """
+                - False, wenn:
+                    * open_trades_count >= max_open_trades
+                    * oder total_open_risk_pct >= max_total_risk_pct
+                """
+
+            def spread_allows_new_trade(self, spread_pips: float) -> bool:
+                """
+                - False, wenn spread_guard.enabled und spread_pips > max_spread_pips
+                """
+
+  - Datei: configs/risk/ftmo_plus.yaml
+    Inhalt: >
+      Beispiel-Config für Stage 1:
+
+        sessions:
+          - name: "London"
+            start_time: "08:00"
+            end_time: "17:00"
+            max_session_loss_pct: 1.5
+            soft_factor: 0.7
+          - name: "NewYork"
+            start_time: "14:00"
+            end_time: "22:00"
+            max_session_loss_pct: 1.2
+            soft_factor: 0.7
+
+        rolling:
+          window_minutes: 60
+          max_rolling_loss_pct: 1.5
+
+        loss_velocity:
+          dd_fast_threshold_pct_per_hour: 4.0
+
+        stages:
+          stage0_risk_mult: 1.0
+          stage1_risk_mult: 0.5
+          stage2_risk_mult: 0.0
+          stage0_max_risk_pct: 1.0
+          stage1_max_risk_pct: 0.5
+          stage2_max_risk_pct: 0.0
+          new_stage_min_trades: 5
+          cooldown_minutes: 60
+
+        exposure_caps:
+          max_open_trades: 3
+          max_total_risk_pct: 2.0
+
+        spread_guard:
+          max_spread_pips: 0.8
+          enabled: true
+
+  - Änderung: RiskManager-Integration (core/risk_manager.py)
+    Inhalt: >
+      RiskManager erhält optional eine FtmoPlusEngine:
+
+        class RiskManager:
+            def __init__(..., ftmo_engine: FtmoRiskEngine | None, ftmo_plus_engine: FtmoPlusEngine | None, ...):
+                self.ftmo_engine = ftmo_engine
+                self.ftmo_plus_engine = ftmo_plus_engine
+                ...
+
+            def evaluate_entry(...):
+                # 1) FTMO-Core aktualisieren (bereits vorhanden)
+                # 2) FtmoPlusEngine mit Equity + Timing + Trade-Infos füttern:
+                if self.ftmo_plus_engine is not None:
+                    self.ftmo_plus_engine.update_rolling_equity(now, account.equity)
+                    roll_dd = self.ftmo_plus_engine.rolling_loss_pct()
+                    vel = self.ftmo_plus_engine.loss_velocity_pct_per_hour()
+                    sess_cfg = self.ftmo_plus_engine.session_for_time(now)
+                    sess_dd = None
+                    if sess_cfg is not None:
+                        # session_start_equity könnt ihr aus AccountState/DayState ableiten
+                        sess_dd = self.ftmo_plus_engine.session_loss_pct(session_start_equity, account.equity)
+
+                    self.ftmo_plus_engine.update_stage(
+                        ftmo_daily_loss_pct=self.ftmo_engine.current_daily_loss_pct() if self.ftmo_engine else 0.0,
+                        ftmo_overall_loss_pct=self.ftmo_engine.current_overall_loss_pct() if self.ftmo_engine else 0.0,
+                        rolling_loss_pct=roll_dd,
+                        loss_velocity_pct_per_hour=vel,
+                        session_loss_pct=sess_dd,
+                        num_recent_trades=account.num_recent_trades,
+                    )
+
+                    # Meta für RL & Analyzer:
+                    decision.meta["ftmo_plus_stage"] = self.ftmo_plus_engine.state.current_stage
+                    decision.meta["ftmo_plus_rolling_loss_pct"] = roll_dd
+                    decision.meta["ftmo_plus_loss_velocity"] = vel
+                    if sess_cfg is not None:
+                        decision.meta["ftmo_plus_session_name"] = sess_cfg.name
+                        decision.meta["ftmo_plus_session_loss_pct"] = sess_dd
+
+                    # Exposure & Spread Guards:
+                    if not self.ftmo_plus_engine.exposure_allows_new_trade(
+                        open_trades_count=account.open_trades_count,
+                        total_open_risk_pct=account.total_open_risk_pct,
+                    ):
+                        decision.is_entry = False
+                        decision.meta["ftmo_plus_blocked_exposure"] = True
+
+                    if account.current_spread_pips is not None and not self.ftmo_plus_engine.spread_allows_new_trade(
+                        spread_pips=account.current_spread_pips
+                    ):
+                        decision.is_entry = False
+                        decision.meta["ftmo_plus_blocked_spread"] = True
+
+                return decision
+
+  - Änderung: PositionSizer (exec/position_sizer.py)
+    Inhalt: >
+      Stage-Risk-Scaling berücksichtigen:
+
+        class PositionSizer:
+            def compute_position_size(..., agent_risk_pct: float | None, context: PositionSizingContext) -> PositionSizingResult:
+                # existing logic ...
+                stage_mult = 1.0
+                stage_max_risk_pct = self.config.max_risk_pct
+                if context.ftmo_plus_stage is not None:
+                    stage_mult = context.ftmo_plus_stage_risk_mult
+                    stage_max_risk_pct = min(stage_max_risk_pct, context.ftmo_plus_stage_max_risk_pct)
+
+                base_risk_pct = agent_risk_pct if agent_risk_pct is not None else self.config.fixed_risk_pct
+                effective_risk_pct = base_risk_pct * stage_mult
+                effective_risk_pct = min(effective_risk_pct, stage_max_risk_pct)
+
+                # Rest wie gehabt...
+
+      Hinweis:
+        - PositionSizingContext muss ergänzt werden um:
+            * ftmo_plus_stage
+            * ftmo_plus_stage_risk_mult
+            * ftmo_plus_stage_max_risk_pct
+
+  - Datei: tests/test_ftmo_plus_engine.py
+    Inhalt: >
+      Unit-Tests für FtmoPlusEngine:
+
+        - test_rolling_loss_pct_within_window:
+            * mehrere Equity-Punkte in 60min-Fenster -> rolling_loss_pct korrekt.
+
+        - test_loss_velocity_classification:
+            * Equity fällt 3 % in 30min -> ~6 %/h → über Threshold.
+
+        - test_stage_escalation_on_high_rolling_dd_or_velocity:
+            * update_stage(...) mit rolling_loss_pct > max_rolling_loss_pct
+              -> stage >= 1
+            * mit extremem DD/Velocity -> stage >= 2.
+
+        - test_exposure_caps_block_excess_positions:
+            * open_trades_count >= max_open_trades -> exposure_allows_new_trade() == False.
+
+        - test_spread_guard_blocks_when_spread_too_high:
+            * spread_pips > max_spread_pips -> spread_allows_new_trade() == False.
+
+  - Datei: tests/test_risk_manager_ftmo_plus_integration.py
+    Inhalt: >
+      Integration RiskManager + FtmoPlusEngine + PositionSizer:
+
+        - test_stage_affects_effective_risk_pct:
+            * stage0_risk_mult=1.0, stage1=0.5.
+            * setze in context ftmo_plus_stage=1, ftmo_plus_stage_risk_mult=0.5,
+              ftmo_plus_stage_max_risk_pct=0.5.
+            * agent_risk_pct=1.0 -> effective_risk_pct=0.5.
+
+        - test_exposure_guard_blocks_new_entry:
+            * open_trades_count >= max_open_trades
+            * evaluate_entry(...) setzt is_entry=False, meta["ftmo_plus_blocked_exposure"]=True.
+
+        - test_spread_guard_blocks_new_entry:
+            * current_spread_pips > max_spread_pips
+            * is_entry=False, meta["ftmo_plus_blocked_spread"]=True.
+
+acceptance:
+  - FtmoPlusEngine verfügbar:
+      Beschreibung: >
+        FtmoPlusEngine implementiert:
+          - Rolling-DD,
+          - Loss-Velocity,
+          - Session-Erkennung,
+          - Risk-Staging (0/1/2),
+          - Exposure-/Spread-Guards.
+        Unit-Tests testen diese Features isoliert.
+
+  - RiskManager integriert FTMO-Plus:
+      Beschreibung: >
+        RiskManager:
+          - aktualisiert FtmoPlusEngine pro Step/Trade,
+          - schreibt Stage-/DD-/Velocity-Infos in decision.meta,
+          - blockt Entries bei Exposure/Spread-Verstößen,
+          - liefert Infos für RL-Observation (Stage, Rolling-DD etc.).
+
+  - PositionSizer skaliert RL-Risiko mit Stage:
+      Beschreibung: >
+        PositionSizer:
+          - nutzt stage_mult & stage_max_risk_pct,
+          - clamped den vom RL-RiskAgent gelieferten risk_pct in den Stage-Rahmen.
+        Tests zeigen: Stage 1 halbiert effektiv den Risk, Stage 2 setzt ihn auf 0.
+
+  - RL-Agent bleibt kompatibel:
+      Beschreibung: >
+        Wenn FtmoPlusEngine deaktiviert ist:
+          - Stage=0, stage_mult=1.0, stage_max_risk_pct=config.max_risk_pct,
+          - Verhalten wie vorher.
+        Keine Brüche im bestehenden RL-Setup.
+
+coding_standards:
+  - General:
+      - Python 3.11 Typannotationen
+      - Dataclasses für Configs & State
+  - Architektur:
+      - FtmoPlusEngine bleibt pure „Business-Logik“ (keine Broker/IO-Logik).
+      - RiskManager orchestriert: FTMO-Core → FTMO-Plus → RL → PositionSizer.
+      - PositionSizer kapselt die Stage→Risk-Skalierung.
+  - Tests:
+      - pytest
+      - Deterministische Inputs (fixe datetime).
+
+notes:
+  - RL-Interaktion:
+      - Später können wir in der RL-Env:
+          * ftmo_plus_stage,
+          * rolling_dd,
+          * loss_velocity,
+          * session_flags
+        als Features ins Observation-Vector geben.
+      - So lernt RL explizit:
+          * „Wie verhalte ich mich in Stage 1/2?“,
+          * ohne jemals die harten Limits zu verletzen.
