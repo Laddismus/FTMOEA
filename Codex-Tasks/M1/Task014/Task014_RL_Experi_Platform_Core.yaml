@@ -1,0 +1,371 @@
+title: AFTS_M1_Task_014_RL_Experimentation_Platform_Core_v1
+
+summary: |
+  Baue den Core der RL Experimentation Platform im Research Backend:
+    - RL-Domain-Modelle (Configs, Run-Request/-Result, Policy-Refs, Metrics).
+    - RL Runner v1 (stubbed/simulierter Trainer), integriert mit InMemoryJobRunner.
+    - RL RewardVerifier (prüft RL-Metriken gegen Thresholds).
+    - RL PolicyLoader (listet/ladet Policies aus dem Filesystem).
+    - FastAPI-Router /api/rl/* für:
+        - sync RL-Run (Test/Sandbox),
+        - async RL-Job (submit + status),
+        - Policy-Listing & -Details,
+        - Reward-Verification-Endpunkt.
+  Ziel: Infrastruktur & API für RL-Experimente, ohne jetzt schon echte RL-Libs einzubauen.
+  Später können echte Trainer (SAC, PPO, RLlib, SB3) einfach unter dieses Interface gehängt werden.
+
+inputs:
+  - Bestehender Research-Backend-Stand:
+      - Job Runner:
+          - research_lab/backend/core/job_runner.py
+      - Backtest-Struktur (als Referenz für Models & Service-Pattern):
+          - research_lab/backend/core/backtests/models.py
+          - research_lab/backend/core/backtests/service.py
+          - research_lab/backend/core/backtests/persistence.py
+          - research_lab/backend/app/api/backtests.py
+      - Experiments (für spätere Integration, v1 nur inspirierend):
+          - research_lab/backend/core/experiments/*.py
+          - research_lab/backend/app/api/experiments.py
+      - Settings:
+          - research_lab/backend/settings.py (artifacts_dir, backtests_dir, experiments_dir, etc.)
+      - Utils:
+          - research_lab/backend/core/utils/datetime.py (UTC-Helper)
+      - Tests für Pattern:
+          - tests/research_lab/backend/test_backtest_* (Service/Engine/API)
+          - tests/research_lab/backend/test_experiment_*.py
+
+outputs:
+  - RL-Core-Package:
+      - Neues Package: research_lab/backend/core/rl/__init__.py
+      - research_lab/backend/core/rl/models.py
+      - research_lab/backend/core/rl/runner.py
+      - research_lab/backend/core/rl/reward_verifier.py
+      - research_lab/backend/core/rl/policy_loader.py
+
+  - RL-Domain-Modelle (models.py):
+      - Grundstruktur:
+
+        ```python
+        from datetime import datetime
+        from enum import Enum
+        from typing import Any, Dict, List, Optional
+        from pydantic import BaseModel
+
+        class RLEnvRef(BaseModel):
+            env_id: str                 # z.B. "AFTS-v0" oder "AA-EntryEnv-v1"
+            version: str | None = None
+
+        class RLAlgo(str, Enum):
+            SAC = "sac"
+            PPO = "ppo"
+            DQN = "dqn"
+            CUSTOM = "custom"
+
+        class RLPolicyRef(BaseModel):
+            key: str                    # e.g. "aa_entry_sac_v1"
+            algo: RLAlgo
+            path: str                   # Pfad zur gespeicherten Policy-Datei
+            created_at: datetime
+            metadata: Dict[str, Any] = {}
+
+        class RLTrainingConfig(BaseModel):
+            env: RLEnvRef
+            algo: RLAlgo
+            total_timesteps: int
+            seed: int | None = None
+            gamma: float | None = None
+            learning_rate: float | None = None
+            batch_size: int | None = None
+            # freies Feld für hyperparameter:
+            hyperparams: Dict[str, Any] = {}
+
+        class RLRewardMetricPoint(BaseModel):
+            step: int
+            value: float
+
+        class RLTrainingMetrics(BaseModel):
+            episode_rewards: List[float]
+            avg_reward: float
+            max_reward: float
+            min_reward: float
+            reward_curve: List[RLRewardMetricPoint]
+
+        class RLRewardCheckConfig(BaseModel):
+            min_avg_reward: float | None = None
+            min_last_n_avg_reward: float | None = None
+            window: int = 10
+
+        class RLRewardCheckResult(BaseModel):
+            passed: bool
+            avg_reward: float
+            last_n_avg_reward: float | None = None
+            reason: str | None = None
+
+        class RLRunRequest(BaseModel):
+            id: str
+            created_at: datetime
+            config: RLTrainingConfig
+            reward_check: RLRewardCheckConfig | None = None
+            notes: str | None = None
+            # Placeholder für spätere Features:
+            tags: List[str] = []
+
+        class RLRunStatus(str, Enum):
+            PENDING = "pending"
+            RUNNING = "running"
+            COMPLETED = "completed"
+            FAILED = "failed"
+
+        class RLRunResult(BaseModel):
+            id: str
+            config: RLTrainingConfig
+            metrics: RLTrainingMetrics
+            reward_check_result: RLRewardCheckResult | None = None
+            policy_ref: RLPolicyRef | None = None
+            created_at: datetime
+            completed_at: datetime
+        ```
+
+      - RLRunResult wird später ggf. in einer eigenen Persistence gespeichert; in v1 genügt es,
+        die Ergebnisse im InMemoryJobRunner aufzubewahren (wie bei Backtests).
+
+  - RL Runner v1 (runner.py):
+      - Ziel: Simulierter Trainer, der deterministische „Fake“-Metriken erzeugt, damit:
+          - API & Experiments getestet werden können,
+          - ohne echte RL-Libs einzubauen.
+
+      - API:
+
+        ```python
+        class RLRunner:
+            def run(self, request: RLRunRequest) -> RLRunResult:
+                ...
+        ```
+
+      - Logik v1:
+          - Verwende seed (falls gesetzt), um deterministisch zu sein (z. B. random.Random(seed)).
+          - Simuliere N Episoden:
+              - N = min( max(total_timesteps // 1000, 5), 50 )
+              - Erzeuge episode_rewards als wachsende/rauschende Sequenz:
+                  - z. B. Basis = log(total_timesteps), Noise über seed.
+          - Berechne:
+              - avg_reward, max_reward, min_reward.
+              - reward_curve: z. B. pro „1000 timesteps“ einen RLRewardMetricPoint.
+          - RewardCheck:
+              - Wenn request.reward_check gesetzt:
+                  - Berechne:
+                      - last_n_avg_reward über letzte N episode_rewards (window).
+                      - passed = alle gesetzten Thresholds erfüllt:
+                          - avg_reward >= min_avg_reward (falls gesetzt)
+                          - last_n_avg_reward >= min_last_n_avg_reward (falls gesetzt)
+                      - reason: kurze Textbeschreibung, warum fail.
+              - reward_check_result im RLRunResult setzen.
+          - PolicyRef:
+              - v1: stub – erzeuge einen RLPolicyRef mit:
+                  - key = f"{config.env.env_id}_{config.algo.value}_{request.id}"
+                  - path = Pfad unter settings.rl_policies_dir / f"{key}.bin" (Datei muss NICHT wirklich existieren)
+                  - created_at = now UTC
+                  - metadata mit {"simulated": True}.
+          - Timestamps:
+              - created_at: request.created_at
+              - completed_at: datetime.now(timezone.utc)
+
+  - RewardVerifier (reward_verifier.py):
+      - Kapselt die RewardCheck-Logik, damit sie separat testbar ist:
+
+        ```python
+        class RLRewardVerifier:
+            def verify(self, metrics: RLTrainingMetrics, config: RLRewardCheckConfig) -> RLRewardCheckResult:
+                ...
+        ```
+
+      - RLRunner soll intern RLRewardVerifier verwenden, anstatt die Logik inline zu duplizieren.
+
+  - PolicyLoader (policy_loader.py):
+      - Ziel: Filesystem-Sicht auf Policy-Artefakte (v1 stub, später echte Files).
+
+      - ResearchSettings-Erweiterung:
+          - In research_lab/backend/settings.py:
+              - füge Properties hinzu:
+
+                ```python
+                @property
+                def rl_policies_dir(self) -> Path:
+                    return self.artifacts_dir / "research" / "rl_policies"
+
+                @property
+                def rl_runs_dir(self) -> Path:
+                    return self.artifacts_dir / "research" / "rl_runs"
+                ```
+
+              - Verzeichnisse scaffolden (mit .gitkeep).
+
+      - PolicyLoader-Interface:
+
+        ```python
+        class RLPolicyLoader:
+            def __init__(self, policies_dir: Path):
+                self.policies_dir = policies_dir
+                self.policies_dir.mkdir(parents=True, exist_ok=True)
+
+            def list_policies(self) -> list[RLPolicyRef]:
+                """
+                v1: Scannt Policies-Verzeichnis nach *.json oder *.meta-Dateien,
+                oder gibt nur simulierte, in-memory-Policies zurück, je nach Implementationsumfang.
+                Für diesen Task reicht ein stub, der eine kleine, deterministische Liste zurückgibt
+                oder anhand einfacher JSON-Metafiles liest.
+                """
+                ...
+
+            def get_policy(self, key: str) -> RLPolicyRef | None:
+                ...
+        ```
+
+      - v1 darf PolicyLoader stubby sein:
+          - z. B. Policies nur aus in rl_policies_dir hinterlegten JSON-Metafiles lesen.
+          - Tests nutzen gezielt solche Metafiles.
+
+  - RL Service & Job Integration:
+      - research_lab/backend/core/rl/service.py
+
+        ```python
+        class RLService:
+            def __init__(
+                self,
+                job_runner: InMemoryJobRunner,
+                rl_runner: RLRunner,
+            ):
+                self.job_runner = job_runner
+                self.rl_runner = rl_runner
+
+            def run_sync(self, request: RLRunRequest) -> RLRunResult:
+                return self.rl_runner.run(request)
+
+            def submit_job(self, request: RLRunRequest) -> str:
+                """
+                Registriert einen neuen Job beim JobRunner, der RLRunner.run(request) ausführt
+                und das RLRunResult speichert.
+                """
+                ...
+
+            def get_job_result(self, job_id: str) -> tuple[RLRunStatus, RLRunResult | None, str | None]:
+                """
+                Gibt (status, result, error_message) zurück.
+                """
+                ...
+        ```
+
+      - InMemoryJobRunner:
+          - Wenn nötig minimal anpassen, sodass auch RL-Jobtypen unterstützt werden (wenn er bisher stark auf Backtests geschnitten ist).
+          - Ziel: RLService kann denselben JobRunner wie Backtests verwenden.
+
+  - RL API Router:
+      - Neue Datei: research_lab/backend/app/api/rl.py
+
+        ```python
+        router = APIRouter(prefix="/rl", tags=["rl"])
+        ```
+
+      - Endpoints v1:
+          1. `POST /api/rl/runs/sync`
+              - Body: RLRunRequest (oder API-Variante mit auto-generierter id/created_at).
+              - Server:
+                  - generiert id & created_at, baut RLRunRequest.
+                  - ruft rl_service.run_sync(...) auf.
+              - Response: RLRunResult.
+
+          2. `POST /api/rl/runs`
+              - Async-Variante:
+                  - Body: RLRunRequest ohne id/created_at (oder RLRunCreateRequest).
+                  - Server generiert id & created_at, submit_job beim RLService.
+                  - Response: Job-Info (job_id, run_id).
+
+          3. `GET /api/rl/jobs/{job_id}`
+              - Response:
+                  - status (RLRunStatus),
+                  - result (RLRunResult | None),
+                  - error (str | None).
+
+          4. `GET /api/rl/policies`
+              - Nutzt PolicyLoader.list_policies().
+              - Response: list[RLPolicyRef].
+
+          5. `GET /api/rl/policies/{key}`
+              - Nutzt PolicyLoader.get_policy(key).
+              - 404, falls nicht gefunden.
+
+          6. `POST /api/rl/reward-check`
+              - Body:
+                  - RLTrainingMetrics
+                  - RLRewardCheckConfig
+              - Server ruft RLRewardVerifier.verify() auf.
+              - Response: RLRewardCheckResult.
+
+      - In research_lab/backend/app/api/__init__.py und main.py:
+          - router importieren und unter `/api/rl` registrieren.
+
+  - Tests (pytest):
+      - tests/research_lab/backend/test_rl_reward_verifier.py
+          - Testet RLRewardVerifier isoliert:
+              - Fall 1: metrics avg_reward < min_avg_reward → passed=False, reason gefüllt.
+              - Fall 2: avg_reward ok, last_n_avg_reward < min_last_n_avg_reward → passed=False.
+              - Fall 3: beide Thresholds erfüllt → passed=True.
+
+      - tests/research_lab/backend/test_rl_runner_stub.py
+          - Nutzt RLRunner direkt:
+              - Mit fixem seed & config.
+              - Erwartung:
+                  - metrics.episode_rewards Länge > 0.
+                  - avg_reward, max_reward, min_reward konsistent zu episode_rewards.
+                  - reward_curve passend (step aufsteigend).
+                  - reward_check_result entspricht RewardVerifier-Logik.
+                  - policy_ref.simulated == True (via metadata).
+
+      - tests/research_lab/backend/test_rl_policy_loader.py
+          - Legt im tmpdir ein bis zwei Policy-Meta-JSONs an (key, algo, path, created_at).
+          - PolicyLoader.list_policies() → richtige Anzahl, Felder korrekt.
+          - get_policy(key) → richtige PolicyRef.
+
+      - tests/research_lab/backend/test_rl_service_and_jobs.py
+          - Setup:
+              - InMemoryJobRunner + RLRunner + RLService.
+          - Test 1 (run_sync):
+              - RLRunRequest bauen → RLRunResult direkt.
+          - Test 2 (submit_job + get_job_result):
+              - submit_job() gibt job_id.
+              - get_job_result(job_id) → status COMPLETED, result nicht None.
+
+      - tests/research_lab/backend/test_rl_api_endpoints.py
+          - FastAPI TestClient.
+          - Tests:
+              - POST /api/rl/runs/sync:
+                  - 200, RLRunResult-JSON mit metrics & optional reward_check_result.
+              - POST /api/rl/runs:
+                  - 200/202, enthält job_id.
+              - GET /api/rl/jobs/{job_id}:
+                  - liefert status & result.
+              - GET /api/rl/policies:
+                  - 200, list[RLPolicyRef].
+              - POST /api/rl/reward-check:
+                  - 200, RLRewardCheckResult.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Domain:
+     - RL-Domain-Modelle (RLEnvRef, RLAlgo, RLPolicyRef, RLTrainingConfig,
+       RLTrainingMetrics, RLRewardCheckConfig/Result, RLRunRequest/Result, RLRunStatus)
+       sind implementiert und typisiert.
+  2. Core-Logic:
+     - RLRewardVerifier.verify() ist implementiert und durch Tests abgedeckt.
+     - RLRunner.run() erzeugt deterministische, konsistente Metriken und nutzt RLRewardVerifier.
+  3. PolicyLoader:
+     - RLPolicyLoader.list_policies() und get_policy() funktionieren (mindestens über simple JSON-Metafiles).
+     - Tests zeigen korrektes Listing und Lookup.
+  4. Service & Jobs:
+     - RLService.run_sync() und submit_job()/get_job_result() funktionieren mit InMemoryJobRunner.
+     - RL-Resultaten können über JobRunner geholt werden.
+  5. API:
+     - /api/rl/runs/sync, /api/rl/runs, /api/rl/jobs/{id}, /api/rl/policies, /api/rl/policies/{key},
+       /api/rl/reward-check sind implementiert und in main.py registriert.
+     - API-Tests decken alle Endpunkte ab (Happy Path + einfaches 404

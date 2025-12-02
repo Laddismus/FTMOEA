@@ -1,0 +1,327 @@
+title: AFTS_M1_Task_003_Strategy_Builder_Backend_Core
+
+summary: |
+  Implementiere den Kern des Strategy Builder Backends (M1.2) innerhalb des Research-Backends.
+  Ziel:
+    - Ein generisches, graph-basiertes Strategy-Model (Nodes + Edges) als Domain-Layer.
+    - Ein Graph-Engine-Modul zur Validierung (DAG, Ports, Param-Schema) und Topological Sort.
+    - Ein DSL-Serializer, der aus einem StrategyGraph eine stabile YAML-DSL-Struktur erzeugt.
+    - Ein Config-Translator, der aus der DSL eine Engine-Config-Struktur für spätere Backtests/SIMs baut.
+    - Eine schlanke API-Schicht im Research Backend:
+        - Node-Katalog (verfügbare Node-Typen)
+        - Graph-Validierung
+        - Graph-Compile (DSL + Engine-Config)
+        - Optional: Compile & Save als YAML unter configs/research/strategies/
+    - Vollständige pytest-Abdeckung für Core-Logik und API-Endpunkte.
+  Dieses Task bildet das Backend-Fundament für den späteren Strategy Builder GUI (M1.3) und
+  die Backtest-Suite (M1.4): Der Quant arbeitet in Zukunft ausschließlich über diesen
+  Graph-basierten Strategy Layer.
+
+inputs:
+  - Bestehendes Research Backend:
+      - FastAPI-App: research_lab/backend/app/main.py
+      - Router-Paket: research_lab/backend/app/api/__init__.py
+      - ResearchSettings: research_lab/backend/settings.py
+      - Core-Paket: research_lab/backend/core/__init__.py
+      - Analytics Layer: research_lab/backend/core/analytics/*
+      - Config Loader / Registry / Job Runner:
+          - research_lab/backend/core/config_loader.py
+          - research_lab/backend/core/model_registry.py
+          - research_lab/backend/core/job_runner.py
+  - M1-Dokumentation:
+      - M1.2 – Strategy Builder Backend:
+          - Node system
+          - Graph engine
+          - DSL serializer
+          - Config translator
+      - System 2 – Strategy Builder (graph-based DSL Engine) aus dem Blueprint:
+          - Drag-and-Drop Nodes (Entry, Filter, Risk, Exit, Scoring)
+          - Strategy DSL → YAML → Engine ausführbar
+  - Annahme:
+      - Es existiert noch kein Strategy Builder Code, freie Wahl für Paketnamen innerhalb von core/.
+
+outputs:
+  - Neue Core-Module unter research_lab/backend/core/strategy_builder/:
+      - research_lab/backend/core/strategy_builder/__init__.py
+      - research_lab/backend/core/strategy_builder/models.py
+          - Pydantic-Modelle für Strategy-Domain:
+              - NodeParamDefinition:
+                  - name: str
+                  - dtype: str              # z. B. "float", "int", "bool", "string"
+                  - required: bool = True
+                  - default: Any | None = None
+              - NodeSpec:
+                  - type: str                # z. B. "price_source", "indicator_rsi"
+                  - category: str            # z. B. "source", "indicator", "condition", "signal"
+                  - description: str
+                  - inputs: list[str]        # Namen logischer Eingangsports
+                  - outputs: list[str]       # Namen logischer Ausgangsports
+                  - params: list[NodeParamDefinition]
+              - StrategyNode:
+                  - id: str
+                  - type: str
+                  - params: dict[str, Any] = {}
+              - StrategyEdge:
+                  - id: str
+                  - from_node: str
+                  - from_port: str
+                  - to_node: str
+                  - to_port: str
+              - StrategyGraph:
+                  - id: str
+                  - name: str
+                  - description: str | None = None
+                  - nodes: list[StrategyNode]
+                  - edges: list[StrategyEdge]
+                  - metadata: dict[str, Any] = {}
+              - ValidationIssue:
+                  - code: str
+                  - message: str
+                  - node_id: str | None = None
+          - Optional einfache Enums/Literals für Node-Kategorien und Dtypes, wenn sinnvoll.
+
+      - research_lab/backend/core/strategy_builder/node_catalog.py
+          - Klasse `NodeCatalog`:
+              - Kapselt einen festen, versionierten Satz an verfügbaren NodeSpecs für M1:
+                  - Beispiele (konzeptionell, ohne echte Handelssemantik):
+                      - "price_source" (category="source")
+                      - "indicator_sma" (category="indicator")
+                      - "indicator_rsi" (category="indicator")
+                      - "condition_greater" (category="condition")
+                      - "signal_long" (category="signal")
+                      - "signal_short" (category="signal")
+                  - Jeder NodeSpec hat sinnvolle ParamDefinitionen (z. B. length, threshold, source_id, etc.).
+              - Methoden:
+                  - `list_nodes() -> list[NodeSpec]`
+                  - `get_node(type: str) -> NodeSpec | None`
+
+      - research_lab/backend/core/strategy_builder/graph_engine.py
+          - Klasse `GraphEngine`:
+              - Konstruktor nimmt eine Referenz auf `NodeCatalog`.
+              - Zentrale Methoden:
+                  - `validate_graph(graph: StrategyGraph) -> list[ValidationIssue]`
+                      - Prüft u. a.:
+                          - Jede Node.type existiert im NodeCatalog.
+                          - Knoten-IDs sind eindeutig.
+                          - Edges verweisen nur auf existierende Nodes.
+                          - Ports sind valide (existieren im jeweiligen NodeSpec.inputs/outputs).
+                          - Es gibt keine Zyklen (Graph ist DAG):
+                              - Implementiere z. B. DFS oder Kahn-Algorithmus zur Zyklenerkennung.
+                      - Gibt eine Liste von ValidationIssue zurück (leer = valid).
+                  - `topological_sort(graph: StrategyGraph) -> list[StrategyNode]`
+                      - Wirft Exception, wenn der Graph zyklisch ist.
+              - Optional: Hilfsfunktionen zum Aufbau eines Adjazenzgraphen etc.
+
+      - research_lab/backend/core/strategy_builder/dsl_serializer.py
+          - Klasse `StrategyDslSerializer`:
+              - Methoden:
+                  - `to_dict(graph: StrategyGraph) -> dict`
+                      - Erzeugt eine versionierte DSL-Struktur:
+                          - Beispiel:
+                            ```yaml
+                            version: 1
+                            id: "<graph-id>"
+                            name: "<graph-name>"
+                            description: ...
+                            nodes:
+                              - id: ...
+                                type: ...
+                                params: { ... }
+                            edges:
+                              - id: ...
+                                from: { node: ..., port: ... }
+                                to:   { node: ..., port: ... }
+                            metadata: { ... }
+                            ```
+                      - Struktur soll stabil sein; spätere Versionen können über `version` gepflegt werden.
+                  - `to_yaml(graph: StrategyGraph) -> str`
+                      - Nutzt yaml.safe_dump auf dem Dict.
+              - Kein File-IO hier, nur pure Transformation.
+
+      - research_lab/backend/core/strategy_builder/config_translator.py
+          - Klasse `StrategyConfigTranslator`:
+              - Ziel: Aus einem StrategyGraph (bzw. dessen DSL-Dict) eine Engine-Config-Struktur erzeugen,
+                die später von Backtest/SIM verwendet wird.
+              - Methoden:
+                  - `to_engine_config(graph: StrategyGraph) -> dict`
+                      - Erzeugt ein generisches, aber schon nutzbares Engine-Config-Objekt, z. B.:
+                        ```yaml
+                        strategy:
+                          id: ...
+                          name: ...
+                          nodes: [...]
+                          edges: [...]
+                        execution:
+                          mode: "strategy_graph_v1"
+                          # Platzhalter für spätere Engine-spezifische Felder
+                        ```
+                      - Für M1.2 reicht ein strukturierter Platzhalter ohne echte Handelslogik,
+                        solange Tests auf Stabilität und Schema prüfen.
+
+  - Erweiterung ResearchSettings:
+      - In research_lab/backend/settings.py:
+          - Ergänze eine Property/Feld `strategies_dir: Path`, z. B.:
+              - <project_root>/configs/research/strategies
+          - Stelle sicher, dass dieses Verzeichnis bei Bedarf erzeugt werden kann (z. B. in Utility-Funktion).
+
+  - Strategy Builder API-Router:
+      - Neue Datei: research_lab/backend/app/api/strategy_builder.py
+          - `router = APIRouter(prefix="/strategy-builder", tags=["strategy-builder"])`
+          - Request/Response-Modelle (Pydantic) für API:
+              - `StrategyNodeIn`, `StrategyEdgeIn`, `StrategyGraphIn`
+                  - Passen 1:1 zu StrategyNode / StrategyEdge / StrategyGraph (ohne ValidationIssue).
+              - `ValidationResponse`:
+                  - valid: bool
+                  - issues: list[ValidationIssue]
+              - `CompileResponse`:
+                  - dsl: dict          # oder ein konkretes Modell, das der DSL-Struktur entspricht
+                  - engine_config: dict
+              - `SaveResponse`:
+                  - dsl_path: str
+                  - engine_config: dict
+          - Endpoints:
+              - `GET /api/strategy-builder/nodes`
+                  - Antwort: list[NodeSpec]
+                  - Nutzt NodeCatalog.list_nodes()
+              - `POST /api/strategy-builder/validate`
+                  - Body: StrategyGraphIn
+                  - Ablauf:
+                      - Wandelt in StrategyGraph (Domain).
+                      - Ruft GraphEngine.validate_graph() auf.
+                      - Rückgabe:
+                          - `{"valid": len(issues) == 0, "issues": issues}`
+              - `POST /api/strategy-builder/compile`
+                  - Body: StrategyGraphIn
+                  - Ablauf:
+                      - Validiert Graph (bei Fehlern HTTP 400 mit Issues).
+                      - Serialisiert DSL (StrategyDslSerializer.to_dict).
+                      - Baut engine_config (StrategyConfigTranslator.to_engine_config).
+                      - Rückgabe: CompileResponse.
+              - `POST /api/strategy-builder/compile-and-save`
+                  - Body: StrategyGraphIn plus optional `target_id: str | None`.
+                  - Ablauf:
+                      - Validiert Graph.
+                      - Erzeugt DSL-Dict/YAML.
+                      - Bestimmt Zieldatei-Pfad im strategies_dir:
+                          - z. B. `<strategies_dir>/<graph.id or target_id>.yaml`
+                      - Schreibt YAML auf Disk.
+                      - Erzeugt engine_config.
+                      - Rückgabe: SaveResponse mit Pfad (string) und engine_config.
+          - In research_lab/backend/app/main.py:
+              - `from research_lab.backend.app.api import strategy_builder`
+              - `app.include_router(strategy_builder.router, prefix="/api")`
+
+  - Tests (pytest) unter tests/research_lab/backend/:
+      - tests/research_lab/backend/test_strategy_builder_models.py
+          - Tests für grundlegende Model-Instanziierungen (StrategyNode, StrategyGraph).
+          - Sicherstellen, dass Pydantic-Validierung erwartungsgemäß funktioniert (z. B. fehlende Felder → ValidationError).
+
+      - tests/research_lab/backend/test_strategy_builder_graph_engine.py
+          - Erzeugt einen NodeCatalog mit 3–4 Dummy-NodeSpecs.
+          - Baut:
+              - Einen validen Graphen:
+                  - z. B. source → indicator → condition → signal
+                  - validate_graph() → leere Issues
+                  - topological_sort() → korrekte Reihenfolge (source zuerst, signal zuletzt).
+              - Diverse fehlerhafte Graphen:
+                  - Fehlender Node-Typ
+                  - Edge mit nicht existierendem Node
+                  - Ungültige Ports
+                  - Zyklischer Graph (z. B. A→B, B→A)
+                  - Prüft, dass ValidationIssue-Liste entsprechende Fehler enthält
+                    und dass topological_sort() bei Zyklen eine Exception wirft.
+
+      - tests/research_lab/backend/test_strategy_builder_dsl_and_config.py
+          - Nutzt einen validen StrategyGraph.
+          - Test 1: DSL:
+              - StrategyDslSerializer.to_dict() → Struktur enthält:
+                  - version, id, name, nodes, edges, metadata
+              - Node- und Edge-Infos korrekt übernommen.
+          - Test 2: Engine-Config:
+              - StrategyConfigTranslator.to_engine_config() → Dict enthält:
+                  - strategy.id == graph.id
+                  - strategy.name == graph.name
+                  - nodes/edges konsistent übertragen.
+              - Keine unerwarteten Felder, stabile Struktur.
+
+      - tests/research_lab/backend/test_strategy_builder_api.py
+          - Mit FastAPI TestClient (analog zu Health/Analytics-Tests).
+          - Setup:
+              - Verwende Test-Graphen, die NodeCatalog-konform sind.
+          - Tests:
+              - `GET /api/strategy-builder/nodes`:
+                  - Status 200, enthält mindestens die erwarteten Dummy-Node-Typen.
+              - `POST /api/strategy-builder/validate`:
+                  - Validen Graph senden → valid == True, issues leer.
+                  - Invaliden Graph senden (z. B. unbekannter Node-Typ) → valid == False, issues nicht leer.
+              - `POST /api/strategy-builder/compile`:
+                  - Validen Graph senden → Status 200, Response mit dsl und engine_config.
+                  - Invaliden Graph senden → Status 400 (oder 422 + klarer Fehlertext).
+              - `POST /api/strategy-builder/compile-and-save`:
+                  - Nutzt tmpdir/Temp-Path (per Monkeypatch oder Settings-Override) als strategies_dir.
+                  - Nach Request:
+                      - Rückgabe enthält dsl_path.
+                      - Datei existiert auf Disk.
+                      - YAML lässt sich mit yaml.safe_load lesen und entspricht der DSL-Struktur.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Projektstruktur & Core:
+     - Das Paket research_lab/backend/core/strategy_builder/ existiert mit:
+       - __init__.py, models.py, node_catalog.py, graph_engine.py, dsl_serializer.py, config_translator.py
+     - ResearchSettings bietet eine Property/Feld strategies_dir (Path).
+     - NodeCatalog enthält einen definierten Satz von NodeSpecs und ist im Core importierbar.
+     - GraphEngine.validate_graph() liefert sinnvolle ValidationIssue-Objekte und erkennt Zyklen, ungültige Typen und Ports.
+     - StrategyDslSerializer und StrategyConfigTranslator liefern stabile, getestete Dict-Strukturen.
+
+  2. API-Schicht:
+     - Der Router strategy_builder ist eingebunden und unter /api/strategy-builder erreichbar.
+     - `GET /api/strategy-builder/nodes` liefert eine Liste von NodeSpecs.
+     - `POST /api/strategy-builder/validate` akzeptiert StrategyGraphIn, validiert und liefert valid/issues.
+     - `POST /api/strategy-builder/compile` liefert bei validem Graph Status 200 + DSL + engine_config.
+     - `POST /api/strategy-builder/compile-and-save` speichert DSL-YAML unter strategies_dir
+       und gibt Pfad + engine_config zurück.
+
+  3. Tests:
+     - Alle beschriebenen Tests unter tests/research_lab/backend/ sind implementiert.
+     - Codex führt im Projekt-Root (afts_pro) `pytest` (oder `pytest -q`) aus.
+     - Alle Tests (bestehende + neue) laufen grün (keine Errors, keine Failures).
+
+  4. Qualität:
+     - Alle öffentlichen Funktionen/Klassen sind getypt (Type Hints).
+     - Wesentliche Klassen (NodeCatalog, GraphEngine, StrategyDslSerializer, StrategyConfigTranslator)
+       haben Docstrings mit Zweck, Parametern und Rückgabewerten.
+     - Fehlerwege sind mit klaren Exceptions + Messages implementiert (keine stummen Fehler).
+     - Die DSL- und Engine-Config-Struktur sind so stabil und generisch,
+       dass M1.4 (Backtest Suite) ohne Breaking Changes darauf aufbauen kann.
+
+coding_standards: |
+  - Python-Version: wie im bestehenden Projekt (>= 3.11).
+  - Typisierung:
+      - Vollständige Type Hints für alle öffentlichen Funktionen/Methoden.
+      - Nutzung von typing (List, Dict, Sequence, Literal, Optional) und pathlib.Path.
+  - Stil:
+      - Einhaltung der bestehenden Projektkonventionen (Modulstruktur, Pydantic-Modelle, FastAPI-Router).
+      - Dünne Router, keine Business-Logik in API-Schicht.
+  - Architektur:
+      - Strategy Builder Core (Modelle, Engine, DSL, Config) lebt komplett in core/strategy_builder/.
+      - File-IO (YAML speichern) erfolgt nur in einem klaren, testbaren Pfad (compile-and-save),
+        mit Nutzung von ResearchSettings.strategies_dir.
+  - Dependencies:
+      - Keine zusätzlichen externen Dependencies außer bestehenden (pydantic, fastapi, yaml).
+      - Kein direkter Zugriff auf Analytics im Scope dieses Tasks (später in M1.x möglich).
+  - Tests:
+      - pytest, keine externen Services nötig.
+      - Tests deterministisch (keine zufälligen Ergebnisse ohne fixen Seed).
+
+notes: |
+  - Dieses Task schließt den logischen Kern von M1.2 (Strategy Builder Backend) ab.
+  - Der Strategy Builder GUI (M1.3) wird später direkt auf dieser API aufsetzen:
+      - Node-Palette → /api/strategy-builder/nodes
+      - Graph-Canvas → StrategyGraphIn
+      - Compile-Button → /api/strategy-builder/compile/compile-and-save
+  - M1.4 (Backtest + Simulation Suite) wird die Strategy DSL / Engine-Config nutzen,
+    um Strategien im AFTS Core zu instanziieren und Multi-Run Backtests zu starten.
+  - Ab diesem Task gilt weiterhin: Jeder weitere M1-Task bringt seine eigenen Tests mit
+    und wird erst nach erfolgreichem pytest-Lauf als DONE markiert.

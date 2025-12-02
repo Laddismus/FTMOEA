@@ -1,0 +1,182 @@
+title: AFTS_M1_Task_001_Research_Backend_Skeleton
+
+summary: |
+  Baue das Grundgerüst für das AFTS-PRO Quant Research Backend als eigenständigen,
+  aber eng integrierten Service innerhalb des bestehenden AFTS-PRO Repos.
+  Ziel ist ein minimal lauffähiger FastAPI-Dienst „research_lab_backend“, der:
+    - eine saubere Projektstruktur besitzt,
+    - einen zentralen Config-Loader für Research-spezifische YAML-Configs bereitstellt,
+    - die Basis-Schnittstellen für Model Registry und Job Runner definiert (noch ohne echte Logik),
+    - über einen Health-Endpoint erreichbar ist,
+    - vollständig per pytest getestet werden kann.
+  Dieses Task implementiert M1.0 „Research Infrastructure Setup“ auf Skeleton-Level:
+    - Research Backend init
+    - FastAPI Basic Structure
+    - Model Registry Service (Interface)
+    - Job Runner Base API (Interface)
+    - Config Loader System (Research-spezifische Schicht über den bestehenden AFTS-Config-Prinzipien). 
+
+inputs:
+  - Beschreibung der bestehenden AFTS-PRO Architektur, Ordnerstruktur und Konfigurationsphilosophie
+    (SIM/LIVE/TRAIN Core, Config-Layer, Runs/Artifacts) 
+  - M1-Masterplan, insbesondere Abschnitt „M1.0 – Research Infrastructure Setup“ und „System 6 – Research Web UI (Backend)“,
+    inkl. FastAPI-Backend, Model Registry und Job Runner Konzept. 
+  - Vorhandene Coding-Konventionen aus dem AFTS-PRO-Core:
+      - Typhints
+      - Pydantic-Models (wo sinnvoll)
+      - YAML-basierte Configs
+      - Ordnerstruktur für src/, configs/, artifacts/, runs/ etc. 
+  - Annahme: Projekt-Root ist z. B.
+      - afts_pro/
+        - src/
+        - configs/
+        - runs/
+        - artifacts/
+        - (neu) research_lab/
+
+outputs:
+  - Neue Verzeichnisstruktur für das Research Backend unterhalb des bestehenden Repos:
+      - research_lab/
+        - backend/
+          - app/
+            - __init__.py
+            - main.py              # FastAPI-App & Router-Setup
+            - api/
+              - __init__.py
+              - health.py          # /health Endpoint
+              - registry.py        # erste Endpoints für Model Registry (noch Dummy)
+              - jobs.py            # erste Endpoints für Job Runner (noch Dummy)
+          - core/
+            - __init__.py
+            - config_loader.py     # ResearchConfigLoader (arbeitet mit YAML)
+            - model_registry.py    # ModelRegistryBase (Interface + simple FileSystem-Stub)
+            - job_runner.py        # JobRunnerBase (Interface + No-Op-Stub)
+          - settings.py            # zentrale Settings (z. B. Pfade, Environment, BaseConfig)
+        - __init__.py
+  - FastAPI-App:
+      - `FastAPI`-Instanz in app/main.py mit:
+          - Tag/Title: „AFTS-PRO Research Lab Backend“
+          - inkludierten Routern health, registry, jobs unter Präfix `/api`
+      - `GET /api/health` Endpoint:
+          - Antwort: JSON `{ "status": "ok", "service": "research_lab_backend" }`
+  - Config Loader:
+      - Klasse `ResearchConfigLoader` in `research_lab/backend/core/config_loader.py`:
+          - Lädt Research-spezifische YAML-Configs aus einem definierten Basisordner, z. B. `configs/research/`.
+          - Bietet Methoden:
+              - `load_config(name: str) -> dict`
+              - `list_configs() -> list[str]`
+          - Nutzt `pathlib` und `yaml.safe_load`.
+          - Fehlerhandling: sinnvolle Exception mit klarer Fehlermeldung, wenn Datei fehlt oder YAML ungültig ist.
+  - Model Registry (Interface + Stub):
+      - Klasse `ModelRegistryBase` in `model_registry.py`:
+          - Methoden-Signaturen (noch nur minimal implementiert, z. B. File-System-basierter Stub):
+              - `register_model(name: str, version: str, path: Path, metadata: dict | None = None) -> None`
+              - `get_model(name: str, version: str | None = None) -> Path | None`
+              - `list_models() -> list[dict]`   # z. B. dict mit name, version, path, metadata
+          - Implementiere eine einfache FileSystem-Registry im Ordner `artifacts/research/models/`:
+              - Metadaten-Index in einer JSON-Datei, z. B. `artifacts/research/models/registry.json`.
+              - Keine komplexe Locking-Logik; es geht nur um einen funktionierenden, getesteten Stub.
+  - Job Runner (Interface + Stub):
+      - Klasse `JobRunnerBase` in `job_runner.py`:
+          - Methoden-Signaturen:
+              - `submit_job(job_type: str, payload: dict) -> str`     # gibt job_id zurück
+              - `get_status(job_id: str) -> dict`
+              - `list_jobs(limit: int = 50) -> list[dict]`
+          - Für dieses Task nur Dummy-Implementierung:
+              - jobs werden in einer In-Memory-Struktur (z. B. `dict`) verwaltet
+              - Status z. B. `"queued"` oder `"completed"`
+              - Beim Neustart sind Jobs weg → akzeptabel für diesen Skeleton-Task
+      - API-Endpunkte:
+          - `POST /api/jobs` (job anlegen, Dummy-Status `"queued"`)
+          - `GET /api/jobs/{job_id}` (Dummy-Status zurückgeben)
+          - `GET /api/jobs` (Liste der letzten Jobs)
+  - Tests (pytest) unter `tests/research_lab/backend/`:
+      - `test_health_endpoint.py`
+          - Startet FastAPI-TestClient
+          - Ruft `/api/health` auf
+          - Erwartet HTTP 200 und JSON mit `"status": "ok"` und `"service": "research_lab_backend"`.
+      - `test_config_loader.py`
+          - Legt im Test eine temporäre YAML-Datei in einem tmpdir an (z. B. `configs/research/test_config.yaml`).
+          - Nutzt `ResearchConfigLoader`, um:
+              - `load_config("test_config")` aufzurufen → Inhalt entspricht dem YAML.
+              - `list_configs()` enthält `"test_config"`.
+      - `test_model_registry_stub.py`
+          - Arbeitet in einem temporären Verzeichnis für `artifacts/research/models/`.
+          - Testfall:
+              - `register_model("test_model", "v1", some_path, {"foo": "bar"})`
+              - `get_model("test_model", "v1")` liefert denselben Pfad.
+              - `list_models()` enthält einen Eintrag mit name `"test_model"` und version `"v1"`.
+      - `test_job_runner_stub.py`
+          - Instanziiert `JobRunnerBase` (oder konkrete Stub-Klasse).
+          - `submit_job("test", {"x": 1})` → gibt `job_id` zurück.
+          - `get_status(job_id)` → dict mit mindestens `{"job_id": job_id, "status": "queued"}` o. ä.
+          - `list_jobs()` enthält mindestens einen Eintrag mit diesem job_id.
+
+acceptance: |
+  Für dieses Task gilt der Task erst dann als „DONE“, wenn ALLE folgenden Kriterien erfüllt sind:
+
+  1. Projektstruktur:
+     - Der Ordner `research_lab/backend` existiert mit der beschriebenen Struktur (app/, core/, settings.py).
+     - Alle neuen Module sind importierbar (kein ImportError beim Start des Backends oder beim Import durch pytest).
+
+  2. FastAPI-App & Endpoints:
+     - Die FastAPI-App startet ohne Fehler (lokal z. B. `uvicorn research_lab.backend.app.main:app`).
+     - Der Endpoint `GET /api/health` liefert:
+         - HTTP-Status 200
+         - JSON mit `"status": "ok"` und `"service": "research_lab_backend"`.
+
+  3. Config Loader:
+     - `ResearchConfigLoader` kann eine existierende YAML-Config aus `configs/research/` laden.
+     - `list_configs()` listet alle YAML-Dateien ohne Dateiendung auf.
+     - Fehlerfälle (z. B. nicht vorhandene Datei) erzeugen eine klare, getestete Exception mit verständlicher Fehlermeldung.
+
+  4. Model Registry Stub:
+     - Registrierung eines Modells erzeugt einen Eintrag im Registry-Index (JSON).
+     - `get_model()` findet das Modell anhand von Name + Version.
+     - `list_models()` gibt eine Liste mit mindestens einem strukturieren Dict zurück.
+     - Pfade werden als `pathlib.Path` behandelt und korrekt in Strings/JSON konvertiert, wo nötig.
+
+  5. Job Runner Stub:
+     - `submit_job()` gibt eine eindeutige Job-ID zurück.
+     - `get_status(job_id)` gibt einen Status-Dict zurück (mindestens `job_id` und `status`).
+     - `list_jobs()` gibt eine Liste mit dem soeben erstellten Job zurück.
+
+  6. Tests & pytest-Pflicht:
+     - Für alle oben genannten Komponenten existieren pytest-Tests unter `tests/research_lab/backend/`.
+     - Codex MUSS nach Implementierung dieses Tasks das Kommando `pytest` (oder `pytest -q`) im Projekt-Root ausführen.
+     - Alle Tests (bestehende + neue) müssen grün sein (keine Failures, keine Errors).
+     - Erst wenn pytest ohne Fehler durchläuft, gilt dieser Task als erfolgreich abgeschlossen.
+
+coding_standards: |
+  - Sprache & Version:
+      - Python 3.11 (oder analog zur bestehenden AFTS-PRO-Version)
+  - Stil:
+      - Vollständige Typhints für alle öffentlichen Funktionen und Methoden.
+      - Sinnvolle Docstrings (Google- oder NumPy-Style) für Kernklassen und -methoden.
+      - Einhaltung der bestehenden Code-Konventionen aus AFTS-PRO:
+          - Klare Trennung von Domain-Logik und IO/Infra.
+          - Keine Business-Logik in FastAPI-Routern; diese rufen Services im core/ auf.
+      - Saubere Imports (absolut relativ zur Projektstruktur, keine „magischen“ sys.path-Manipulationen).
+  - Qualität:
+      - Exceptions mit klaren Fehlermeldungen (keine stumpfen `except Exception: pass`-Blöcke).
+      - Vorbereitung auf Erweiterung in M1.x:
+          - ModelRegistryBase und JobRunnerBase so designen, dass sie später problemlos durch produktive Implementierungen
+            (z. B. DB-gestützt, Celery, Redis) ersetzt oder erweitert werden können.
+  - Tests:
+      - pytest-Konventionen einhalten:
+          - Testdateien `test_*.py`
+          - Keine Abhängigkeit von externer Infrastruktur (DB, Netzwerk) – alles hier ist FileSystem/In-Memory.
+      - Tests sollen schnell laufen (< 1 Sekunde für dieses Task).
+
+notes: |
+  - Dieses Task legt das Fundament für ALLE M1-Funktionen im Research-Lab:
+      - Analytics Layer, Strategy Builder, Backtest-Suite, RL-Experimente, Governance & Promotion werden später
+        über genau dieses Backend laufen. 
+  - Noch keine „echten“ Jobs oder Modelle:
+      - Es geht hier bewusst um ein stabiles, getestetes Grundgerüst.
+      - Spätere Tasks (z. B. M1.1 Analytics Layer, M1.2 Strategy Builder Backend, M1.4 Backtest Suite) werden auf diesen
+        Interfaces aufbauen und konkrete Jobtypen (Backtests, RL-Runs, Analyzer-Jobs) implementieren.
+  - Wichtig für alle kommenden Tasks:
+      - Die neue „pytest-Pflicht“ ist ab jetzt Standard:
+          - Jeder zukünftige M1-Task MUSS eigene Tests mitbringen und am Ende mit einem vollständigen pytest-Lauf
+            validiert werden, bevor wir den Task als abgeschlossen markieren.

@@ -1,0 +1,270 @@
+title: AFTS_M1_Task_004_Backtest_Engine_Skeleton_And_API
+
+summary: |
+  Baue einen ersten, voll getesteten Backtest-Slice im Research Backend, der:
+    - einen klaren Backtest-Domain-Layer (Job-Spec, Result-Models, Engine-Interface) definiert,
+    - eine einfache Backtest-Engine-Stub-Implementierung bereitstellt, die mit synthetischen oder
+      bereitgestellten Returns arbeitet und darauf KPIs berechnet,
+    - Backtest-Jobs über den bestehenden JobRunner (InMemory) orchestriert,
+    - und eine FastAPI-API zum Starten und Abrufen von Backtests bereitstellt.
+
+  Wichtig:
+    - Dieser Task implementiert bewusst noch KEINE Anbindung an den vollen AFTS-Core / echte Marktdaten.
+      Stattdessen dient er als "End-to-End-Probe": Strategy-Ref + Returns → Backtest-Result → KPIs.
+    - Spätere Tasks in M1.x werden diese Skeleton-Engine durch eine echte AFTS-Core-Integration ersetzen,
+      nutzen aber dieselben Models, APIs und Job-Strukturen.
+
+inputs:
+  - Bestehendes Research Backend:
+      - FastAPI-App und Router:
+          - research_lab/backend/app/main.py
+          - research_lab/backend/app/api/__init__.py
+          - research_lab/backend/app/api/analytics.py
+          - research_lab/backend/app/api/strategy_builder.py
+          - research_lab/backend/app/api/python_strategies.py
+      - Core-Services:
+          - research_lab/backend/core/analytics/kpi_engine.py
+          - research_lab/backend/core/job_runner.py (InMemoryJobRunner)
+          - research_lab/backend/core/strategy_builder/* (StrategyGraph/DSL/Engine-Config)
+          - research_lab/backend/core/python_strategies/* (Interface, Loader, Registry)
+      - Settings:
+          - research_lab/backend/settings.py (ResearchSettings)
+  - Zielbild M1.4:
+      - Backtest & Simulation Suite, die:
+          - Strategien (graph-basiert & Python) aus dem Research-Lab konsumiert,
+          - Backtests ausführt,
+          - Ergebnisse (KPIs, PnL, Drawdown) für Research & Governance bereitstellt.
+
+outputs:
+  - Neues Core-Paket für Backtests:
+      - research_lab/backend/core/backtests/__init__.py
+      - research_lab/backend/core/backtests/models.py
+          - Pydantic-Modelle für Backtest-Domain:
+              - `BacktestMode` (Literal oder Enum):
+                  - "graph"  # StrategyGraph/Engine-Config-basierte Strategien
+                  - "python" # PythonStrategy-basierte Strategien
+              - `StrategyGraphRef`:
+                  - graph_id: str | None = None            # optional, z. B. DSL-ID
+                  - dsl: dict[str, Any] | None = None      # optional: DSL-Dict
+                  - engine_config: dict[str, Any] | None = None
+              - `PythonStrategyRef`:
+                  - key: str | None = None                 # Registry-Key
+                  - module_path: str | None = None
+                  - class_name: str | None = None
+              - `BacktestRequest`:
+                  - mode: BacktestMode
+                  - graph: StrategyGraphRef | None = None
+                  - python_strategy: PythonStrategyRef | None = None
+                  - returns: list[float]                    # Platzhalter: synthetische oder vorberechnete Returns
+                  - window: int = 50                        # Rolling-KPI Fenstergröße für Auswertung
+                  - metadata: dict[str, Any] = {}           # Zusatzinfo (symbol, timeframe, note, etc.)
+              - `BacktestKpiSummary`:
+                  - total_return: float
+                  - mean_return: float
+                  - std_return: float
+                  - profit_factor: float
+                  - win_rate: float
+                  - max_drawdown: float
+                  - trade_count: int
+              - `BacktestEngineDetail`:
+                  - window_kpis: list[dict[str, Any]]       # z. B. Serialisierung von RollingKpiWindow
+              - `BacktestResult`:
+                  - id: str
+                  - mode: BacktestMode
+                  - graph: StrategyGraphRef | None
+                  - python_strategy: PythonStrategyRef | None
+                  - kpi_summary: BacktestKpiSummary
+                  - engine_detail: BacktestEngineDetail
+                  - metadata: dict[str, Any] = {}
+
+      - research_lab/backend/core/backtests/engine.py
+          - Definiere eine Engine-Interface + Stub-Implementation:
+              - `class BacktestEngineInterface(Protocol):`
+                  - `def run_backtest(self, request: BacktestRequest) -> BacktestResult: ...`
+              - `class RollingKpiBacktestEngine(BacktestEngineInterface):`
+                  - Nutzt `RollingKpiEngine` aus core.analytics.kpi_engine:
+                      - Berechnet Rolling-KPIs über die Returns (window = request.window).
+                      - Ableitung der Summary-KPIs:
+                          - total_return = sum(returns)
+                          - mean_return = mean(returns)
+                          - std_return = std(returns) (Population oder Sample, konsistent per Test)
+                          - profit_factor, win_rate, avg_win, avg_loss, max_drawdown:
+                              - Kann aus letzter RollingKpiWindow oder über komplette Serie gerechnet werden.
+                          - trade_count:
+                              - Anzahl nicht-null Returns bzw. Länge der Returns-Liste (vereinfachter Proxy).
+                      - engine_detail.window_kpis:
+                          - Liste der RollingKpiWindow (z. B. via Pydantic/Dict export).
+                  - Strategy-Referenzen (graph/python) werden in BacktestResult übernommen
+                    (aber noch nicht zur Signalberechnung verwendet).
+
+      - research_lab/backend/core/backtests/service.py
+          - Service-Schicht zur Kapselung von Engine + JobRunner:
+              - `class BacktestService:`
+                  - `__init__(self, job_runner: InMemoryJobRunner, engine: BacktestEngineInterface)`
+                  - `def run_sync(self, request: BacktestRequest) -> BacktestResult`
+                      - Direktes Aufrufen von engine.run_backtest.
+                  - `def submit_job(self, request: BacktestRequest) -> str`
+                      - Erstellt einen Job im JobRunner:
+                          - job_type: "backtest"
+                          - payload: BacktestRequest (als dict)
+                      - Führt (für diesen Task) den Backtest synchron aus und speichert das Result im JobRunner-Jobstatus
+                        (z. B. status="completed", result=BacktestResult.dict()).
+                      - Gibt job_id zurück.
+                  - `def get_job_result(self, job_id: str) -> dict | None`
+                      - Holt Status/Result aus JobRunner.
+
+  - Erweiterung ResearchSettings (optional, falls sinnvoll):
+      - Kein zwingend neues Feld nötig, aber falls du Backtest-Artefakte persistieren möchtest:
+          - `backtests_dir: Path` (z. B. <project_root>/artifacts/research/backtests)
+          - In diesem Task ist Persistenz optional – kann für M1.x später folgen.
+
+  - Backtests API-Router:
+      - Neue Datei: research_lab/backend/app/api/backtests.py
+          - `router = APIRouter(prefix="/backtests", tags=["backtests"])`
+
+          - Request/Response-Schemas:
+              - Re-Use der Backtest-Models aus core.backtests.models via Pydantic (oder dedizierte API-Models, die ident sind).
+              - `BacktestJobSubmitResponse`:
+                  - job_id: str
+              - `BacktestJobStatusResponse`:
+                  - job_id: str
+                  - status: str
+                  - result: BacktestResult | None
+
+          - Endpoints:
+              1. `POST /api/backtests/run-sync`
+                  - Body: BacktestRequest
+                  - Ablauf:
+                      - Delegiert an BacktestService.run_sync.
+                      - Rückgabe: BacktestResult.
+              2. `POST /api/backtests/submit`
+                  - Body: BacktestRequest
+                  - Ablauf:
+                      - Delegiert an BacktestService.submit_job.
+                      - Rückgabe: BacktestJobSubmitResponse mit job_id.
+              3. `GET /api/backtests/jobs/{job_id}`
+                  - Rückgabe: BacktestJobStatusResponse
+                      - status z. B. "queued", "running", "completed".
+                      - Im Stub wird status direkt "completed" sein, result ausgefüllt.
+          - In research_lab/backend/app/main.py:
+              - `from research_lab.backend.app.api import backtests`
+              - `app.include_router(backtests.router, prefix="/api")`
+
+  - Tests (pytest) unter tests/research_lab/backend/:
+      - tests/research_lab/backend/test_backtest_engine_stub.py
+          - Nutzt `RollingKpiBacktestEngine` direkt.
+          - Erzeugt deterministische Returns, z. B.:
+              - returns = [1, -1, 2, -2, 3, -3] oder normalisierte Werte.
+          - Test 1:
+              - BacktestRequest mit mode="graph" und minimaler StrategyGraphRef (z. B. nur id).
+              - run_backtest() → BacktestResult:
+                  - kpi_summary.total_return == sum(returns) (numerisch geprüft).
+                  - mean_return und std_return plausibel.
+                  - profit_factor > 0 (wenn es Gewinne + Verluste gibt).
+                  - win_rate zwischen 0 und 1.
+                  - max_drawdown >= 0.
+                  - trade_count == len(returns).
+          - Test 2:
+              - mode="python" mit PythonStrategyRef.
+              - Sicherstellen, dass `mode` und `python_strategy` im Result korrekt gesetzt sind.
+
+      - tests/research_lab/backend/test_backtest_service_and_jobs.py
+          - Instanziert InMemoryJobRunner und RollingKpiBacktestEngine.
+          - Erzeugt BacktestService.
+          - Test 1 (run_sync):
+              - Ruft run_sync mit einem einfachen BacktestRequest auf.
+              - Erwartet direktes BacktestResult.
+          - Test 2 (submit_job + get_job_result):
+              - submit_job() → job_id.
+              - get_job_result(job_id) → dict mit status="completed" und vorhandenem result.
+              - result enthält kpi_summary.total_return == sum(returns).
+
+      - tests/research_lab/backend/test_backtests_api.py
+          - Nutzt FastAPI TestClient.
+          - Setzt via Dependency Injection oder Test-Setup sicher, dass BacktestService mit InMemoryJobRunner + Engine
+            verwendet wird (z. B. über eine kleine Factory-Funktion im Core oder direkte Instanziierung im Router).
+          - Testfälle:
+              - `POST /api/backtests/run-sync`:
+                  - Request mit einfachen Returns und mode="graph".
+                  - Response Status 200.
+                  - Body enthält kpi_summary.total_return == sum(returns).
+              - `POST /api/backtests/submit`:
+                  - Response Status 200, enthält job_id.
+              - `GET /api/backtests/jobs/{job_id}`:
+                  - Status 200.
+                  - Body enthält status="completed" und BacktestResult mit expected KPIs.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Core-Backtest-Struktur:
+     - Das Paket research_lab/backend/core/backtests/ existiert mit:
+       - __init__.py, models.py, engine.py, service.py
+     - BacktestRequest und BacktestResult decken mindestens:
+       - mode (graph/python),
+       - Strategy-Referenzen (graph/python),
+       - returns (als Platzhalter für künftige echte Daten),
+       - KPI-Summary (total_return, profit_factor, win_rate, max_drawdown, trade_count).
+     - RollingKpiBacktestEngine nutzt RollingKpiEngine konsistent und liefert deterministische KPIs.
+
+  2. Service & JobRunner-Integration:
+     - BacktestService kapselt Engine + InMemoryJobRunner.
+     - run_sync() liefert synchron ein BacktestResult.
+     - submit_job():
+         - erzeugt einen Job mit job_type="backtest".
+         - führt (im Stub) den Backtest direkt aus.
+         - speichert status="completed" und result im Job-Objekt.
+     - get_job_result(job_id) gibt den gespeicherten Status/Result zurück.
+
+  3. API:
+     - Der Router backtests ist unter /api/backtests angebunden.
+     - `POST /api/backtests/run-sync` liefert bei validem Request 200 + BacktestResult.
+     - `POST /api/backtests/submit` liefert job_id.
+     - `GET /api/backtests/jobs/{job_id}` liefert status + result.
+     - API-Schemas nutzen die Backtest-Models oder konsistente Spiegel-Modelle.
+
+  4. Tests:
+     - Die Tests:
+         - test_backtest_engine_stub.py
+         - test_backtest_service_and_jobs.py
+         - test_backtests_api.py
+       sind implementiert.
+     - Codex führt im Projekt-Root (afts_pro) `pytest` (oder `pytest -q`) aus.
+     - Ergebnis: Alle Tests (bestehende + neue) PASSED, keine Errors oder Failures.
+
+  5. Qualität & Erweiterbarkeit:
+     - Saubere Type Hints für alle öffentlichen Funktionen/Methoden.
+     - Docstrings für:
+         - BacktestEngineInterface / RollingKpiBacktestEngine
+         - BacktestService
+         - BacktestRequest / BacktestResult / BacktestKpiSummary
+     - Design so, dass:
+         - spätere Anbindung an echte AFTS-Backtest-Engine möglich ist,
+         - StrategyGraph-Configs und Python-Strategie-Instanzen in M1.x ohne Breaking Changes
+           über genau dieses Backtest-Interface laufen können.
+
+coding_standards: |
+  - Python >= 3.11, wie im Projekt.
+  - Typisierung:
+      - Nutzung von typing.Protocol oder ABC für Engine-Interface.
+      - Nutzung von Literal/Enum für BacktestMode.
+  - Stil:
+      - Business-Logik im Core (backtests/*), Router bleiben dünn.
+      - Keine Print-Statements, nur Logging falls nötig (optional).
+  - Tests:
+      - pytest, deterministisch, keine externen Services.
+      - Reine In-Memory-Struktur (InMemoryJobRunner, keine echte DB, kein Dateisystem außer ggf. Settings).
+
+notes: |
+  - Dieser Task liefert die erste komplette Backtest-„Pipeline“ im Research Lab:
+      - Request → Engine → KPIs → (optional) Job-Handling → API.
+  - In späteren Tasks (M1.x) ersetzen/erweitern wir RollingKpiBacktestEngine durch eine Integration mit
+    dem echten AFTS-Core-Backtester, der:
+      - OHLCV-Daten,
+      - StrategyGraph-Engine,
+      - PythonStrategy-Execution
+    verwendet – die hier definierten Models/Interfaces bleiben bestehen.
+  - Ab hier kannst du schon:
+      - einfache „Was wäre wenn?“-Backtests mit synthetischen Returns fahren,
+      - die komplette Job-/API-Kette testen,
+      - und die GUI später genau auf diese Backtest-API aufsetzen.

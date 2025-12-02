@@ -1,0 +1,219 @@
+title: AFTS_M1_Task_005_Backtest_Artifact_Persistence_And_Listing
+
+summary: |
+  Erweitere das Backtest-System im Research Backend um eine saubere, dateibasierte Persistenz
+  der Backtest-Resultate sowie eine API zur Auflistung und Einsicht dieser Runs.
+
+  Ziel:
+    - Einführung eines backtests_dir in ResearchSettings als zentrale Heimat für Backtest-Artefakte.
+    - Persistenz jedes BacktestResult (inkl. Request-Metadaten) als JSON-Datei mit stabilem Schema.
+    - Optionaler Index (JSON), um Runs effizient zu listen und zu filtern.
+    - FastAPI-Endpoints zum:
+        - Auflisten von Backtest-Runs (mit Basis-Metadaten),
+        - Abrufen eines spezifischen Backtest-Results.
+    - Vollständige pytest-Abdeckung für Persistenz und API-Listing.
+
+inputs:
+  - Bestehende Backtest-Implementierung:
+      - research_lab/backend/core/backtests/models.py
+      - research_lab/backend/core/backtests/engine.py
+      - research_lab/backend/core/backtests/service.py
+      - research_lab/backend/app/api/backtests.py
+      - tests:
+          - tests/research_lab/backend/test_backtest_engine_stub.py
+          - tests/research_lab/backend/test_backtest_service_and_jobs.py
+          - tests/research_lab/backend/test_backtests_api.py
+  - Settings & Infrastruktur:
+      - research_lab/backend/settings.py (ResearchSettings mit python_strategies_dir etc.)
+      - InMemoryJobRunner (job_runner.py) mit basic result tracking.
+  - Anforderung:
+      - Runs sollen nachvollziehbar und reproduzierbar sein:
+          - Jeder Backtest-Run hat eine ID, wird als JSON persistiert,
+          - und kann später über API und Filesystem inspiziert werden.
+
+outputs:
+  - Erweiterung von ResearchSettings:
+      - In research_lab/backend/settings.py:
+          - Neues Feld/Property:
+              - `backtests_dir: Path`  # z. B. <project_root>/artifacts/research/backtests
+          - Sicherstellen, dass dieses Verzeichnis bei Bedarf erstellt wird
+            (z. B. im BacktestService oder via Helper-Funktion).
+
+  - Erweiterung der Backtest-Models (optional, falls noch nicht enthalten):
+      - In research_lab/backend/core/backtests/models.py:
+          - Modell `BacktestRequest` ggf. um:
+              - `id: str | None = None` erweitern (optional), wenn du die ID auch im Request persistieren willst.
+                (Kann aber auch rein vom Service generiert werden – Implementierung nach Ermessen,
+                 solange Tests konsistent sind.)
+          - Neues, leichtgewichtiges Model für Index-Einträge:
+              - `BacktestIndexEntry`:
+                  - id: str
+                  - mode: BacktestMode
+                  - created_at: datetime
+                  - metadata: dict[str, Any] = {}
+                  - kpi_summary: BacktestKpiSummary | None = None
+              - Optional: falls du keinen dedizierten Index möchtest, kannst du für Listing auch direkt
+                aus den Run-JSONs lesen – dennoch ist ein Index für spätere Performance und Filter nice.
+
+  - Backtest Persistence Layer:
+      - Neue Datei: research_lab/backend/core/backtests/persistence.py
+          - `class BacktestPersistence:`
+              - Konstruktor:
+                  - Nimmt `backtests_dir: Path`.
+                  - Stellt sicher, dass das Verzeichnis existiert (mkdir(parents=True, exist_ok=True)).
+              - Methoden:
+                  - `def save_result(self, result: BacktestResult) -> Path`
+                      - Generiert Dateiname, z. B. `<backtests_dir>/<result.id>.json`.
+                      - Serialisiert `BacktestResult` inkl. `metadata` nach JSON (utf-8, indent=2).
+                      - Return: Path zur gespeicherten Datei.
+                  - `def load_result(self, run_id: str) -> BacktestResult | None`
+                      - Liest `<backtests_dir>/<run_id>.json`.
+                      - Deserialisiert in BacktestResult (ggf. via Pydantic parse_obj).
+                      - Gibt None zurück, wenn Datei nicht existiert.
+                  - `def list_runs(self) -> list[BacktestIndexEntry]`
+                      - Simple Variante:
+                          - Iteriert über alle `*.json` Dateien in backtests_dir.
+                          - Liest pro Datei minimal benötigte Felder (id, mode, metadata, kpi_summary, created_at).
+                          - Baut eine Liste von BacktestIndexEntry.
+                      - created_at:
+                          - Entweder als File-Timestamp (os.path.getmtime) oder Feld im JSON (z. B. im Result
+                            ergänzen wir ein `created_at`-Feld).
+                      - Sortiert die Liste z. B. nach created_at DESC (neueste zuerst).
+
+  - Anpassung BacktestService:
+      - In research_lab/backend/core/backtests/service.py:
+          - Ergänze den Konstruktor um BacktestPersistence:
+              - `def __init__(self, job_runner: InMemoryJobRunner, engine: BacktestEngineInterface, persistence: BacktestPersistence):`
+          - run_sync():
+              - Nach erfolgreichem Engine-Run:
+                  - Falls `result.id` noch nicht gesetzt, generiere eine eindeutige ID (z. B. uuid4 string).
+                  - Übergib `result` an `persistence.save_result(result)`.
+                  - Rückgabe: unverändertes BacktestResult.
+          - submit_job():
+              - Nach Engine-Run:
+                  - ID setzen (falls nicht vorhanden).
+                  - `persistence.save_result(result)`.
+                  - Zusätzlich: JobRunner-Status aktualisieren (wie in 004 bereits umgesetzt).
+          - Neue Methode:
+              - `def list_runs(self) -> list[BacktestIndexEntry]`
+                  - Delegiert an persistence.list_runs().
+              - `def get_run(self, run_id: str) -> BacktestResult | None`
+                  - Delegiert an persistence.load_result(run_id).
+
+  - Backtests API-Router – Erweiterung:
+      - In research_lab/backend/app/api/backtests.py:
+          - Erweiterung um neue Endpoints:
+              4. `GET /api/backtests/runs`
+                  - Antwort: list[BacktestIndexEntry]
+                  - Delegiert an BacktestService.list_runs().
+              5. `GET /api/backtests/runs/{run_id}`
+                  - Antwort: BacktestResult
+                  - Delegiert an BacktestService.get_run(run_id).
+                  - Wenn kein Run gefunden → HTTP 404 mit klarer Fehlermeldung.
+
+  - Tests (pytest) unter tests/research_lab/backend/:
+      - tests/research_lab/backend/test_backtest_persistence.py
+          - Nutzt tmpdir als backtests_dir (via ResearchSettings-Override oder direkte Persistence-Instanz).
+          - Erzeugt ein Dummy-BacktestResult (inkl. kpi_summary, mode, metadata).
+          - Test 1:
+              - save_result() → Datei existiert im tmpdir.
+              - load_result() → liefert BacktestResult mit denselben Feldern (id, mode, kpi_summary.total_return etc.).
+          - Test 2:
+              - Zwei oder mehr Results speichern.
+              - list_runs() → liefert eine Liste mit BacktestIndexEntry, Länge == Anzahl gespeicherter Files.
+              - Einträge enthalten id, mode, metadata und ggf. kpi_summary.
+
+      - tests/research_lab/backend/test_backtest_service_with_persistence.py
+          - Instanziert BacktestService mit:
+              - InMemoryJobRunner
+              - RollingKpiBacktestEngine
+              - BacktestPersistence (tmpdir)
+          - Test 1 (run_sync + Persistence):
+              - run_sync(request) ausführen.
+              - Prüfen:
+                  - result.id ist gesetzt (nicht leer).
+                  - Im tmpdir existiert eine JSON-Datei für diesen run_id.
+          - Test 2 (submit_job + Persistence + get_run):
+              - submit_job(request) → job_id.
+              - get_job_result(job_id) → status + result (wie bereits in Task 004).
+              - BacktestService.get_run(result.id) → identisches BacktestResult.
+
+      - tests/research_lab/backend/test_backtests_api_persistence.py
+          - Nutzt FastAPI TestClient.
+          - BacktestService so konfigurieren, dass es ein tmpdir als backtests_dir verwendet.
+          - Testfälle:
+              - `POST /api/backtests/run-sync`:
+                  - Nach Aufruf:
+                      - Response enthält BacktestResult mit id.
+                      - `GET /api/backtests/runs/{id}` → Status 200, Result mit gleicher id.
+              - `GET /api/backtests/runs`:
+                  - Nach 1–2 Runs enthält die Liste mindestens diese Runs.
+              - `GET /api/backtests/runs/{nonexistent}`:
+                  - Status 404, Response enthält Fehlermeldung (z. B. "Backtest run not found").
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Settings:
+     - ResearchSettings hat ein funktionierendes `backtests_dir` (Path).
+     - Dieses Verzeichnis wird bei Bedarf erstellt und alle Backtest-Artefakte werden darunter abgelegt.
+
+  2. Persistence:
+     - BacktestPersistence speichert BacktestResult-Objekte als JSON-Dateien (ein Run = eine Datei).
+     - load_result(run_id) rekonstruiert ein BacktestResult-Objekt korrekt.
+     - list_runs() liefert eine Liste von BacktestIndexEntry, die mindestens id, mode, metadata und kpi_summary enthält.
+
+  3. Service:
+     - BacktestService.run_sync() und submit_job() speichern Ergebnisse automatisch über BacktestPersistence.
+     - BacktestService.list_runs() und get_run(run_id) liefern konsistente Daten basierend auf den gespeicherten Artefakten.
+
+  4. API:
+     - Neue Endpoints:
+         - `GET /api/backtests/runs`
+         - `GET /api/backtests/runs/{run_id}`
+       sind implementiert, eingebunden und liefern:
+         - bei existierendem run_id → HTTP 200 + BacktestResult,
+         - bei nicht vorhandenem run_id → HTTP 404 + Message.
+     - `POST /api/backtests/run-sync` und `POST /api/backtests/submit` funktionieren wie zuvor,
+       nur mit zusätzlicher Persistenz im Hintergrund.
+
+  5. Tests:
+     - Die neuen Tests:
+         - test_backtest_persistence.py
+         - test_backtest_service_with_persistence.py
+         - test_backtests_api_persistence.py
+       sind implementiert und decken alle Kernfälle ab (Speichern, Laden, Listing, 404).
+     - Codex führt im Projekt-Root (afts_pro) `pytest` (oder `pytest -q`) aus.
+     - Ergebnis: Alle Tests (bestehende + neue) PASSED, keine Errors/Failures.
+
+  6. Qualität:
+     - Volle Type Hints und sinnvolle Docstrings für:
+         - BacktestPersistence
+         - neue Service-Methoden
+         - neue API-Endpoints
+     - Fehler (z. B. fehlende Datei) werden mit klaren Exceptions/HTTP-Fehlern behandelt,
+       keine stummen Fails.
+     - Backtest-JSON-Schema ist stabil genug, um später von externen Tools (Jupyter, andere Services)
+       analysiert zu werden.
+
+coding_standards: |
+  - Python >= 3.11, wie im Projekt.
+  - Typisierung:
+      - Nutzung von Path, Dict[str, Any], Literal/Enum etc.
+  - Stil:
+      - Persistenz-Logik strikt in persistence.py, keine File-IO in Routern.
+      - Router bleiben dünn und delegieren an BacktestService.
+  - Tests:
+      - pytest, deterministisch, Nutzung von tmpdir/monkeypatch für backtests_dir.
+      - Keine Abhängigkeit von echten Projektpfaden.
+
+notes: |
+  - Mit diesem Task bekommen Backtests ein „Gedächtnis“:
+      - Jeder Run ist als JSON-Repräsentation verfügbar,
+      - GUI kann eine Backtest-Historie anzeigen,
+      - spätere Analytics-Module können Backtest-Resultate wiederverwenden.
+  - In einem folgenden Task (M1.4.x) können wir:
+      - zusätzliche KPIs berechnen und im Result speichern,
+      - Run-Tags & Benchmarks ergänzen,
+      - und eine Verbindung zu deinem Quant-Research-Workflow (z. B. „Top 10 Strategien nach PF in Periode X“)
+        aufbauen.

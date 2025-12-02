@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from afts_pro.core.system_gate import GatePolicy, evaluate_gate, run_gate_from_scratch
 from afts_pro.core.qa_report import QAReport, QASectionResult, QACheckResult
@@ -10,7 +10,7 @@ def _make_report(section_status: dict) -> QAReport:
     sections = []
     for name, passed in section_status.items():
         sections.append(QASectionResult(name=name, checks=[QACheckResult(name="chk", passed=passed)]))
-    return QAReport(sections=sections, generated_at=datetime.utcnow())
+    return QAReport(sections=sections, generated_at=datetime.now(timezone.utc))
 
 
 def test_evaluate_gate_all_required_sections_pass():

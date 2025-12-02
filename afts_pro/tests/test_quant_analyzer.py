@@ -7,7 +7,7 @@ from afts_pro.analysis.models import QuantConfig
 
 
 def _synthetic_equity(n: int = 1000) -> pd.DataFrame:
-    ts = pd.date_range("2024-01-01", periods=n, freq="T")
+    ts = pd.date_range("2024-01-01", periods=n, freq="min")
     trend = np.linspace(0, 1.0, n)
     noise = np.random.normal(0, 0.01, size=n)
     eq = 1.0 + trend + noise

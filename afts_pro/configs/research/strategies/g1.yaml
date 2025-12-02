@@ -1,0 +1,49 @@
+version: 1
+id: g1
+name: Valid Graph
+description: null
+nodes:
+- id: source
+  type: price_source
+  params:
+    symbol: EURUSD
+- id: sma
+  type: indicator_sma
+  params:
+    length: 10
+- id: condition
+  type: condition_greater
+  params: {}
+- id: signal
+  type: signal_long
+  params: {}
+edges:
+- id: e1
+  from:
+    node: source
+    port: price
+  to:
+    node: sma
+    port: price
+- id: e2
+  from:
+    node: sma
+    port: sma
+  to:
+    node: condition
+    port: left
+- id: e3
+  from:
+    node: source
+    port: price
+  to:
+    node: condition
+    port: right
+- id: e4
+  from:
+    node: condition
+    port: condition
+  to:
+    node: signal
+    port: condition
+metadata: {}

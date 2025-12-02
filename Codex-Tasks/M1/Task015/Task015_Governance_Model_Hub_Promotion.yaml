@@ -1,0 +1,401 @@
+title: AFTS_M1_Task_015_Governance_Model_Hub_And_Promotion_Layer_v1
+
+summary: |
+  Baue eine zentrale Governance- und Promotion-Schicht über Backtests, Experimenten und RL-Runs:
+    - Einheitlicher "Model Hub" mit Versionierung und Promotion-Stages (idea → candidate → qualified → approved → archived).
+    - Verknüpfung von Einträgen zu Backtest-/Experiment-/RL-Artefakten (IDs, Strategies, Policies).
+    - Governance-Kriterien als Metadaten: KPIs (PF, Total Return, MaxDD), FTMO-Risk, RL-Reward-Checks.
+    - Promotion-Flow via API: Modelle registrieren, promoten/demoten, listen & filtern.
+
+  Ziel v1:
+    - Reine Backend-Schicht (kein UI), aber vollständig via FastAPI bedienbar.
+    - JSON-Persistenz im Research-Artefaktebaum.
+    - Klare Domain-Modelle & Services als Basis für späteres „Promotion Center“ im Web-UI.
+
+inputs:
+  - Research Backend (bereits vorhanden):
+      - Backtests:
+          - research_lab/backend/core/backtests/models.py
+          - research_lab/backend/core/backtests/persistence.py
+          - research_lab/backend/core/backtests/service.py
+          - research_lab/backend/app/api/backtests.py
+      - Experiments (Backtest):
+          - research_lab/backend/core/experiments/models.py
+          - research_lab/backend/core/experiments/persistence.py
+          - research_lab/backend/core/experiments/service.py
+          - research_lab/backend/core/experiments/scoring.py
+          - research_lab/backend/app/api/experiments.py
+      - RL Core & Experiments:
+          - research_lab/backend/core/rl/models.py
+          - research_lab/backend/core/rl/service.py
+          - research_lab/backend/core/rl_experiments/models.py
+          - research_lab/backend/core/rl_experiments/persistence.py
+          - research_lab/backend/core/rl_experiments/scoring.py
+          - research_lab/backend/app/api/rl.py
+          - research_lab/backend/app/api/rl_experiments.py
+      - Model Registry Stub:
+          - research_lab/backend/core/model_registry.py (FileSystemModelRegistry, JSON Index stub)
+      - Governance-Kriterien:
+          - research_lab/backend/core/risk_guard/models.py (FtmoRiskSummary)
+          - Backtest KPI Summary (profit_factor, total_return, max_drawdown)
+          - RL Reward-Checks / Metrics (aus rl.models)
+      - Settings:
+          - research_lab/backend/settings.py (artifacts_dir, backtests_dir, experiments_dir, rl_dirs, …)
+
+outputs:
+  - Governance-Domain-Modelle („Model Hub“):
+      - Neues Paket: research_lab/backend/core/governance/__init__.py
+      - research_lab/backend/core/governance/models.py
+
+        ```python
+        from datetime import datetime
+        from enum import Enum
+        from typing import Any, Dict, Optional, List
+        from pydantic import BaseModel
+
+        class ModelType(str, Enum):
+            BACKTEST_STRATEGY = "backtest_strategy"   # klassischer Strategy-Run / Experiment
+            RL_POLICY = "rl_policy"                   # RL-Policy / RL-Experiment
+            HYBRID = "hybrid"                         # später: Kombination (z. B. RL-Policy + RiskGuard)
+
+        class ModelStage(str, Enum):
+            IDEA = "idea"
+            CANDIDATE = "candidate"
+            QUALIFIED = "qualified"
+            APPROVED = "approved"
+            ARCHIVED = "archived"
+
+        class GovernanceTag(BaseModel):
+            key: str
+            value: str
+
+        class BacktestLink(BaseModel):
+            backtest_id: Optional[str] = None
+            experiment_id: Optional[str] = None
+            experiment_run_id: Optional[str] = None  # run_id aus ExperimentRunStatus
+
+        class RlLink(BaseModel):
+            rl_run_id: Optional[str] = None
+            rl_experiment_id: Optional[str] = None
+            rl_experiment_run_id: Optional[str] = None
+
+        class KpiSnapshot(BaseModel):
+            total_return: Optional[float] = None
+            profit_factor: Optional[float] = None
+            max_drawdown_pct: Optional[float] = None
+            trade_count: Optional[int] = None
+
+        class FtmoSnapshot(BaseModel):
+            passed: Optional[bool] = None
+            first_breach_type: Optional[str] = None
+            worst_daily_drawdown_pct: Optional[float] = None
+            worst_total_drawdown_pct: Optional[float] = None
+
+        class RlSnapshot(BaseModel):
+            mean_return: Optional[float] = None
+            std_return: Optional[float] = None
+            max_return: Optional[float] = None
+            steps: Optional[int] = None
+            reward_checks_passed: Optional[bool] = None
+            failed_checks: List[str] = []
+
+        class GovernanceScore(BaseModel):
+            composite_score: Optional[float] = None
+            notes: Optional[str] = None
+
+        class ModelEntry(BaseModel):
+            id: str                     # UUID
+            name: str
+            type: ModelType
+            stage: ModelStage
+
+            created_at: datetime
+            updated_at: datetime
+
+            # Verknüpfungen:
+            backtest_link: Optional[BacktestLink] = None
+            rl_link: Optional[RlLink] = None
+
+            # Kennzahlen:
+            kpi: KpiSnapshot = KpiSnapshot()
+            ftmo: FtmoSnapshot = FtmoSnapshot()
+            rl: RlSnapshot = RlSnapshot()
+            score: GovernanceScore = GovernanceScore()
+
+            tags: List[GovernanceTag] = []
+            metadata: Dict[str, Any] = {}
+        ```
+
+      - Optionales Listen-Model:
+
+        ```python
+        class ModelEntrySummary(BaseModel):
+            id: str
+            name: str
+            type: ModelType
+            stage: ModelStage
+            created_at: datetime
+            updated_at: datetime
+            total_return: Optional[float] = None
+            profit_factor: Optional[float] = None
+            mean_return: Optional[float] = None
+            ftmo_passed: Optional[bool] = None
+        ```
+
+  - Governance-Persistenz & Registry:
+      - research_lab/backend/core/governance/registry.py
+
+        ```python
+        from pathlib import Path
+
+        class GovernanceRegistry:
+            """
+            Dateibasiertes Model-Hub:
+              - JSON-Index Datei (models_index.json)
+              - ggf. eine Datei pro ModelEntry (für spätere Erweiterungen)
+            """
+            def __init__(self, governance_dir: Path):
+                self.governance_dir = governance_dir
+                self.index_path = governance_dir / "models_index.json"
+                self.governance_dir.mkdir(parents=True, exist_ok=True)
+
+            def list_models(self) -> list[ModelEntrySummary]:
+                ...
+
+            def get_model(self, model_id: str) -> ModelEntry | None:
+                ...
+
+            def upsert_model(self, entry: ModelEntry) -> None:
+                ...
+
+            def delete_model(self, model_id: str) -> None:
+                ...
+        ```
+
+      - v1 kann einfach ein JSON mit einer Liste aller `ModelEntry` sein; Index & Detail können dieselbe Datei verwenden.
+
+  - Governance-Service (Promotion-Flow):
+      - research_lab/backend/core/governance/service.py
+
+        ```python
+        class GovernanceService:
+            def __init__(
+                self,
+                registry: GovernanceRegistry,
+                backtest_persistence: BacktestPersistence,
+                experiment_persistence: ExperimentPersistence,
+                rl_service: RlService,
+                rl_experiment_persistence: RlExperimentPersistence,
+            ):
+                ...
+
+            def register_from_backtest(
+                self,
+                name: str,
+                backtest_id: str,
+                experiment_id: str | None = None,
+                experiment_run_id: str | None = None,
+                initial_stage: ModelStage = ModelStage.CANDIDATE,
+            ) -> ModelEntry:
+                """
+                Lädt BacktestResult, extrahiert KPIs + FTMO-Summary,
+                erzeugt neuen ModelEntry und speichert ihn.
+                """
+                ...
+
+            def register_from_rl_run(
+                self,
+                name: str,
+                rl_run_id: str,
+                rl_experiment_id: str | None = None,
+                rl_experiment_run_id: str | None = None,
+                initial_stage: ModelStage = ModelStage.CANDIDATE,
+            ) -> ModelEntry:
+                """
+                Lädt RL-Run-Result/Metriken, Reward-Check-Status, erzeugt ModelEntry.
+                """
+                ...
+
+            def promote(
+                self,
+                model_id: str,
+                new_stage: ModelStage,
+                note: str | None = None,
+            ) -> ModelEntry:
+                """
+                Setzt stage hoch (z. B IDEA→CANDIDATE→QUALIFIED→APPROVED) und aktualisiert updated_at.
+                """
+                ...
+
+            def update_score(
+                self,
+                model_id: str,
+                composite_score: float,
+                note: str | None = None,
+            ) -> ModelEntry:
+                ...
+
+            def list_models(
+                self,
+                stage: ModelStage | None = None,
+                type: ModelType | None = None,
+            ) -> list[ModelEntrySummary]:
+                ...
+
+            def get_model(self, model_id: str) -> ModelEntry | None:
+                ...
+        ```
+
+      - Extraktion der Kennzahlen:
+          - `register_from_backtest()`:
+              - `result = backtest_persistence.load_result(backtest_id)`
+              - `kpi.total_return = result.kpi_summary.total_return`
+              - `kpi.profit_factor = result.kpi_summary.profit_factor`
+              - `kpi.max_drawdown_pct = result.kpi_summary.max_drawdown_pct`
+              - Ftmo aus `result.ftmo_risk_summary` (falls vorhanden).
+          - `register_from_rl_run()`:
+              - RL-Result via RL-Service/Persistenz laden.
+              - RL-Metriken: mean/std/max_return, steps.
+              - Reward-Checks: passed/failed-liste.
+
+  - Settings:
+      - In research_lab/backend/settings.py:
+          - Neues Verzeichnis für Governance:
+
+            ```python
+            class ResearchSettings(...):
+                @property
+                def governance_dir(self) -> Path:
+                    return self.artifacts_dir / "research" / "governance"
+            ```
+
+          - Repo scaffold: artifacts/research/governance/.gitkeep
+
+  - Governance-API:
+      - Neue Datei: research_lab/backend/app/api/governance.py
+
+        ```python
+        router = APIRouter(prefix="/governance", tags=["governance"])
+        ```
+
+        - Endpoints v1:
+
+          1. `POST /api/governance/models/from-backtest`
+              - Body: { "name", "backtest_id", "experiment_id"?, "experiment_run_id"?, "initial_stage"? }
+              - Delegiert an GovernanceService.register_from_backtest().
+              - Response: ModelEntry.
+
+          2. `POST /api/governance/models/from-rl`
+              - Body: { "name", "rl_run_id", "rl_experiment_id"?, "rl_experiment_run_id"?, "initial_stage"? }
+              - Delegiert an GovernanceService.register_from_rl_run().
+              - Response: ModelEntry.
+
+          3. `POST /api/governance/models/{model_id}/promote`
+              - Body: { "new_stage", "note"? }
+              - Delegiert an GovernanceService.promote().
+              - Response: ModelEntry.
+
+          4. `POST /api/governance/models/{model_id}/score`
+              - Body: { "composite_score", "note"? }
+              - Delegiert an GovernanceService.update_score().
+              - Response: ModelEntry.
+
+          5. `GET /api/governance/models`
+              - Query-Parameter: stage?, type?
+              - Response: list[ModelEntrySummary].
+
+          6. `GET /api/governance/models/{model_id}`
+              - Response: ModelEntry.
+
+      - In research_lab/backend/app/main.py:
+          - `from research_lab.backend.app.api import governance`
+          - `app.include_router(governance.router, prefix="/api")`
+
+  - Tests (pytest):
+
+      - tests/research_lab/backend/test_governance_registry.py
+          - tmpdir als governance_dir.
+          - Test:
+              - ModelEntry erzeugen, upsert_model() → Index-JSON existiert.
+              - get_model() liefert Entry.
+              - list_models() → 1 Summary.
+              - delete_model() entfernt.
+
+      - tests/research_lab/backend/test_governance_service_from_backtest.py
+          - tmp backtests_dir mit 1–2 BacktestResult-JSONs (oder über BacktestPersistence generiert).
+          - GovernanceService mit Fake/Real BacktestPersistence & Dummy-RL.
+          - Test:
+              - register_from_backtest():
+                  - erzeugt ModelEntry mit korrekten KPIs & FTMO-Feldern.
+                  - stage == CANDIDATE.
+              - promote():
+                  - Stage-Transition CANDIDATE→QUALIFIED; updated_at ändert sich.
+
+      - tests/research_lab/backend/test_governance_service_from_rl.py
+          - Nutzen von RLStub/Mock:
+              - RL-Run-Result mit definierter mean_return, reward_checks_passed.
+          - Test:
+              - register_from_rl_run():
+                  - RLSnapshot korrekt gesetzt (mean_return, reward_checks_*).
+
+      - tests/research_lab/backend/test_governance_api.py
+          - FastAPI TestClient.
+          - End-to-End:
+              - Generiere BacktestResult (oder stub) + RL-Result.
+              - `POST /api/governance/models/from-backtest` → 200, ModelEntry.
+              - `POST /api/governance/models/{id}/promote` → Stage-Update.
+              - `GET /api/governance/models` → Liste inkl. Summary-Feldern.
+              - `GET /api/governance/models/{id}` → Detail mit KPI/Ftmo/RL-Feldern.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Governance-Domain:
+     - ModelEntry (+ Summary, Enums) ist implementiert, typisiert und via Pydantic validierbar.
+     - BacktestLink, RlLink, KpiSnapshot, FtmoSnapshot, RlSnapshot, GovernanceScore existieren.
+
+  2. Registry:
+     - GovernanceRegistry speichert/lädt ModelEntry-Instanzen.
+     - list_models(), get_model(), upsert_model(), delete_model() funktionieren (Tests belegen das).
+
+  3. Service:
+     - GovernanceService kann:
+         - aus einem BacktestResult einen ModelEntry registrieren (inkl. KPIs & FTMO-Auswertung),
+         - aus einem RL-Run einen ModelEntry registrieren (inkl. RL-Metrics & Reward-Checks),
+         - Stages promoten/demoten und Score setzen,
+         - Models mit Filter (stage, type) listen.
+
+  4. API:
+     - /api/governance/models/from-backtest und /from-rl registrieren Modelle korrekt.
+     - /api/governance/models/{id}/promote aktualisiert Stage.
+     - /api/governance/models/{id}/score aktualisiert GovernanceScore.
+     - /api/governance/models (GET) liefert Filterung & Summaries.
+     - /api/governance/models/{id} liefert vollständiges Modell inkl. aller Snapshots.
+
+  5. Tests:
+     - test_governance_registry.py, test_governance_service_from_backtest.py,
+       test_governance_service_from_rl.py, test_governance_api.py sind implementiert.
+     - Gesamt-`pytest` im Projekt-Root (afts_pro) läuft grün (231+ → 23x+ Tests),
+       keine neuen Fehler oder unkontrollierten Warnings.
+
+  6. Qualität:
+     - Vollständige Type Hints, Docstrings für GovernanceRegistry & GovernanceService.
+     - Kein Governance-/Scoring-Code im API-Layer.
+     - Design anschlussfähig für:
+         - späteres „Promotion Center“ im Web-UI,
+         - Audit-Log von Promotion-Schritten,
+         - Multi-Env-Deployment (Sim, Paper, Live).
+
+coding_standards: |
+  - Python >= 3.11, Pydantic konsistent mit Rest des Research-Stacks.
+  - UTC-Zeitstempel (created_at, updated_at) wie im restlichen System (ensure_utc_datetime oder datetime.now(timezone.utc)).
+  - Tests deterministisch, Float-Checks mit pytest.approx.
+
+notes: |
+  - Mit diesem Task bekommt dein Lab zum ersten Mal echte "Gatekeeping-Power":
+      - Du kannst Backtest-Strategien und RL-Policies offiziell als Kandidaten/Qualified/Approved markieren,
+      - alles sauber versioniert & über API zugänglich.
+  - Das ist die inhaltliche Basis für:
+      - ein Promotion-Dashboard im UI,
+      - einen Click-to-Deploy-Flow in späteren Milestones (M2/M3),
+      - und ein sauberes Audit-Log, welche Modelle zu welchem Zeitpunkt auf welchem Level waren.

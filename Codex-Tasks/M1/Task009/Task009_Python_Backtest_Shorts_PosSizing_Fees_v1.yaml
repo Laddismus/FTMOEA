@@ -1,0 +1,299 @@
+title: AFTS_M1_Task_009_Python_Backtest_Shorts_PositionSizing_Fees_v1
+
+summary: |
+  Erweitere den aktuellen Trading-Simulator für Python-Strategien um:
+    - Short-Positionen (Long + Short + Flat),
+    - einfache Positionsgrößensteuerung (size-Skalar),
+    - und ein konfigurierbares Kostenmodell (Fees/Slippage),
+  sodass die Backtest-KPIs auf realistischeren, kostenbereinigten Returns basieren.
+
+  Ziel:
+    - PositionSide um SHORT erweitern und die Trading-Logik im Executor anpassen.
+    - TradingAction um ENTER_SHORT erweitern.
+    - BacktestPositionState um size erweitern (aktiv) und Netto-PnL nach Kosten berechnen.
+    - Ein einfaches Kostenmodell (prozentuale Fee + Slippage in % vom Preis) ins BacktestRequest aufnehmen.
+    - BacktestEngine nutzt das Kostenmodell konsistent.
+    - Vollständige pytest-Abdeckung für Long/Short, verschiedene Sizes und Fees/Slippage.
+
+inputs:
+  - Aktueller Trading-Flow:
+      - research_lab/backend/core/backtests/models.py
+          - PositionSide, TradingAction, BacktestPositionState, BacktestTrade, BacktestBar
+          - BacktestRequest, BacktestResult, BacktestKpiSummary
+      - research_lab/backend/core/backtests/engine.py
+          - RollingKpiBacktestEngine (Python+bars Pfad mit Trading-Returns)
+      - research_lab/backend/core/strategy_execution/python_executor.py
+          - PythonStrategyExecutorAdapter mit Trading-Simulator (long-only)
+      - research_lab/backend/core/python_strategies/interface.py
+          - PythonStrategyInterface.on_bar_trade, BasePythonStrategy
+      - API & Tests:
+          - research_lab/backend/app/api/backtests.py
+          - tests/research_lab/backend/test_python_strategy_trading_mode.py (oder ähnlich)
+          - tests/research_lab/backend/test_backtest_engine_python_bars.py
+          - tests/research_lab/backend/test_backtests_api_python_bars.py
+
+outputs:
+  - Erweiterung Trading-Domain:
+      - In research_lab/backend/core/backtests/models.py:
+
+        - PositionSide um SHORT erweitern:
+
+          ```python
+          class PositionSide(str, Enum):
+              FLAT = "flat"
+              LONG = "long"
+              SHORT = "short"
+          ```
+
+        - TradingAction um ENTER_SHORT erweitern:
+
+          ```python
+          class TradingAction(str, Enum):
+              HOLD = "hold"
+              ENTER_LONG = "enter_long"
+              ENTER_SHORT = "enter_short"
+              EXIT = "exit"
+          ```
+
+        - BacktestPositionState:
+            - `size: float` ist bereits vorhanden; hier sicherstellen, dass:
+                - size > 0 für Long / Short (Vorzeichen wird über side kodiert, nicht über size).
+            - Optional: neues Feld:
+                - `costs_accrued: float = 0.0` (z. B. kumulierte Fees, falls für spätere Auswertung gewünscht).
+
+        - BacktestTrade:
+            - Ergänze Felder:
+                - `side: PositionSide` (LONG oder SHORT, nie FLAT)
+                - `size: float`
+                - `gross_return: float`
+                - `net_return: float`
+                - `fees: float`
+              (Abwärtskompatibilität: alte JSONs können `side`/`size`/`fees` optional haben.)
+
+        - Kostenmodell im BacktestRequest:
+            - In BacktestRequest:
+
+              ```python
+              class BacktestCostModel(BaseModel):
+                  fee_rate: float = 0.0        # z. B. 0.0004 = 0.04% pro Turnover (Entry+Exit)
+                  slippage_rate: float = 0.0   # z. B. 0.0002 = 0.02% vom Preis je Fill
+
+              class BacktestRequest(BaseModel):
+                  ...
+                  cost_model: BacktestCostModel | None = None
+                  # default: None -> 0-Kosten-Modell
+              ```
+
+  - Erweiterung PythonStrategyInterface:
+      - In research_lab/backend/core/python_strategies/interface.py:
+          - on_bar_trade unterstützt jetzt Long + Short:
+              - Der Strategy-Author darf:
+                  - ENTER_LONG, ENTER_SHORT, EXIT, HOLD zurückgeben.
+              - Docstring aktualisieren:
+
+                ```python
+                def on_bar_trade(
+                    self,
+                    bar: BacktestBar,
+                    state: BacktestPositionState
+                ) -> TradingAction:
+                    """
+                    Optional trading hook: called each bar with the current position state.
+                    Should return a TradingAction:
+                      - ENTER_LONG  -> öffnet eine Long-Position (wenn FLAT)
+                      - ENTER_SHORT -> öffnet eine Short-Position (wenn FLAT)
+                      - EXIT        -> schließt eine bestehende Position (LONG oder SHORT)
+                      - HOLD        -> keine Änderung
+
+                    Default-Implementation: HOLD (keine Trades).
+                    """
+                ```
+
+          - BasePythonStrategy bleibt unverändert im Default (HOLD), aber Tests können neue Actions nutzen.
+
+  - Erweiterung PythonStrategyExecutorAdapter (Trading-Simulator):
+      - In research_lab/backend/core/strategy_execution/python_executor.py:
+
+        - Ergänze im __init__ optional einen Verweis auf das Kostenmodell:
+
+          ```python
+          def __init__(self, strategy_cls: Type[PythonStrategyInterface], cost_model: BacktestCostModel | None = None):
+              self.cost_model = cost_model or BacktestCostModel()
+          ```
+
+          (oder Übergabe via separate Setter, je nach Design; Hauptsache BacktestEngine kann cost_model injizieren.)
+
+        - In run_bar_loop(bars):
+
+          - Erweiterung der Trading-Transition-Logik:
+
+            - Wenn `state.side == FLAT`:
+                - ENTER_LONG:
+                    - `state.side = LONG`
+                    - `state.size = 1.0` (vorerst fix, Position Sizing kommt im nächsten Punkt)
+                    - `state.entry_price = bar.close +/- slippage` (je nach cost_model.slippage_rate)
+                    - berechne Entry-Cost (Fee auf Turnover)
+                - ENTER_SHORT:
+                    - analog, `state.side = SHORT`
+
+            - Wenn `state.side == LONG`:
+                - ENTER_LONG/ENTER_SHORT ignorieren oder als Fehler werten (für v1: ignorieren und in Docstring klarstellen).
+                - EXIT:
+                    - `gross_ret = (exit_price - entry_price) / entry_price`, mit exit_price inkl. slippage.
+                    - `fees = fee_rate * (entry_price + exit_price)` (sehr einfache Approximation: 2x Notional * rate).
+                    - `net_ret = gross_ret - fees` (alternativ: fees als Prozent von Notional auf Equity).
+                    - `state.equity *= (1.0 + net_ret)`
+                    - Trade-Objekt anlegen (side=LONG, size, gross_return, net_return, fees, etc.).
+                    - state zurück auf FLAT.
+
+            - Wenn `state.side == SHORT`:
+                - EXIT:
+                    - `gross_ret = (entry_price - exit_price) / entry_price`
+                      (Short: Profit wenn exit_price < entry_price).
+                    - fees & net_ret analog wie bei LONG.
+                    - state.equity-Update & Trade-Objekt analog.
+
+            - per-bar-Return:
+                - Für KPIs soll für jede Bar ein `per_bar_return` in die Liste.
+                - einfache v1-Version:
+                    - 0.0 für alle Bars außer denen, an denen EXIT passiert; dort `net_ret`.
+                    - Tests müssen genau dieses Verhalten widerspiegeln.
+
+        - Position Sizing (v1):
+            - Wir führen ein simples `risk_size`-Konzept ein:
+                - In BacktestRequest.strategy_params z. B. `{"size": 1.0}`.
+                - Executor liest `size = ctx.params.get("size", 1.0)`.
+                - Bei ENTER_LONG/SHORT: `state.size = size`.
+                - PnL-Logik skaliert mit `size`:
+                    - `net_ret_position = net_ret * size`.
+                    - `state.equity *= (1.0 + net_ret_position)`.
+                - BacktestTrade.size entsprechend setzen.
+
+        - Trades-Liste:
+            - Wie schon in Task 008: weiter pflegen, jetzt inkl. side/size/fees/net_return etc.
+
+  - Anpassung BacktestEngine:
+      - In research_lab/backend/core/backtests/engine.py:
+
+        - Beim Aufbau des Python-Executors (in _build_executor oder wo du ihn erstellst):
+            - cost_model aus request.cost_model oder Default BacktestCostModel übergeben.
+
+        - Nach run_bar_loop(bars):
+            - Wenn Executor einen Trading-Modus verwendet (wie bereits via _has_custom_on_bar_trade):
+                - `trades = getattr(executor, "trades", None)`
+                - In BacktestResult.trades übernehmen (bereits vorhanden, aber jetzt mit erweiterten Feldern).
+
+        - KPI-Berechnung ändert sich nicht (sie arbeitet auf der Returns-Serie, die jetzt netto-costs beinhaltet).
+
+  - API:
+      - In research_lab/backend/app/api/backtests.py:
+
+        - Request-Schema erweitern, sodass cost_model im JSON akzeptiert wird:
+
+          ```json
+          {
+            "mode": "python",
+            "python_strategy": {...},
+            "bars": [...],
+            "cost_model": {
+              "fee_rate": 0.0004,
+              "slippage_rate": 0.0002
+            },
+            "strategy_params": {
+              "size": 1.5
+            }
+          }
+          ```
+
+        - Response bleibt BacktestResult, jetzt mit erweiterten Trade-Infos.
+
+  - Tests (pytest) – neu/erweitert:
+      - tests/research_lab/backend/test_python_strategy_trading_mode.py:
+          - erweitern oder neue Datei für Short- und Size-Fälle:
+
+            - Strategie 1: Einfache Long-Only:
+                - ENTER_LONG auf erster Bar, EXIT auf letzter Bar.
+                - mit cost_model.fee_rate > 0:
+                    - Erwartung: net_return < grosser theoretischer Return (wegen Fees).
+            - Strategie 2: Short-Only:
+                - ENTER_SHORT auf erster Bar, EXIT auf letzter Bar.
+                - mit fallendem Preis → net_return > 0.
+                - Trade.side == SHORT.
+
+      - tests/research_lab/backend/test_backtest_engine_python_trading_state.py:
+          - Request mit:
+              - mode="python"
+              - bars mit definierten Preisen,
+              - cost_model.fee_rate/slippage_rate gesetzt,
+              - strategy_params.size != 1.0 (z. B. 2.0).
+          - Erwartung:
+              - total_return skaliert mit size (im Test genau durchrechnen und mit pytest.approx prüfen).
+              - Trades-Liste enthält side, size, gross_return, net_return, fees konsistent.
+
+      - tests/research_lab/backend/test_backtests_api_python_trading_state.py:
+          - HTTP-Test:
+              - POST /api/backtests/run-sync mit cost_model + size.
+              - Prüfen:
+                  - Response.kpi_summary.total_return > 0 für geeignete Preis-/Strategie-Kombi.
+                  - Response.trades[0].side == "long" oder "short" je nach Test.
+                  - Response.trades[0].fees > 0, net_return < gross_return im Fee-Test.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Domain:
+     - PositionSide kennt FLAT, LONG, SHORT.
+     - TradingAction kennt HOLD, ENTER_LONG, ENTER_SHORT, EXIT.
+     - BacktestPositionState & BacktestTrade spiegeln side, size, fees, gross/net-return korrekt wider.
+     - BacktestRequest enthält ein BacktestCostModel mit fee_rate und slippage_rate.
+
+  2. Strategy-Interface:
+     - PythonStrategyInterface.on_bar_trade kann ENTER_SHORT zurückgeben.
+     - BasePythonStrategy bleibt kompatibel (Default HOLD).
+
+  3. Executor:
+     - PythonStrategyExecutorAdapter simuliert Long- und Short-Trades korrekt.
+     - Größe (size) wird über strategy_params gesteuert und skaliert PnL/Returns.
+     - Kostenmodell wird angewendet:
+         - Fees/Slippage reduzieren den effektiven net_return.
+         - Trades-Liste reflektiert fees/gross_return/net_return.
+
+  4. BacktestEngine & API:
+     - Bei mode="python" + bars + Trading-Strategie:
+         - BacktestResult.trades enthält Long-/Short-Trades mit korrekten Feldern.
+         - kpi_summary.total_return basiert auf kostenbereinigten Returns.
+     - An den API-Endpoints:
+         - cost_model wird akzeptiert und wirkt sich in Tests sichtbar aus (z. B. geringerer total_return mit Fee).
+         - JSON-Responses enthalten die neuen Trade-Felder.
+
+  5. Tests:
+     - Alle neuen/erweiterten Tests sind implementiert:
+         - Long/Short-Fälle,
+         - Size-Fall,
+         - Fee/Slippage-Effekt,
+         - API-Flow.
+     - `pytest` im Projekt-Root läuft komplett grün.
+
+  6. Qualität:
+     - Vollständige Type Hints, Docstrings für:
+         - BacktestCostModel,
+         - neue Enum-Werte,
+         - Trading-Logik im Executor.
+     - Design so, dass spätere Erweiterungen (komplexere Fees, Kommissionen pro Lot, Multi-Asset,
+       FTMO-Style-RiskGuard) ohne Breaking Changes möglich sind.
+
+coding_standards: |
+  - Python >= 3.11.
+  - Typisierung konsequent, insbesondere bei Enums und CostModel.
+  - Router bleiben dünn, Kosten-/Trading-Logik nur im Core.
+  - Tests deterministisch; Float-Vergleiche mit pytest.approx.
+
+notes: |
+  - Mit diesem Task machst du aus dem aktuellen "nice Trading-Simulator" ein deutlich realistischeres Modell:
+      - Long + Short,
+      - skalierbare Positionsgrößen,
+      - und erste Version von Fees/Slippage.
+  - Nächste logische Steps danach:
+      - FTMO-konforme RiskGuard-Anbindung (MaxDailyLoss, MaxTotalLoss),
+      - Multi-Asset-Support,
+      - und dann die Brücke in Richtung AFTS-Core Full-Backtester schlagen.

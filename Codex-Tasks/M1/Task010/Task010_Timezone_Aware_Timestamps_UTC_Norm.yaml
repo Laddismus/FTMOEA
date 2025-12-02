@@ -1,0 +1,168 @@
+title: AFTS_M1_Task_010_Timezone_Aware_Timestamps_And_UTC_Normalization
+
+summary: |
+  Beseitige alle UTC-naive Datetime-Warnungen im Research-Backtest-Stack und stelle sicher,
+  dass alle Backtest-Zeitstempel konsistent timezone-aware (UTC) sind.
+
+  Ziel:
+    - Alle Domänen-Modelle, die Zeitstempel tragen (Bars, Trades, Backtests), sollen timezone-aware
+      Datetimes verwenden.
+    - Persistierte JSON-Artefakte enthalten UTC-Zeitstempel in einem konsistenten Format.
+    - Alle Tests arbeiten mit timezone-aware Datetimes; die bisherigen Deprecation-Warnings zu UTC
+      verschwinden.
+    - Optional: zentrale Konfiguration eines Default-Timezones (UTC) in ResearchSettings.
+
+inputs:
+  - Aktueller Stand mit Zeitstempeln:
+      - research_lab/backend/core/backtests/models.py
+          - BacktestBar.ts
+          - BacktestTrade.entry_ts / exit_ts
+          - BacktestResult.created_at (falls vorhanden)
+      - research_lab/backend/core/backtests/persistence.py
+          - Speicherung/Laden von BacktestResult-JSON inkl. created_at/ts-Feldern.
+      - research_lab/backend/core/backtests/service.py
+          - Setzen von created_at / IDs / Zeitstempeln für Runs.
+      - research_lab/backend/settings.py
+          - ResearchSettings (könnte ein default_timezone-Feld bekommen).
+      - Tests, die Datumswerte setzen:
+          - tests/research_lab/backend/test_backtest_persistence.py
+          - tests/research_lab/backend/test_backtest_service_and_jobs.py
+          - tests/research_lab/backend/test_backtest_service_with_persistence.py
+          - tests/research_lab/backend/test_backtest_engine_python_bars.py
+          - tests/research_lab/backend/test_backtest_engine_python_trading_state.py
+          - tests/research_lab/backend/test_backtests_api_python_bars.py
+          - ggf. weitere Tests, die datetime(...) ohne tzinfo verwenden.
+
+outputs:
+  - Klare UTC-Strategie in den Modellen:
+      - In research_lab/backend/core/backtests/models.py:
+          - Stelle sicher, dass alle Datetime-Felder als timezone-aware gedacht sind:
+              - `ts: datetime` in BacktestBar → Annahme: UTC.
+              - `entry_ts: datetime`, `exit_ts: datetime` in BacktestTrade → UTC.
+              - `created_at: datetime` in BacktestResult / BacktestIndexEntry (falls vorhanden) → UTC.
+          - Optionaler Pydantic-Config-Hinweis (z. B. `Config` mit `json_encoders` für datetime, falls nötig),
+            aber wichtig ist primär, dass überall tz-aware Instanzen verwendet werden.
+
+  - ResearchSettings-Erweiterung (optional, aber nice):
+      - In research_lab/backend/settings.py:
+          - Neues Feld/Property:
+
+            ```python
+            from zoneinfo import ZoneInfo
+
+            class ResearchSettings(BaseSettings):
+                ...
+                default_timezone: str = "UTC"
+
+                @property
+                def tzinfo(self) -> ZoneInfo:
+                    return ZoneInfo(self.default_timezone)
+            ```
+
+          - In diesem Task muss nicht alles auf tzinfo umgestellt werden; es reicht,
+            dass Backtest-spezifische Stellen (Bar/Trade/Result) konsistent UTC nutzen.
+            Das Feld schafft aber einen klaren zentralen Ankerpunkt.
+
+  - Zeitstempel-Erzeugung im Service:
+      - In research_lab/backend/core/backtests/service.py:
+          - Wo aktuell created_at / Run-Timestamps gesetzt werden (z. B. beim Erzeugen eines BacktestResult
+            oder beim Schreiben in BacktestPersistence):
+              - Ersetze ggf. `datetime.utcnow()` / `datetime.now()` durch:
+
+                ```python
+                from datetime import datetime, timezone
+                created_at = datetime.now(timezone.utc)
+                ```
+
+              - Stelle sicher, dass BacktestResult.created_at (oder Index-Einträge) diesen Wert übernehmen.
+
+  - Persistenz (JSON) bleibt funktional:
+      - In research_lab/backend/core/backtests/persistence.py:
+          - Überprüfe, ob die bisherige JSON-Serialisierung mit tz-aware Datetimes klar zurechtkommt
+            (Pydantic-Modelle tun das normalerweise).
+          - Stelle in Tests sicher, dass:
+              - Beim Laden die datetime-Felder wieder als tz-aware (UTC) instanziiert werden.
+              - Es keine Mischformen (naiv vs. aware) mehr gibt.
+
+  - Tests: Umstellung auf timezone-aware Datetimes:
+      - Passe alle Tests an, die Datumswerte setzen (z. B. BacktestBar.ts, Trades, created_at).
+      - Beispiel-Konvention:
+
+        ```python
+        from datetime import datetime, timezone
+
+        ts1 = datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
+        ts2 = datetime(2024, 1, 1, 0, 1, tzinfo=timezone.utc)
+        ```
+
+      - Konkrete Anpassungen:
+          - test_backtest_persistence.py:
+              - BacktestResult/BacktestBar/BacktestTrade-Instanzen mit UTC-tzinfo erzeugen.
+              - Nach load_result() testen, dass die Felder tz-aware sind:
+                  - `assert result.created_at.tzinfo is not None`
+                  - `assert result.created_at.tzinfo.utcoffset(result.created_at) == timedelta(0)` (optional).
+          - test_backtest_service_and_jobs.py / test_backtest_service_with_persistence.py:
+              - Gleiches Schema für created_at/Run-Zeitstempel, falls sie explizit geprüft werden.
+          - test_backtest_engine_python_bars.py / test_backtest_engine_python_trading_state.py:
+              - BacktestBar.ts mit tzinfo=timezone.utc erzeugen.
+          - test_backtests_api_python_bars.py:
+              - Falls Bar-TS im JSON explizit gesetzt wird, ISO-Format mit „Z“/+00:00 verwenden,
+                z. B. `"2024-01-01T00:00:00Z"` oder `"2024-01-01T00:00:00+00:00"`.
+
+  - Optional: kleine Helper-Funktion:
+      - In einem geeigneten Core-Utility (z. B. research_lab/backend/core/utils/datetime.py oder direkt in backtests/models.py),
+        könntest du eine kleine Hilfsfunktion einführen:
+
+        ```python
+        from datetime import datetime, timezone
+
+        def utc_now() -> datetime:
+            return datetime.now(timezone.utc)
+        ```
+
+      - Nutzung im Service/Persistence:
+          - Erhöht Lesbarkeit und Konsistenz; Tests können es bei Bedarf patchen.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Alle Backtest-relevanten Datetime-Felder (BacktestBar.ts, BacktestTrade.entry_ts/exit_ts,
+     BacktestResult.created_at, BacktestIndexEntry.created_at falls vorhanden) im Code
+     mit timezone-aware Werten (UTC) befüllt werden.
+
+  2. ResearchSettings definiert einen default_timezone="UTC" und optional ein tzinfo-Property,
+     auch wenn in diesem Task nur die Backtest-Komponenten explizit genutzt werden.
+
+  3. In BacktestService / BacktestPersistence wird für neu erzeugte Zeitstempel
+     `datetime.now(timezone.utc)` oder eine äquivalente Helper-Funktion genutzt,
+     nicht mehr naive Datetimes.
+
+  4. Alle Tests, die Datetime-Instanzen verwenden, wurden angepasst:
+     - Erstellen tz-aware Datetimes (z. B. datetime(..., tzinfo=timezone.utc)).
+     - Prüfen ggf. explizit, dass geladene Datetimes tz-aware und UTC sind.
+
+  5. Ein kompletter `pytest`-Lauf im Projekt-Root (afts_pro) läuft grün,
+     und die bisherigen Deprecation-Warnings bzgl. UTC-naiver Datetimes sind verschwunden
+     (bzw. es gibt keine neuen datetime-bezogenen Warnungen).
+
+  6. Persistierte Backtest-JSONs enthalten Datumswerte in einem konsistenten Format
+     (Pydantic-Standard, z. B. ISO 8601 mit Offset), und die Roundtrip-Tests
+     (save → load) bleiben stabil.
+
+coding_standards: |
+  - Python >= 3.11.
+  - Nutzung von datetime + timezone aus der Standardbibliothek, keine Drittanbieter-TZ-Libs.
+  - UTC als interne Normalform; andere Zonen später via Settings/Mapping.
+  - Tests nutzen konsequent timezone-aware Datetimes und pytest für Assertions.
+
+notes: |
+  - Dieser Task ist ein „Hygiene-Upgrade“, sorgt aber langfristig für:
+      - weniger versteckte Bugs in Multi-Zeitzonen-Szenarien,
+      - saubere Persistenz,
+      - und vorbereitete Infrastruktur für spätere Features wie:
+          - Session-basierte Backtests (London/NY-Session),
+          - Multi-Asset-Synchronisation über Zeitzonen,
+          - FTMO-Tagesgrenzen nach lokaler Session-Zeit.
+  - Nächster logischer Schritt nach diesem Cleanup:
+      - Ein RiskGuard-/FTMO-Constraint-Modul, das die Equity-/PnL-Serie
+        mit MaxDailyLoss/MaxTotalLoss-Regeln überwacht und in die Backtestergebnisse einbettet.

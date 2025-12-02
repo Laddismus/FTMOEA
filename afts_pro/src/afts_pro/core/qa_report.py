@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -161,7 +161,7 @@ def run_qa_suite(config: Optional[QAConfig] = None) -> QAReport:
         sections.append(run_quant_smoke_section())
     if config.enable_pytest_smoke:
         sections.append(run_pytest_smoke_section(config.pytest_args))
-    return QAReport(sections=sections, generated_at=datetime.utcnow())
+    return QAReport(sections=sections, generated_at=datetime.now(timezone.utc))
 
 
 def save_report(report: QAReport, output_dir: Path) -> tuple[Path, Path]:

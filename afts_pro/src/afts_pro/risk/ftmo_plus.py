@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, timezone
 from statistics import pstdev
 from typing import List, Literal, Optional, Tuple
 
@@ -177,7 +177,7 @@ class FtmoPlusEngine:
         num_recent_trades: int,
     ) -> None:
         stage = self.state.current_stage
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         # Escalate conditions
         escalate_to_stage2 = (
             rolling_loss_pct > self.cfg.rolling.max_rolling_loss_pct

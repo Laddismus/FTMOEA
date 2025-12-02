@@ -1,0 +1,281 @@
+title: AFTS_M1_Task_013_Experiment_Leaderboard_And_Scoring_v1
+
+summary: |
+  Erweitere den Experiment-Orchestrator um ein zentrales Scoring- und Leaderboard-Modul:
+    - Lade zu jedem Experiment-Run die BacktestResults (inkl. KPIs und FTMO-Risk).
+    - Berechne für jeden Run eine Scorecard (z. B. PF, Total Return, FTMO-Pass, MaxDD).
+    - Aggregiere die Runs eines Experiments zu einem Leaderboard (Top-N nach Score).
+    - Stelle diese Leaderboard-Daten über eine API bereit, damit das spätere UI
+      direkt Experimente vergleichen und „beste Kandidaten“ anzeigen kann.
+
+  Ziel v1:
+    - Reine Backend-Auswertung, kein UI.
+    - ExperimentSummary um optionale Leaderboard-Felder und FTMO-Pass-Quote erweitern.
+    - Neue API-Endpunkte für:
+        - Detail-Leaderboard eines Experiments
+        - Optional: Konsolidierte Leaderboard-View über mehrere Experimente (v1 minimal).
+
+inputs:
+  - Aktueller Stand:
+      - Experiments:
+          - research_lab/backend/core/experiments/models.py
+          - research_lab/backend/core/experiments/persistence.py
+          - research_lab/backend/core/experiments/service.py
+          - research_lab/backend/app/api/experiments.py
+      - Backtests:
+          - research_lab/backend/core/backtests/models.py
+          - research_lab/backend/core/backtests/persistence.py
+          - research_lab/backend/core/backtests/service.py
+          - research_lab/backend/app/api/backtests.py
+      - FTMO-Risk:
+          - research_lab/backend/core/risk_guard/models.py (FtmoRiskSummary)
+      - Analytics (für spätere Erweiterung):
+          - research_lab/backend/core/analytics/*
+            (FeatureExplorer, RollingKpiEngine, Drift, RegimeClustering – v1 hier nur KPIs/Risk nötig)
+      - Tests:
+          - tests/research_lab/backend/test_experiment_persistence.py
+          - tests/research_lab/backend/test_experiment_service.py
+          - tests/research_lab/backend/test_experiments_api.py
+          - tests/research_lab/backend/test_backtest_persistence.py
+          - tests/research_lab/backend/test_backtest_engine_* / test_backtests_api_* (für KPIs/Risk)
+
+outputs:
+  - Leaderboard-Domain-Modelle:
+      - In research_lab/backend/core/experiments/models.py:
+          - Ergänze neue Modelle:
+
+            ```python
+            class ExperimentRunScore(BaseModel):
+                run_id: str                 # interne Run-ID im Experiment
+                backtest_id: str            # id aus BacktestResult
+                params: dict[str, Any]      # strategy_params des Runs
+                total_return: float
+                profit_factor: float | None = None
+                max_drawdown: float | None = None
+                ftmo_passed: bool | None = None
+                ftmo_breach_type: str | None = None
+                # optional: weitere KPIs wie winrate, trade_count etc.
+                rank: int | None = None     # wird nach Scoring gesetzt
+
+            class ExperimentLeaderboard(BaseModel):
+                experiment_id: str
+                name: str
+                created_at: datetime
+                total_runs: int
+                ftmo_pass_rate: float | None = None     # Anteil Runs mit ftmo_passed == True
+                runs: list[ExperimentRunScore]
+            ```
+
+          - Erweiterung von ExperimentSummary:
+              - Optional zusätzliche Felder:
+
+                ```python
+                class ExperimentSummary(BaseModel):
+                    ...
+                    best_total_return: float | None = None
+                    best_pf: float | None = None
+                    ftmo_pass_rate: float | None = None
+                ```
+
+  - Leaderboard-Scoring-Logik:
+      - Neue Datei: research_lab/backend/core/experiments/scoring.py
+
+        ```python
+        class ExperimentScorer:
+            def __init__(self, backtest_persistence: BacktestPersistence):
+                self.backtest_persistence = backtest_persistence
+
+            def build_leaderboard(
+                self,
+                experiment_id: str,
+                config: ExperimentConfig,
+                runs: list[ExperimentRunStatus],
+            ) -> ExperimentLeaderboard:
+                ...
+        ```
+
+      - Logik:
+          - Für alle Runs mit `backtest_id`:
+              - Lade BacktestResult via BacktestPersistence.load_result(backtest_id).
+              - Extrahiere:
+                  - `total_return` → aus result.kpi_summary.total_return
+                  - `profit_factor` → aus result.kpi_summary.profit_factor (falls vorhanden)
+                  - `max_drawdown` → aus result.kpi_summary.max_drawdown_pct (falls vorhanden)
+                  - FTMO:
+                      - `ftmo_passed` → result.ftmo_risk_summary.passed (falls vorhanden)
+                      - `ftmo_breach_type` → result.ftmo_risk_summary.first_breach.breach_type (falls vorhanden)
+                  - `params` → aus result.metadata oder strategy_params:
+                      - v1: nimm request.strategy_params, die du im Experiment beim Erzeugen der Requests mitschreibst:
+                          - Möglichkeit A: im ExperimentConfig base_backtest.strategy_params & ParamPoint.values
+                          - Möglichkeit B: nutze result.metadata["strategy_params"] falls vorhanden.
+                        → wähle eine Variante und nutze sie konsistent.
+              - Baue daraus ExperimentRunScore-Instanzen.
+          - Score/Ranking:
+              - v1: sortiere nach:
+                  1) ftmo_passed (True vor False),
+                  2) total_return DESC,
+                  3) profit_factor DESC (fallback bei gleichen Returns).
+              - Weise `rank` = 1..N entsprechend der Sortierung zu.
+          - ftmo_pass_rate:
+              - Quote = Anzahl Runs mit ftmo_passed == True / total_runs (nur Runs mit backtest_id berücksichtigen).
+          - ExperimentSummary-Update:
+              - best_total_return = max(total_return)
+              - best_pf = max(profit_factor) (falls nicht None)
+
+  - Erweiterung ExperimentService:
+      - In research_lab/backend/core/experiments/service.py:
+          - Konstruktor um ExperimentScorer erweitern:
+
+            ```python
+            class ExperimentService:
+                def __init__(
+                    self,
+                    backtest_service: BacktestService,
+                    experiment_persistence: ExperimentPersistence,
+                    scorer: ExperimentScorer,
+                ):
+                    ...
+                    self.scorer = scorer
+            ```
+
+          - Neue Methode:
+
+            ```python
+            def get_leaderboard(self, experiment_id: str) -> ExperimentLeaderboard | None:
+                data = self.experiment_persistence.load_experiment(experiment_id)
+                if data is None:
+                    return None
+                config, runs = data
+                # Optional: refresh_status(experiment_id) vorher, falls noch Jobs laufen.
+                return self.scorer.build_leaderboard(experiment_id, config, runs)
+            ```
+
+          - In `list_experiments()`:
+              - Optional: best_total_return, best_pf, ftmo_pass_rate setzen:
+                  - Hier kannst du eine leichte Variante machen:
+                      - Entweder:
+                          - Leaderboard kurz aufbauen (kann für viele Experimente teuer sein),
+                          - oder:
+                          - Summary-Felder nur setzen, wenn sie bereits einmal berechnet
+                            und in der Experiment-Datei gespeichert wurden.
+                      - v1 reicht es, wenn `get_leaderboard` alles berechnet; Summary kann vorerst
+                        best_* = None lassen, um IO minimal zu halten.
+
+  - Settings:
+      - ResearchSettings hat bereits experiments_dir; keine weitere Änderung nötig.
+
+  - Experiments API – Leaderboard:
+      - In research_lab/backend/app/api/experiments.py:
+          - Neuen Endpoint hinzufügen:
+
+            1. `GET /api/experiments/{experiment_id}/leaderboard`
+                - Response: ExperimentLeaderboard
+                - Implementierung:
+                    - experiment_leaderboard = experiment_service.get_leaderboard(experiment_id)
+                    - Wenn None → HTTP 404.
+                    - Sonst Leaderboard zurückgeben.
+
+          - Optional:
+            2. `GET /api/experiments/leaderboard`
+                - Query-Parameter: limit (z. B. top N Experimente nach best_total_return)
+                - v1 Optional – du kannst das für später aufheben, Fokus erstmal auf per-Experiment-Leaderboard.
+
+  - Tests (pytest):
+      - tests/research_lab/backend/test_experiment_scoring.py
+          - Nutzt tmpdir + BacktestPersistence + ExperimentScorer.
+
+          - Setup:
+              - Erzeuge 3–4 BacktestResult-JSONs im backtests_dir:
+                  - unterschiedliche total_return, profit_factor,
+                  - einige mit ftmo_risk_summary.passed=True, andere False.
+              - Erzeuge ExperimentConfig mit 3–4 ParamPoints.
+              - Erzeuge ExperimentRunStatus-Liste mit passenden backtest_id-Werten.
+          - Tests:
+              - build_leaderboard():
+                  - runs-Liste im Leaderboard hat gleiche Länge.
+                  - ranks sind 1..N und sortiert wie definiert
+                    (ftmo_passed zuerst, dann total_return, dann profit_factor).
+                  - ftmo_pass_rate stimmt (z. B. 2/4).
+              - total_return/profit_factor genau aus den BacktestResults übernommen.
+
+      - tests/research_lab/backend/test_experiment_service_leaderboard.py
+          - Setup:
+              - ExperimentService mit realem ExperimentPersistence + BacktestPersistence (tmpdirs).
+              - Ein Experiment anlegen, Backtests simulieren (oder vorhandene JSONs nutzen).
+          - Test:
+              - get_leaderboard(experiment_id) → ExperimentLeaderboard.
+              - Prüfen:
+                  - experiment_id, name korrekt.
+                  - ranks korrekt sortiert.
+                  - ftmo_pass_rate plausibel.
+
+      - tests/research_lab/backend/test_experiments_api_leaderboard.py
+          - FastAPI TestClient.
+          - Setup:
+              - Experiment mit 2–3 Runs vorbereiten, BacktestResults persistieren.
+          - Tests:
+              - `GET /api/experiments/{id}/leaderboard`:
+                  - Status 200.
+                  - JSON enthält runs mit rank, total_return, profit_factor, ftmo_passed.
+              - `GET /api/experiments/{nonexistent}/leaderboard`:
+                  - Status 404.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Domain:
+     - ExperimentRunScore und ExperimentLeaderboard sind implementiert, typisiert und werden vom System genutzt.
+     - ExperimentSummary besitzt optionale Felder best_total_return, best_pf, ftmo_pass_rate (auch wenn v1 ggf. None).
+
+  2. Scoring:
+     - ExperimentScorer.build_leaderboard() lädt BacktestResults aus BacktestPersistence,
+       baut ExperimentRunScore-Liste und setzt:
+         - total_return, profit_factor, max_drawdown, ftmo_passed, ftmo_breach_type.
+       - sortiert nach:
+         - ftmo_passed (True vor False),
+         - total_return DESC,
+         - profit_factor DESC.
+       - ranks korrekt (1..N).
+     - ftmo_pass_rate in ExperimentLeaderboard entspricht dem Anteil ftmo_passed == True.
+
+  3. Service:
+     - ExperimentService.get_leaderboard(experiment_id) liefert ein ExperimentLeaderboard oder None.
+     - Service nutzt ExperimentPersistence und ExperimentScorer sauber getrennt.
+
+  4. API:
+     - `GET /api/experiments/{experiment_id}/leaderboard` ist implementiert, registriert
+       und liefert Leaderboard-Daten.
+     - 404 wird für nicht existierende Experimente korrekt zurückgegeben.
+
+  5. Tests:
+     - test_experiment_scoring.py, test_experiment_service_leaderboard.py,
+       test_experiments_api_leaderboard.py sind implementiert.
+     - Gesamt-`pytest` im Projekt-Root (afts_pro) läuft ohne Errors/Failures,
+       Testanzahl steigt (221 → 22x+).
+
+  6. Qualität:
+     - Vollständige Type Hints und Docstrings für:
+         - ExperimentRunScore, ExperimentLeaderboard,
+         - ExperimentScorer.build_leaderboard,
+         - ExperimentService.get_leaderboard.
+     - Design so gewählt, dass spätere Erweiterungen möglich sind:
+         - weitere KPIs (Sharpe, Winrate, AvgTrade),
+         - komplexere Scores (gewichtete Metriken),
+         - globale Leaderboards über mehrere Experimente.
+
+coding_standards: |
+  - Python >= 3.11.
+  - Strikte Typisierung (dict[str, Any], list[ExperimentRunScore], etc.).
+  - ExperimentScorer ist eine reine Core-Komponente (keine HTTP/Framework-abhängigen Imports).
+  - Router schlank; keinerlei Scoring-Logik im API-Layer.
+  - Tests deterministisch, Float-Checks mit pytest.approx.
+
+notes: |
+  - Mit diesem Task hebst du Experimente von "Batch Backtests" auf "Research-Waffen":
+      - Du kannst parameterisierte Sweeps fahren,
+      - dir sofort die Top-Varianten nach Return/PF/FTMO ansehen,
+      - und später im UI eine richtig fette Leaderboard-Seite bauen.
+  - Nächste sinnvolle M1.x-Schritte könnten sein:
+      - Export einer Experiment-Analyse als JSON/CSV,
+      - Integration mit dem Analytics-Modul (z. B. Clustering der besten Runs),
+      - oder ein kleines Research-Dashboard im Frontend, das genau diese Leaderboards visualisiert.

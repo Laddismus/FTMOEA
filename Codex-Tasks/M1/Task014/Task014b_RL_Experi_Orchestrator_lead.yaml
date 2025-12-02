@@ -1,0 +1,410 @@
+title: AFTS_M1_Task_014_RL_Experiment_Orchestrator_And_Leaderboard_v1
+
+summary: |
+  Baue auf dem bestehenden RL-Experimentation-Core eine vollwertige RL-Experiment-Schicht:
+    - Orchestrator für RL-Experimente (Config, Param-Grid, mehrere RL-Runs als ein Experiment).
+    - Persistenz für RL-Experimente (JSON Artefakte).
+    - Scoring & Leaderboard für RL-Runs (episodic reward, stability, reward-checks, policy-metadata).
+    - API-Endpunkte für RL-Experimente (create, launch, status, leaderboard).
+  
+  Ziel v1:
+    - Die Semantik ähnelt Backtest-Experimenten, ist aber RL-spezifisch:
+        - env_ref, algo_ref, policy_ref, training_config, reward_checks.
+    - RL-Experimente können mehrere RL-Runs mit unterschiedlichen Hyperparam-Kombinationen fahren.
+    - Leaderboard zeigt pro Run die wichtigsten Metriken + Reward-Check-Status und sortiert sie.
+
+inputs:
+  - RL-Core (bereits vorhanden):
+      - research_lab/backend/core/rl/models.py
+          - EnvRef, AlgoRef, PolicyRef?
+          - RlTrainingConfig, RlRunRequest, RlRunResult, RlRunStatus, RlMetric*, RewardCheck*, etc.
+      - research_lab/backend/core/rl/reward_verifier.py
+          - RewardVerifier / verify_reward_checks(...)
+      - research_lab/backend/core/rl/runner.py
+          - Simulated RlRunner stub (deterministische Fake-Metriken / PolicyRefs)
+      - research_lab/backend/core/rl/policy_loader.py
+          - Laden von Policy-Metadaten aus JSON
+      - research_lab/backend/core/rl/service.py
+          - RlService mit sync/async run, Jobs via InMemoryJobRunner
+      - research_lab/backend/app/api/rl.py
+          - /api/rl Router (sync/async runs, job status, policy listing, reward-check verify)
+      - research_lab/backend/settings.py
+          - rl_dir / rl_policies_dir / rl_runs_dir (laut neuem Commit vorhanden)
+
+  - Experiment & Leaderboard (als Vorlage):
+      - research_lab/backend/core/experiments/models.py
+      - research_lab/backend/core/experiments/persistence.py
+      - research_lab/backend/core/experiments/service.py
+      - research_lab/backend/core/experiments/scoring.py
+      - research_lab/backend/app/api/experiments.py
+      - tests/research_lab/backend/test_experiment_* (persistence, service, scoring, api)
+
+outputs:
+  - RL-Experiment-Domain-Modelle:
+      - Neues Paket: research_lab/backend/core/rl_experiments/__init__.py
+      - research_lab/backend/core/rl_experiments/models.py
+
+        ```python
+        from datetime import datetime
+        from enum import Enum
+        from typing import Any, Dict, List, Optional
+        from pydantic import BaseModel
+        from research_lab.backend.core.rl.models import (
+            EnvRef,
+            AlgoRef,
+            PolicyRef,
+            RlTrainingConfig,
+            RlRunRequest,
+            RlRunResult,
+        )
+
+        class RlExperimentStatus(str, Enum):
+            PENDING = "pending"
+            RUNNING = "running"
+            COMPLETED = "completed"
+            FAILED = "failed"
+
+        class RlExperimentParamPoint(BaseModel):
+            """
+            Konkreter Hyperparameter-Punkt eines Experiments, z. B.
+            {"learning_rate": 3e-4, "gamma": 0.99}
+            """
+            values: Dict[str, Any]
+
+        class RlExperimentConfig(BaseModel):
+            id: str
+            name: str
+            description: Optional[str] = None
+            created_at: datetime
+
+            env: EnvRef
+            algo: AlgoRef
+            base_training: RlTrainingConfig
+
+            param_grid: List[RlExperimentParamPoint]
+            reward_checks: List["RewardCheck"] = []  # aus rl.models
+            tags: List[str] = []
+            metadata: Dict[str, Any] = {}
+
+        class RlExperimentRunStatus(BaseModel):
+            run_id: str
+            job_id: Optional[str] = None
+            status: RlExperimentStatus
+            error: Optional[str] = None
+            rl_run_id: Optional[str] = None   # referenziert persistenten RL-Run (falls du so etwas hast)
+
+        class RlExperimentRunScore(BaseModel):
+            run_id: str
+            rl_run_id: Optional[str] = None
+            params: Dict[str, Any]
+
+            # core RL-Metriken:
+            mean_return: float
+            std_return: Optional[float] = None
+            max_return: Optional[float] = None
+            steps: Optional[int] = None
+
+            # Reward-Check:
+            reward_checks_passed: bool | None = None
+            failed_checks: List[str] = []
+
+            # Score & Ranking:
+            composite_score: float | None = None
+            rank: Optional[int] = None
+
+        class RlExperimentLeaderboard(BaseModel):
+            experiment_id: str
+            name: str
+            created_at: datetime
+            total_runs: int
+            passes: int
+            pass_rate: float | None
+            runs: List[RlExperimentRunScore]
+        ```
+
+        - Hinweis: RewardCheck / RlTrainingMetrics etc. importierst du aus rl.models;
+          passe Typen exakt an den vorhandenen Stand an.
+
+  - RL-Experiment-Persistenz:
+      - research_lab/backend/core/rl_experiments/persistence.py
+
+        ```python
+        from pathlib import Path
+
+        class RlExperimentPersistence:
+            def __init__(self, experiments_dir: Path):
+                self.experiments_dir = experiments_dir
+                self.experiments_dir.mkdir(parents=True, exist_ok=True)
+
+            def save_experiment(
+                self,
+                config: RlExperimentConfig,
+                runs: List[RlExperimentRunStatus],
+            ) -> None:
+                ...
+
+            def load_experiment(
+                self,
+                experiment_id: str,
+            ) -> Optional[tuple[RlExperimentConfig, List[RlExperimentRunStatus]]]:
+                ...
+
+            def list_experiments(self) -> List[RlExperimentConfig]:
+                ...
+        ```
+
+      - JSON-Struktur ähnlich zu Backtest-Experiments:
+          - `<experiments_dir>/<experiment_id>.json` mit `{"config": {...}, "runs": [...]}`.
+
+  - RL-Experiment-Scoring:
+      - research_lab/backend/core/rl_experiments/scoring.py
+
+        ```python
+        from research_lab.backend.core.rl.models import RlRunResult
+
+        class RlExperimentScorer:
+            def __init__(self, rl_service: RlService):
+                self.rl_service = rl_service
+
+            def build_leaderboard(
+                self,
+                experiment_id: str,
+                config: RlExperimentConfig,
+                runs: list[RlExperimentRunStatus],
+            ) -> RlExperimentLeaderboard:
+                ...
+        ```
+
+      - Logik:
+          - Für jede RunStatus mit rl_run_id:
+              - Lade den entsprechenden RlRunResult:
+                  - Entweder über RL-Persistenz (falls vorhanden),
+                  - oder RlService-API, je nachdem, wie du im Core die RL-Runs speicherst.
+                  - Wenn du aktuell nur im Testing-Scope stub-artig RlRunResult direkt rückgibst,
+                    reicht für v1: du simulierst in den Tests eine kleine Persistenz.
+          - Extrahiere:
+              - `mean_return`, `std_return`, `max_return`, `steps` aus RlRunResult.training_metrics.
+              - Reward-Check-Result:
+                  - `reward_checks_passed` (True/False),
+                  - `failed_checks` (Liste von Check-IDs/Names).
+          - `composite_score` v1 (Beispiel):
+              - Wenn Reward-Checks fehlgeschlagen → starken Malus:
+                - z. B. `composite_score = mean_return - penalty`
+              - Sonst:
+                - `composite_score = mean_return` (evtl. - 0.1 * std_return)
+          - Sortierung:
+              - reward_checks_passed == True vor False.
+              - Innerhalb: composite_score DESC.
+          - Rank: 1..N.
+          - pass_rate = passes / total_runs (runs mit reward_checks_passed == True).
+
+  - RL-Experiment-Service:
+      - research_lab/backend/core/rl_experiments/service.py
+
+        ```python
+        class RlExperimentService:
+            def __init__(
+                self,
+                rl_service: RlService,
+                persistence: RlExperimentPersistence,
+                scorer: RlExperimentScorer,
+            ):
+                self.rl_service = rl_service
+                self.persistence = persistence
+                self.scorer = scorer
+
+            def create_experiment(self, config: RlExperimentConfig) -> RlExperimentConfig:
+                ...
+
+            def launch_experiment(self, experiment_id: str) -> None:
+                ...
+
+            def refresh_status(
+                self, experiment_id: str
+            ) -> tuple[RlExperimentConfig, list[RlExperimentRunStatus]]:
+                ...
+
+            def get_experiment(
+                self, experiment_id: str
+            ) -> Optional[tuple[RlExperimentConfig, list[RlExperimentRunStatus]]]:
+                ...
+
+            def get_leaderboard(
+                self, experiment_id: str
+            ) -> Optional[RlExperimentLeaderboard]:
+                ...
+        ```
+
+      - Logik:
+
+        - create_experiment:
+            - ExperimentConfig.id generieren (uuid4).
+            - created_at auf UTC setzen.
+            - Runs mit Status PENDING für jeden ParamPoint erzeugen (noch keine Jobs).
+            - via Persistence speichern.
+
+        - launch_experiment:
+            - load_experiment(experiment_id).
+            - Für jede ParamPoint mit Status PENDING:
+                - RlRunRequest bauen:
+                    - env, algo, base_training aus config, Parameter aus ParamPoint.values in base_training überschreiben.
+                    - reward_checks aus config.reward_checks übernehmen.
+                - `job_id = rl_service.submit_job(request)` (abhängig von RL-Service-Interface).
+                - RunStatus.job_id und status=RUNNING setzen.
+            - persistieren.
+
+        - refresh_status:
+            - Für jeden Run mit job_id:
+                - Über `rl_service.get_job_status(job_id)` oder analoge Methode:
+                    - wenn fertig → status COMPLETED, rl_run_id setzen (falls du eine ID aus Result hast).
+                    - wenn Fehler → status FAILED, error setzen.
+            - persistieren und aktualisierte Daten zurückgeben.
+
+        - get_leaderboard:
+            - load_experiment().
+            - scorer.build_leaderboard(experiment_id, config, runs).
+
+  - Settings:
+      - In research_lab/backend/settings.py:
+          - RL-Experiments-Verzeichnis:
+
+            ```python
+            class ResearchSettings(...):
+                @property
+                def rl_experiments_dir(self) -> Path:
+                    return self.artifacts_dir / "research" / "rl_experiments"
+            ```
+
+          - Verzeichnis scaffolden (artifacts/research/rl_experiments/.gitkeep).
+
+  - RL-Experiments API:
+      - Neue Datei: research_lab/backend/app/api/rl_experiments.py
+
+        ```python
+        router = APIRouter(prefix="/rl-experiments", tags=["rl-experiments"])
+        ```
+
+        - Endpoints:
+
+          1. `POST /api/rl-experiments`
+              - Body: RLExperimentCreateRequest (ohne id/created_at).
+              - Server generiert id + created_at.
+              - Delegiert an RlExperimentService.create_experiment().
+              - Response: RlExperimentConfig (inkl. id).
+
+          2. `POST /api/rl-experiments/{experiment_id}/launch`
+              - Startet Jobs via RlExperimentService.launch_experiment(experiment_id).
+              - Response: 202 oder eine Kurz-Summary.
+
+          3. `GET /api/rl-experiments/{experiment_id}`
+              - Gibt config + runs zurück (z. B. als RLExperimentDetailResponse).
+
+          4. `GET /api/rl-experiments/{experiment_id}/leaderboard`
+              - Delegiert an RlExperimentService.get_leaderboard().
+              - Response: RlExperimentLeaderboard.
+
+          5. Optional v1+:
+              - `POST /api/rl-experiments/{experiment_id}/refresh` → refresh_status().
+
+      - In research_lab/backend/app/main.py:
+          - `from research_lab.backend.app.api import rl_experiments`
+          - `app.include_router(rl_experiments.router, prefix="/api")`
+
+  - Tests (pytest):
+
+      - tests/research_lab/backend/test_rl_experiment_persistence.py
+          - tmpdir als rl_experiments_dir.
+          - Test:
+              - RlExperimentConfig + Runs erzeugen.
+              - save_experiment() → Datei existiert.
+              - load_experiment() → gleiche Config + Runs.
+              - list_experiments() liefert korrekte Anzahl / IDs.
+
+      - tests/research_lab/backend/test_rl_experiment_scoring.py
+          - Nutzt Fake-RlRunResult-Objekte oder stub RlService, um definierte Metriken zu liefern:
+              - Run A: mean_return=1.0, reward_checks_passed=True
+              - Run B: mean_return=0.5, reward_checks_passed=False
+              - Run C: mean_return=1.2, reward_checks_passed=True, std_return höher
+          - build_leaderboard():
+              - Lädt die Fake-Runs.
+              - Prüft:
+                  - runs korrekt sortiert (Reward-Checks-Pass, dann composite_score).
+                  - pass_rate passt.
+                  - ranks 1..N.
+
+      - tests/research_lab/backend/test_rl_experiment_service.py
+          - RlExperimentService mit stub RlService + RlExperimentPersistence.
+          - Test-Pfade:
+              - create_experiment() → korrekt persistiert.
+              - launch_experiment() → ruft RlService.submit_job() pro ParamPoint, setzt job_ids.
+              - refresh_status() → setzt COMPLETED/FAILED abhängig von stub-Job-Status.
+
+      - tests/research_lab/backend/test_rl_experiments_api.py
+          - FastAPI TestClient.
+          - End-to-End:
+              - POST /api/rl-experiments → id zurück.
+              - POST /api/rl-experiments/{id}/launch.
+              - ggf. stub RL-Jobs sofort als „fertig“ markieren.
+              - GET /api/rl-experiments/{id}/leaderboard:
+                  - Response 200, enthält sorted runs, pass_rate etc.
+              - GET /api/rl-experiments/{nonexistent}/leaderboard → 404.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. RL-Experiment-Domain:
+     - RlExperimentConfig, RlExperimentParamPoint, RlExperimentRunStatus,
+       RlExperimentRunScore und RlExperimentLeaderboard sind definiert, typisiert und werden verwendet.
+
+  2. RL-Experiment-Persistenz:
+     - RlExperimentPersistence speichert/lädt JSON-Dateien.
+     - list_experiments() liefert sinnvolle Konfigurationen.
+
+  3. Scoring:
+     - RlExperimentScorer.build_leaderboard():
+         - Lädt zugehörige RL-Run-Resultate.
+         - Berechnet mean_return/std_return/max_return, Reward-Check-Ausgang.
+         - Berechnet composite_score und sortiert nach:
+             - Reward-Checks bestanden (True vor False),
+             - composite_score DESC.
+         - Setzt rank und pass_rate korrekt.
+
+  4. Service:
+     - RlExperimentService.create_experiment/launch_experiment/refresh_status/get_experiment/get_leaderboard
+       sind implementiert und über Tests abgedeckt.
+     - launch_experiment startet Jobs über RlService, refresh_status synchronisiert den Status.
+
+  5. API:
+     - /api/rl-experiments (POST), /api/rl-experiments/{id} (GET),
+       /api/rl-experiments/{id}/launch (POST),
+       /api/rl-experiments/{id}/leaderboard (GET) sind implementiert und in main.py registriert.
+     - API-Tests zeigen, dass RL-Experimente angelegt, gestartet und Leaderboards abgefragt werden können.
+
+  6. Tests:
+     - Die neuen Tests (Persistence, Scoring, Service, API) sind implementiert und grün.
+     - Ein kompletter `pytest`-Lauf im Projekt-Root (afts_pro) läuft ohne Errors/Failures
+       und die Testanzahl steigt entsprechend (231 → 23x+).
+
+  7. Qualität:
+     - Vollständige Type Hints, aussagekräftige Docstrings.
+     - Kein RL-spezifischer Orchestrierungs-/Scoring-Code im API-Layer (nur im Core).
+     - Design anschlussfähig für:
+         - echte RL-Trainer,
+         - RL-Leaderboard-Seite im UI,
+         - gemeinsame Experiment-Analyse (Backtests + RL).
+
+coding_standards: |
+  - Python >= 3.11.
+  - Strikte Typisierung (Dict[str, Any], List[T]).
+  - UTC-Handling für created_at wie im restlichen Research-Stack (ensure_utc_datetime oder datetime.now(timezone.utc)).
+  - Tests deterministisch mit pytest; floats via pytest.approx.
+
+notes: |
+  - Mit diesem Task bekommt dein RL-Stack den gleichen „Hedgefund-Research“-Charakter wie deine Backtests:
+      - systematische Hyperparam-Sweeps,
+      - Reward-Check-basierte Filterung,
+      - Leaderboards für beste Policies.
+  - Später kannst du:
+      - RL-Policies ins Backtest-System einhängen (Policy → PythonStrategyInterface),
+      - Backtest-Experimente und RL-Experimente auf einer gemeinsamen Research-UI-Seite vergleichen,
+      - und einen vollen ML/RL-Research-Zyklus fahren (Backtest → RL-Train → Backtest → FTMO-Check).

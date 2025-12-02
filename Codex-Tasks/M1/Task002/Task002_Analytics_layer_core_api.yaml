@@ -1,0 +1,217 @@
+title: AFTS_M1_Task_002_Analytics_Layer_Core_And_API
+
+summary: |
+  Implementiere den Kern des Analytics Layers (M1.1) im Research Backend:
+    - Core-Module für Feature Explorer, Rolling KPI Engine, Drift Detection und Regime Clustering
+    - Saubere FastAPI-Endpoints für zentrale Analytics-Funktionen
+    - Vollständige pytest-Abdeckung für Core-Logik und API-Endpoints
+  Ziel ist eine erste, funktionsfähige Analytics-Schicht, mit der ein Quant über die API
+  einfache Analysen auf Datenserien durchführen kann (noch ohne direkte Anbindung an die
+  AFTS-Datenpipeline). Die Implementierung ist bewusst generisch gehalten, damit spätere
+  Tasks die Datenanbindung und komplexere Modelle (HDBSCAN, SHAP, etc.) ergänzen können.
+
+inputs:
+  - Bestehendes Research Backend Skeleton:
+      - research_lab/backend/app/main.py (FastAPI-Entry)
+      - research_lab/backend/app/api/health.py, registry.py, jobs.py
+      - research_lab/backend/core/config_loader.py
+      - research_lab/backend/core/model_registry.py (FileSystemModelRegistry)
+      - research_lab/backend/core/job_runner.py (InMemoryJobRunner)
+      - research_lab/backend/settings.py (ResearchSettings)
+  - M1-Masterplan Vorgaben für M1.1:
+      - Feature Explorer Module
+      - Rolling KPI Engine
+      - Drift Detection
+      - Regime Clustering
+      - Visual Outputs (für dieses Task nur Datenbasis, keine Charts/Frontend)
+
+outputs:
+  - Neue Core-Module unter research_lab/backend/core/analytics/:
+      - research_lab/backend/core/analytics/__init__.py
+      - research_lab/backend/core/analytics/models.py
+          - Pydantic-Modelle / Dataklassen für Analytics-Domänenobjekte, z. B.:
+              - SeriesStats:
+                  - mean: float
+                  - std: float
+                  - min: float
+                  - max: float
+                  - quantiles: dict[str, float]  # z. B. {"0.25": ..., "0.5": ..., "0.75": ...}
+              - RollingKpiWindow:
+                  - start_index: int
+                  - end_index: int
+                  - profit_factor: float
+                  - win_rate: float
+                  - avg_win: float
+                  - avg_loss: float
+                  - max_drawdown: float
+              - DriftResult:
+                  - score: float
+                  - threshold: float
+                  - drift_detected: bool
+              - RegimeClusteringResult:
+                  - n_clusters: int
+                  - labels: list[int]
+      - research_lab/backend/core/analytics/feature_explorer.py
+          - Klasse `FeatureExplorer` mit statischen oder instanzbasierten Methoden:
+              - `compute_series_stats(series: Sequence[float], quantiles: Sequence[float] = (0.25, 0.5, 0.75)) -> SeriesStats`
+                  - Berechnet Mittelwert, Std, Min, Max und gewünschte Quantile.
+              - Optional: `compute_histogram(series: Sequence[float], bins: int = 20) -> dict`
+                  - Z. B. Rückgabe `{"bin_edges": [...], "counts": [...]}` (für spätere Visualisierung).
+      - research_lab/backend/core/analytics/kpi_engine.py
+          - Klasse `RollingKpiEngine` mit Methoden:
+              - `compute_rolling_kpis(returns: Sequence[float], window: int) -> list[RollingKpiWindow]`
+                  - Für jedes Sliding-Window (i…i+window-1):
+                      - Profit Faktor: sum(positive_returns) / abs(sum(negative_returns)) (mit sinnvoller Behandlung, falls keine Verluste oder keine Gewinne)
+                      - Win Rate: Anteil positiver Returns im Fenster
+                      - Avg Win / Avg Loss: Mittelwerte der positiven/negativen Returns (Fallback 0.0, falls keine Wins/Losses)
+                      - Max Drawdown: Klassisch aus kumulativer Summe im Fenster berechnet
+                  - Rückgabe sortiert nach Fensterstart.
+      - research_lab/backend/core/analytics/drift_detector.py
+          - Klasse `DriftDetector` mit Methode:
+              - `detect_drift(base_window: Sequence[float], current_window: Sequence[float], threshold: float = 3.0) -> DriftResult`
+                  - Berechnet Mittelwert und Std der base_window.
+                  - Berechnet Mittelwert der current_window.
+                  - Z-Score = |mean_current - mean_base| / std_base (bei std_base ≈ 0 sinnvolle Fallback-Logik).
+                  - `drift_detected = (z_score >= threshold)`.
+                  - Liefert `DriftResult(score=z_score, threshold=threshold, drift_detected=...)`.
+      - research_lab/backend/core/analytics/regime_clustering.py
+          - Klasse `RegimeClusteringService` mit Methode:
+              - `cluster_regimes(features: Sequence[Sequence[float]], n_clusters: int) -> RegimeClusteringResult`
+                  - Implementiere simple K-Means-basiertes Clustering:
+                      - Entweder mittels scikit-learn `KMeans` (mit fixem random_state für Reproduzierbarkeit),
+                        oder einer einfachen eigenen Implementation (Lloyd-Algorithmus).
+                  - Rückgabe enthält `n_clusters` und `labels` (Cluster-Index je Datenpunkt).
+                  - Eingabedaten: 2D-Matrix `features` (z. B. [[ret, vol, ...], ...]).
+          - Hinweis: Dieses Modul dient als erste, einfache Regime-Erkennung. Später wird es erweitert (HDBSCAN etc.).
+
+  - Neue API-Router unter research_lab/backend/app/api/analytics.py:
+      - Datei research_lab/backend/app/api/analytics.py mit FastAPI-Router:
+          - `router = APIRouter(prefix="/analytics", tags=["analytics"])`
+      - Endpoints:
+          - `POST /api/analytics/stats`
+              - Request-Model: `SeriesInput` mit Feld `series: list[float]`.
+              - Response-Model: `SeriesStats`.
+              - Logik: Ruft `FeatureExplorer.compute_series_stats` auf.
+          - `POST /api/analytics/kpis`
+              - Request-Model: `KpiRequest`:
+                  - `returns: list[float]`
+                  - `window: int`
+              - Response-Model: `RollingKpiResponse`:
+                  - `windows: list[RollingKpiWindow]`
+              - Logik: Nutzt `RollingKpiEngine.compute_rolling_kpis`.
+          - `POST /api/analytics/drift`
+              - Request-Model: `DriftRequest`:
+                  - `base_window: list[float]`
+                  - `current_window: list[float]`
+                  - `threshold: float | None = 3.0`
+              - Response-Model: `DriftResult`.
+              - Logik: `DriftDetector.detect_drift`.
+          - `POST /api/analytics/regimes`
+              - Request-Model: `RegimeRequest`:
+                  - `features: list[list[float]]`
+                  - `n_clusters: int`
+              - Response-Model: `RegimeClusteringResult`.
+              - Logik: `RegimeClusteringService.cluster_regimes`.
+      - Integration in main.py:
+          - In `research_lab/backend/app/main.py` den neuen Router registrieren:
+              - `from research_lab.backend.app.api import analytics`
+              - `app.include_router(analytics.router, prefix="/api")`
+
+  - Tests (pytest) unter tests/research_lab/backend/:
+      - tests/research_lab/backend/test_analytics_feature_explorer.py
+          - Testet `FeatureExplorer.compute_series_stats` mit einer kleinen Beispieldatenreihe:
+              - Verifiziert mean, std, min, max, quantiles auf bekannten Werten.
+      - tests/research_lab/backend/test_analytics_kpi_engine.py
+          - Erzeugt synthetische Returns (z. B. [1, -1, 2, -2, 3, -3] oder ähnliches).
+          - Prüft, dass:
+              - Anzahl der Fenster = len(returns) - window + 1.
+              - Profit Factor korrekt berechnet wird (inkl. Fälle ohne Verluste oder ohne Gewinne).
+              - Win Rate, Avg Win, Avg Loss und Max Drawdown erwarteten Werten entsprechen.
+      - tests/research_lab/backend/test_analytics_drift_detector.py
+          - Nutzt base_window und current_window mit leichtem und starkem Unterschied.
+          - Bei kleinem Unterschied: `drift_detected == False`.
+          - Bei großem Unterschied: `drift_detected == True`, score >= threshold.
+          - Testet auch Verhalten bei sehr kleiner base-Std.
+      - tests/research_lab/backend/test_analytics_regime_clustering.py
+          - Erzeugt zwei klar getrennte Cluster (z. B. Punkte um (0,0) und um (10,10)).
+          - Ruft `cluster_regimes(features, n_clusters=2)` auf.
+          - Erwartung:
+              - `len(labels) == len(features)`.
+              - Beide Cluster (0 und 1) kommen vor (oder zwei verschiedene Label).
+              - Punkte aus der gleichen Region haben meist den gleichen Label (einige Toleranz ist ok).
+      - tests/research_lab/backend/test_analytics_api_endpoints.py
+          - Nutzt FastAPI TestClient (wie im Health-Test bereits).
+          - Tests:
+              - `POST /api/analytics/stats` mit einer kurzen Series → Status 200 und plausible Stats.
+              - `POST /api/analytics/kpis` → Status 200, Rückgabe mit mindestens einem Fenster.
+              - `POST /api/analytics/drift` → Status 200, Rückgabe mit `drift_detected`-Flag.
+              - `POST /api/analytics/regimes` → Status 200, Rückgabe mit `labels`-Liste passender Länge.
+
+acceptance: |
+  Dieser Task gilt als DONE, wenn alle folgenden Kriterien erfüllt sind:
+
+  1. Projektstruktur:
+     - Der Ordner `research_lab/backend/core/analytics/` existiert mit den Modulen:
+       - __init__.py, models.py, feature_explorer.py, kpi_engine.py, drift_detector.py, regime_clustering.py
+     - Der API-Router `research_lab/backend/app/api/analytics.py` existiert und wird in `main.py` korrekt eingebunden.
+
+  2. Core-Funktionalität:
+     - `FeatureExplorer.compute_series_stats` gibt für eine numerische Liste korrekte Kennzahlen zurück
+       (wird durch Unit-Tests validiert).
+     - `RollingKpiEngine.compute_rolling_kpis` berechnet für synthetische Returns Pfad, Winrate, Avg Win/Loss
+       und Max Drawdown korrekt und deterministisch.
+     - `DriftDetector.detect_drift` liefert ein `DriftResult` mit sinnvollem score und korrektem drift_detected-Flag.
+     - `RegimeClusteringService.cluster_regimes` erstellt für eine simple, klar getrennte Feature-Wolke stabile Clusterlabels.
+
+  3. API-Schicht:
+     - Alle definierten Endpoints unter `/api/analytics/...` sind über FastAPI erreichbar und liefern HTTP 200
+       bei gültigen Requests.
+     - Alle Endpoints verwenden Pydantic-Modelle für Request und Response; Response-Strukturen sind stabil
+       und dokumentiert (durch Modelle).
+
+  4. Tests:
+     - Alle oben beschriebenen Tests sind implementiert unter `tests/research_lab/backend/`.
+     - Codex MUSS nach Implementierung dieses Tasks im Projekt-Root (afts_pro) das Kommando
+       `pytest` (oder `pytest -q`) ausführen.
+     - Sämtliche Tests (bestehende + neue) laufen grün (keine Errors oder Failures).
+     - Eventuelle neue Dependencies (z. B. scikit-learn) sind so eingebunden, dass pytest ohne
+       manuelles Zutun durchläuft.
+
+  5. Qualität & Erweiterbarkeit:
+     - Alle neuen öffentlichen Funktionen und Klassen sind mit Typhints versehen.
+     - Kernklassen (`FeatureExplorer`, `RollingKpiEngine`, `DriftDetector`, `RegimeClusteringService`)
+       haben Docstrings, die Zweck, Inputs und Outputs erklären.
+     - Der Code ist so strukturiert, dass spätere M1.x-Tasks (z. B. Anbindung an echte AFTS-Daten,
+       Erweiterung um HDBSCAN, komplexe KPIs, Visualisierungs-Backends) ohne Breaking Changes
+       implementiert werden können (API möglichst stabil halten).
+
+coding_standards: |
+  - Sprache:
+      - Python >= 3.11, passend zum bestehenden Projekt.
+  - Stil:
+      - Vollständige Typhints für alle öffentlichen Funktionen/Methoden.
+      - Docstrings im einheitlichen Stil (z. B. Google-Style), zumindest für alle Core-Klassen.
+      - Kein Debug-Print im Produktivcode (nur Logging, wenn nötig – gerne via bestehendem Logger, falls vorhanden).
+  - Architektur:
+      - Analytics-Logik strikt im Core (`research_lab/backend/core/analytics/`), keine Business-Logik in den Routern.
+      - Router-Module sind so dünn wie möglich: Request validieren, Service aufrufen, Response zurückgeben.
+  - Dependencies:
+      - Wenn externe Pakete wie `numpy`, `pandas` oder `scikit-learn` genutzt werden, sauber importieren
+        und in die Projektabhängigkeiten (requirements/pyproject) eintragen.
+      - Regime-Clustering soll deterministisch sein (fixer random_state), damit Tests reproduzierbar sind.
+  - Tests:
+      - pytest-Konventionen: `test_*.py`, reine Unit-Tests ohne Netzwerk/DB.
+      - Logik-Tests und API-Tests getrennt, damit Fehlerquellen klar sind.
+
+notes: |
+  - Dieser Task liefert die „Engine“ für M1.1:
+      - Feature Explorer, KPI Engine, Drift-Recognition und simple Regime-Clustering als Backend-Funktionen.
+      - Visualisierungen (Charts, Heatmaps) kommen später über das Frontend / separate Services; hier bauen wir nur
+        die numerische Basis und die API.
+  - In späteren Tasks von M1.1/M1.7 können wir:
+      - die Analytics-Engine an echte OHLCV/Trade-Daten anbinden (Data Access Layer),
+      - komplexe Analyzer (Tail-Risiko, Feature-Importance, Rolling-Correlations) ergänzen,
+      - und die Ergebnisse im Research-Dashboard visualisieren.
+  - Ab diesem Task gilt weiterhin:
+      - Jeder weitere M1-Task MUSS eigene Tests mitbringen und am Ende mit einem vollständigen pytest-Lauf
+        validiert werden, bevor er als erledigt gilt.

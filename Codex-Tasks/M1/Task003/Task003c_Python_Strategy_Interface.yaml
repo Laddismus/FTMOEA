@@ -1,0 +1,299 @@
+title: AFTS_M1_Task_003c_Python_Strategy_Interface_And_Loader
+
+summary: |
+  Führe einen offiziellen, einheitlichen Weg ein, um Python-basierte Strategien (.py) in das
+  AFTS-Ökosystem zu integrieren und sie im Research Lab sichtbar, validierbar und registrierbar
+  zu machen.
+
+  Ziel:
+    - Definiere ein minimales, aber zukunftsfähiges PythonStrategy-Interface (ABC/Protocol),
+      das von Custom-Strategien implementiert werden soll.
+    - Implementiere einen Loader, der eine Python-Strategie-Klasse per module_path + class_name
+      importiert, auf Interface-Konformität prüft und Metadaten extrahiert.
+    - Implementiere eine einfache Registry für Python-Strategien (Metadaten + JSON-Index),
+      analog zum Model Registry Stub.
+    - Exponiere das Ganze über eine FastAPI-API im Research Backend:
+        - Liste registrierter Python-Strategien
+        - Registrierung einer neuen Strategie (inkl. Loader-Validierung)
+        - Validierungs-Endpoint (Check, ob ein .py-Strategie-Target ladbar/kompatibel ist)
+    - Vollständige pytest-Abdeckung für Interface, Loader, Registry und API.
+
+  Wichtig:
+    - Dieser Task führt noch keine Backtests aus – er sorgt dafür, dass Python-Strategien
+      als FIRST-CLASS Entitäten im Research-Lab bekannt sind.
+    - M1.4 (Backtest & SIM Suite) wird später auf genau diesen Loader/Registry aufsetzen,
+      um Python-Strategien in Backtests und SIM-Runs zu verwenden.
+
+inputs:
+  - Bestehendes Research Backend:
+      - research_lab/backend/app/main.py
+      - research_lab/backend/app/api/__init__.py
+      - research_lab/backend/core/__init__.py
+      - research_lab/backend/core/model_registry.py
+      - research_lab/backend/core/job_runner.py
+      - research_lab/backend/settings.py (inkl. strategies_dir)
+  - Strategy Builder & Node-Katalog:
+      - research_lab/backend/core/strategy_builder/*
+      - tests für Strategy Builder und NodeCatalog
+  - Anforderungen:
+      - Python-Strategien sollen langfristig von AFTS-Core (Backtest/SIM/Live) als eigenständiger
+        Strategy-Type genutzt werden können.
+      - Interface muss einfach, aber stabil sein; spätere Erweiterungen (Events, Positionsverwaltung)
+        sollen ohne Breaking Changes möglich sein.
+
+outputs:
+  - Neues Core-Paket für Python-Strategien:
+      - research_lab/backend/core/python_strategies/__init__.py
+      - research_lab/backend/core/python_strategies/interface.py
+          - Definiere ein minimales, engine-agnostisches Interface für Python-Strategien.
+          - Verwende `abc.ABC` oder `typing.Protocol`.
+          - Vorschlag (ABC):
+
+            ```python
+            from abc import ABC, abstractmethod
+            from typing import Any, Dict, Optional
+
+            class PythonStrategyInterface(ABC):
+                """
+                Minimal interface for Python-based trading strategies that can be
+                executed by the AFTS Core (backtest / sim / live).
+
+                This interface is intentionally minimal for M1 and will be extended
+                in later phases with richer event hooks.
+                """
+
+                @abstractmethod
+                def get_metadata(self) -> Dict[str, Any]:
+                    """
+                    Returns metadata about the strategy, such as:
+                    - name
+                    - version
+                    - description
+                    - tags
+                    - default_params
+                    """
+                    raise NotImplementedError
+
+                @abstractmethod
+                def initialize(self, params: Optional[Dict[str, Any]] = None) -> None:
+                    """
+                    Initializes internal state of the strategy with the given params.
+                    """
+                    raise NotImplementedError
+            ```
+
+          - Zusätzlich eine einfache Basis-Implementierung:
+            - `class BasePythonStrategy(PythonStrategyInterface)`:
+                - Implementiert `get_metadata()` via Klassenattribute (z. B. `strategy_name`, `strategy_version`, …).
+                - Bietet default `initialize()` (setzt ggf. `self.params`).
+          - Ziel: Custom-Strategien können einfach von `BasePythonStrategy` erben, um kompatibel zu sein.
+
+      - research_lab/backend/core/python_strategies/models.py
+          - Pydantic-Modelle für Metadaten:
+              - `PythonStrategyMetadata`:
+                  - key: str                # z. B. "my_strategy_v1"
+                  - name: str
+                  - version: str
+                  - description: str | None = None
+                  - module_path: str        # z. B. "strategies.custom.my_strategy"
+                  - class_name: str         # z. B. "MyStrategy"
+                  - tags: list[str] = []
+                  - params_schema: dict[str, Any] = {}   # optional param-schema (frei definierbar)
+              - `PythonStrategyRegistrationRequest`:
+                  - module_path: str
+                  - class_name: str
+                  - key: str | None = None
+                  - override_metadata: dict[str, Any] | None = None
+              - `PythonStrategyValidationResult`:
+                  - valid: bool
+                  - error: str | None = None
+                  - metadata: PythonStrategyMetadata | None = None
+
+      - research_lab/backend/core/python_strategies/loader.py
+          - Implementiere Funktionen/Klasse zum Laden und Validieren von Strategien:
+              - `def import_strategy_class(module_path: str, class_name: str) -> type:`
+                  - Nutzt `importlib.import_module`.
+                  - Holt Attribut per `getattr`.
+                  - Validiert:
+                      - Ist es eine Klasse?
+                      - Ist es eine Subklasse von `PythonStrategyInterface` oder `BasePythonStrategy`?
+                  - Fehlerfälle → klare Exceptions mit sinnvollen Messages.
+              - `def extract_metadata(cls: type[PythonStrategyInterface]) -> PythonStrategyMetadata:`
+                  - Versucht Metadaten aus der Klasse zu holen:
+                      - Klassenattribute wie:
+                          - `strategy_key`, `strategy_name`, `strategy_version`, `strategy_description`, `strategy_tags`, `strategy_params_schema`.
+                      - Fällt, wenn nicht vorhanden, auf Defaults zurück (z. B. class_name als Name, Version "1.0.0").
+                  - Gibt ein `PythonStrategyMetadata` Objekt zurück.
+
+      - research_lab/backend/core/python_strategies/registry.py
+          - Implementiere `PythonStrategyRegistry` analog zur FileSystemModelRegistry:
+              - Nutzt `ResearchSettings` und neues Feld `python_strategies_dir`.
+              - Speichert einen JSON-Index, z. B. unter:
+                  - `<python_strategies_dir>/registry.json`
+              - Methoden:
+                  - `register_strategy(metadata: PythonStrategyMetadata) -> None`
+                      - Lädt existierenden Index (falls vorhanden), fügt/aktualisiert Eintrag unter `metadata.key`.
+                      - Schreibt Index zurück (atomic write, z. B. via tmpfile + rename).
+                  - `get_strategy(key: str) -> PythonStrategyMetadata | None`
+                  - `list_strategies() -> list[PythonStrategyMetadata]`
+              - Kein Code-Execution, nur Metadaten & Index-Persistenz.
+
+  - Erweiterung ResearchSettings:
+      - In research_lab/backend/settings.py:
+          - Füge Feld/Property hinzu:
+              - `python_strategies_dir: Path`  # z. B. <project_root>/strategies/custom
+          - Stelle sicher, dass Verzeichnis bei Bedarf erzeugt werden kann
+            (z. B. Hilfsfunction oder im Registry-Konstruktor).
+
+  - Python Strategies API-Router:
+      - Neue Datei: research_lab/backend/app/api/python_strategies.py
+          - `router = APIRouter(prefix="/python-strategies", tags=["python-strategies"])`
+
+          - Pydantic-Schemas:
+              - Verwende PythonStrategyMetadata und PythonStrategyRegistrationRequest aus dem Core.
+              - Für Responses:
+                  - `PythonStrategyListResponse`:
+                      - strategies: list[PythonStrategyMetadata]
+                  - `PythonStrategyValidationResponse`:
+                      - result: PythonStrategyValidationResult
+
+          - Endpoints:
+              1. `GET /api/python-strategies`
+                  - Liefert alle registrierten Strategien.
+                  - Implementierung:
+                      - Nutzt `PythonStrategyRegistry.list_strategies()`.
+
+              2. `POST /api/python-strategies/validate-import`
+                  - Body: `PythonStrategyRegistrationRequest`.
+                  - Ablauf:
+                      - Versucht, die Klasse mit `import_strategy_class` zu laden.
+                      - Prüft Subklasse von `PythonStrategyInterface`.
+                      - Extrahiert Metadaten via `extract_metadata`.
+                      - Rückgabe: `PythonStrategyValidationResponse` mit `valid=True` und metadata.
+                      - Bei Fehlern: `valid=False`, error-String.
+
+              3. `POST /api/python-strategies/register`
+                  - Body: `PythonStrategyRegistrationRequest`.
+                  - Ablauf:
+                      - Führt denselben Validierungsprozess durch.
+                      - Merged ggf. `override_metadata` in die extrahierten Metadaten.
+                      - Erzeugt `key`:
+                          - Wenn im Request gesetzt → verwenden.
+                          - Sonst z. B. `<module_path>.<class_name>` oder `strategy_key` aus der Klasse.
+                      - Registriert Strategie im `PythonStrategyRegistry`.
+                      - Rückgabe: `PythonStrategyMetadata`.
+
+          - Einbindung in main.py:
+              - `from research_lab.backend.app.api import python_strategies`
+              - `app.include_router(python_strategies.router, prefix="/api")`
+
+  - Tests (pytest) unter tests/research_lab/backend/:
+      - tests/research_lab/backend/test_python_strategy_interface_and_loader.py
+          - Erzeugt zur Laufzeit ein simples temp-Modul für Tests:
+              - Schreibt in ein tmpdir eine Datei `my_strategy.py` mit:
+
+                ```python
+                from research_lab.backend.core.python_strategies.interface import BasePythonStrategy
+
+                class MyTestStrategy(BasePythonStrategy):
+                    strategy_key = "test.my_strategy"
+                    strategy_name = "My Test Strategy"
+                    strategy_version = "1.0.0"
+                    strategy_description = "Test-only strategy."
+                    strategy_tags = ["test", "demo"]
+                    strategy_params_schema = {"risk_pct": {"type": "float", "default": 1.0}}
+
+                    def initialize(self, params=None):
+                        super().initialize(params)
+                ```
+
+              - Fügt tmpdir in sys.path (via monkeypatch).
+              - Testfälle:
+                  - `import_strategy_class("my_strategy", "MyTestStrategy")` → Klasse wird geladen.
+                  - Klasse ist Subklasse von PythonStrategyInterface.
+                  - `extract_metadata()` liefert korrekte `PythonStrategyMetadata` (inkl. key, name, version, tags, params_schema).
+
+      - tests/research_lab/backend/test_python_strategy_registry.py
+          - Nutzt temp-Verzeichnis für `python_strategies_dir` (Settings überschreiben).
+          - Erzeugt 1–2 `PythonStrategyMetadata` Objekte.
+          - Test:
+              - `register_strategy()` → Index-Datei wird geschrieben.
+              - `get_strategy()` liefert korrekten Eintrag.
+              - `list_strategies()` gibt Liste mit erwarteten Strategien zurück.
+              - Überprüft, dass Updates (gleicher key, andere Version) korrekt überschreiben.
+
+      - tests/research_lab/backend/test_python_strategies_api.py
+          - Nutzt FastAPI TestClient.
+          - Patcht `python_strategies_dir` auf tmpdir, sys.path auf tmpdir.
+          - Schreibt Demo-Strategie-Modul wie oben.
+          - Tests:
+              - `POST /api/python-strategies/validate-import` mit module_path="my_strategy", class_name="MyTestStrategy":
+                  - Status 200, valid=True, metadata.key != "".
+              - `POST /api/python-strategies/register`:
+                  - Status 200, Response enthält `PythonStrategyMetadata` mit key, name, version etc.
+              - `GET /api/python-strategies`:
+                  - Status 200, Liste enthält mindestens die registrierte Demo-Strategie.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Core-Struktur:
+     - Das Paket research_lab/backend/core/python_strategies/ existiert mit:
+       - __init__.py, interface.py, models.py, loader.py, registry.py
+     - interface.py exportiert PythonStrategyInterface und BasePythonStrategy.
+     - models.py definiert PythonStrategyMetadata und korrespondierende Request/Response-Modelle.
+     - loader.py kann eine gültige Strategy-Klasse aus einem Modul importieren und Metadaten extrahieren.
+     - registry.py persistiert Metadaten unter python_strategies_dir in einem JSON-Index.
+
+  2. Settings:
+     - ResearchSettings enthält ein Feld/Property python_strategies_dir (Path).
+     - Dieses Verzeichnis wird bei Bedarf erstellt (über Registry oder Helper).
+
+  3. API:
+     - Der Router python_strategies ist registriert und unter /api/python-strategies erreichbar.
+     - `GET /api/python-strategies` liefert eine Liste der registrierten Strategien.
+     - `POST /api/python-strategies/validate-import` kann eine Demo-Strategie erfolgreich validieren (valid=True)
+       und liefert Metadaten.
+     - `POST /api/python-strategies/register` registriert eine Strategie nach erfolgreicher Validierung
+       und persistiert sie in der Registry.
+
+  4. Tests:
+     - Alle beschriebenen Tests unter tests/research_lab/backend/ sind implementiert:
+         - test_python_strategy_interface_and_loader.py
+         - test_python_strategy_registry.py
+         - test_python_strategies_api.py
+     - Codex führt im Projekt-Root (afts_pro) `pytest` (oder `pytest -q`) aus.
+     - Ergebnis: Alle Tests (bestehende + neue) PASSED, keine Errors/Failures.
+
+  5. Qualität:
+     - Vollständige Type Hints für alle öffentlichen Funktionen/Methoden.
+     - Klar formulierte Exceptions mit hilfreichen Fehlermeldungen (z. B. bei Import-Fehlern
+       oder Nicht-Konformität mit PythonStrategyInterface).
+     - Docstrings für:
+         - PythonStrategyInterface / BasePythonStrategy
+         - PythonStrategyRegistry
+         - import_strategy_class / extract_metadata
+     - Design so, dass M1.4 (Backtest & Simulation Suite) diese Komponenten direkt nutzen kann,
+       um Python-Strategien aus der Registry zu laden und auszuführen.
+
+coding_standards: |
+  - Python-Version: wie im Projekt (>= 3.11).
+  - Typisierung:
+      - Type Hints überall, Nutzung von typing.Protocol/ABC, Dict[str, Any], Optional usw.
+  - Stil:
+      - Einhaltung der bestehenden Projektkonventionen (Pydantic-Modelle, FastAPI-Router, Core/Infra-Trennung).
+      - Router nur als dünne Schicht: Validierung im Pydantic-Model, Logik im Core.
+  - Tests:
+      - pytest, deterministisch, ohne externe Services.
+      - Test-Module generieren temporäre Strategiemodule und verwenden tmpdir/monkeypatch,
+        um keine echten Projektdateien zu verändern.
+
+notes: |
+  - Mit diesem Task werden Python-Strategien offiziell „Bürger erster Klasse“ im Research-Lab:
+      - Sie können validiert, registriert und später für Backtests/SIMs verwendet werden.
+  - M1.4 wird darauf aufbauen:
+      - Backtest-Jobs nehmen z. B. ein Feld `strategy_type: "python"` + `strategy_key` oder
+        `module_path/class_name` und nutzen diesen Loader/Registry, um die Strategie zu instanzieren.
+  - Dieser Hybrid-Ansatz (Graph-Strategien + Python-Strategien) bringt dich genau in die Liga,
+    in der echte Quant-Firmen arbeiten: Standardisierte Baukästen UND maximale Freiheit für
+    High-End-Custom-Alpha.

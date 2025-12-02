@@ -1,0 +1,297 @@
+title: AFTS_M1_Task_008_Python_Backtest_TradingState_And_Orders_v1
+
+summary: |
+  Erweitere die Python-Backtests von einem reinen "per-bar-return" Modell zu einem einfachen,
+  aber expliziten Trading-State- und Order-Modell:
+    - Die Strategie liefert Handelsentscheidungen (enter/exit/hold) statt direkt Returns.
+    - Ein Trading-Simulator führt diese Entscheidungen aus (Position, Entry-Price, PnL, Equity).
+    - Aus der simulierten Equity-/Return-Serie werden wie bisher KPIs berechnet.
+  
+  Ziel:
+    - Einführung minimaler Domain-Modelle für Position/Trade/Action im Backtest-Layer.
+    - Erweiterung von PythonStrategyInterface um einen optionalen Trading-Hook, ohne bestehende Strategien zu brechen.
+    - Erweiterung des PythonStrategyExecutorAdapters, um entweder:
+        - (a) den neuen Trading-Hook zu nutzen (Empfohlen) oder
+        - (b) auf das alte on_bar-Return-Modell zurückzufallen (Legacy).
+    - Erweiterung der BacktestEngine, um die Trading-Simulation zu verwenden, wenn verfügbar.
+    - Vollständige pytest-Abdeckung für Trading-Flow, PnL-Berechnung und API-Path.
+
+inputs:
+  - Aktueller Stand:
+      - backtests:
+          - research_lab/backend/core/backtests/models.py
+          - research_lab/backend/core/backtests/engine.py
+          - research_lab/backend/core/backtests/persistence.py
+          - research_lab/backend/core/backtests/service.py
+      - strategy_execution:
+          - research_lab/backend/core/strategy_execution/python_executor.py
+          - research_lab/backend/core/strategy_execution/context.py
+      - python_strategies:
+          - research_lab/backend/core/python_strategies/interface.py
+          - tests/test_python_strategy_interface_and_loader.py
+      - API:
+          - research_lab/backend/app/api/backtests.py
+          - tests/test_backtest_engine_python_bars.py
+          - tests/test_backtests_api_python_bars.py
+
+outputs:
+  - Neue Trading-Domain-Modelle:
+      - In research_lab/backend/core/backtests/models.py:
+          - Füge hinzu:
+
+            ```python
+            from enum import Enum
+
+            class PositionSide(str, Enum):
+                FLAT = "flat"
+                LONG = "long"
+
+            class TradingAction(str, Enum):
+                HOLD = "hold"
+                ENTER_LONG = "enter_long"
+                EXIT = "exit"
+            ```
+
+          - `BacktestPositionState`:
+
+            ```python
+            class BacktestPositionState(BaseModel):
+                side: PositionSide = PositionSide.FLAT
+                size: float = 0.0
+                entry_price: float | None = None
+                equity: float = 1.0  # normiert (Start 1.0)
+            ```
+
+          - Optional (für spätere Analyse / Journal):
+            - `BacktestTrade`:
+
+              ```python
+              class BacktestTrade(BaseModel):
+                  entry_ts: datetime
+                  exit_ts: datetime
+                  entry_price: float
+                  exit_price: float
+                  pnl: float
+                  return_: float
+              ```
+
+          - Erweiterung `BacktestResult`:
+              - Neues Feld (optional):
+                - `trades: list[BacktestTrade] | None = None`
+
+  - Erweiterung PythonStrategyInterface (ohne Breaking Change):
+      - In research_lab/backend/core/python_strategies/interface.py:
+          - Importiere BacktestBar, BacktestPositionState, TradingAction.
+          - Ergänze **optional**:
+
+            ```python
+            class PythonStrategyInterface(ABC):
+                ...
+                def on_bar_trade(
+                    self,
+                    bar: BacktestBar,
+                    state: BacktestPositionState
+                ) -> TradingAction:
+                    """
+                    Optional trading hook: called each bar with the current position state.
+                    Should return a TradingAction (HOLD, ENTER_LONG, EXIT).
+
+                    Default implementation returns HOLD to keep old strategies compatible.
+                    """
+                    return TradingAction.HOLD
+            ```
+
+          - BasePythonStrategy:
+              - Implementiert on_bar_trade mit dem selben Default (HOLD).
+          - Wichtig:
+              - `on_bar` bleibt bestehen (wie in Task 007) und liefert weiterhin einen float-return.
+              - BacktestEngine entscheidet dynamisch:
+                  - Wenn Strategy on_bar_trade "aktiv" ist → Trading-Modus.
+                  - Sonst → Legacy-Modus (direct returns).
+
+  - Erweiterung PythonStrategyExecutorAdapter:
+      - In research_lab/backend/core/strategy_execution/python_executor.py:
+          - Ergänze Hilfsmethode zur Erkennung, ob die Strategie on_bar_trade überschrieben hat:
+
+            ```python
+            import inspect
+
+            def _has_custom_on_bar_trade(self) -> bool:
+                base_method = PythonStrategyInterface.on_bar_trade
+                current_method = type(self.strategy_instance).on_bar_trade
+                return current_method is not base_method
+            ```
+
+          - Erweiterung `run_bar_loop`:
+              - Zwei Pfade:
+                1. **Trading-Modus** (wenn `_has_custom_on_bar_trade()` True):
+                    - Implementiere einen internen Trading-Simulator (Long-only, 1x Size, kein Leverage).
+                    - Initialisiere `state = BacktestPositionState(equity=1.0)`.
+                    - Für jede Bar:
+                        - `action = strategy_instance.on_bar_trade(bar, state)`
+                        - Transition-Logik:
+                            - Wenn `state.side == FLAT` und action == ENTER_LONG:
+                                - `state.side = LONG`
+                                - `state.size = 1.0`
+                                - `state.entry_price = bar.close`
+                            - Wenn `state.side == LONG` und action == EXIT:
+                                - Return / PnL berechnen:
+                                    - `bar_ret = (bar.close - state.entry_price) / state.entry_price`
+                                    - `state.equity *= (1.0 + bar_ret)`
+                                    - Reset: `state.side = FLAT`, `state.size = 0`, `state.entry_price = None`
+                                - Optional: BacktestTrade-Objekt erzeugen und in einer internen Liste speichern.
+                            - In LONG-Phase ohne EXIT:
+                                - Optional: mark-to-market Return pro Bar:
+                                    - z. B. `(bar.close - prev_close) / prev_close` mit passender Logik; in M1.4 v1 reicht,
+                                      Returns nur bei Exit zu buchen, solange Tests das abbilden.
+                        - Für jede Bar:
+                            - berechne `per_bar_return`, die in die Returns-Serie für KPIs eingeht:
+                                - simplest: 0.0, außer wenn EXIT, dann `bar_ret`.
+                        - Liste der Returns sammeln → an BacktestEngine zurück.
+                        - Optional: die Liste von BacktestTrades in einem Attribut speichern, das später an BacktestResult übergeben wird.
+                2. **Legacy-Modus** (kein custom on_bar_trade):
+                    - Verhalten wie in Task 007:
+                        - `ret = strategy_instance.on_bar(bar)`
+                        - Liste der Returns zurückgeben.
+
+              - API-Design:
+                  - `run_bar_loop(bars)` gibt **immer** `list[float]` zurück (für KPIs).
+                  - Zusätzlich optional:
+                      - `self.trades: list[BacktestTrade]` im Executor, die BacktestEngine abholen kann.
+
+  - Anpassung BacktestEngine:
+      - In research_lab/backend/core/backtests/engine.py:
+          - Im Python+bars Pfad:
+              - Hole nach `returns = executor.run_bar_loop(bars)`:
+                  - Wenn Executor einen Trading-Modus verwendet:
+                      - Versuche `getattr(executor, "trades", None)` zu lesen.
+                      - Wenn vorhanden, in `BacktestResult.trades` schreiben.
+              - Kein Change für den returns-only Pfad.
+          - Tests in test_backtest_engine_python_bars.py entsprechend anpassen/erweitern:
+              - Ein Test für Trading-Modus (on_bar_trade vorhanden):
+                  - Strategy erzeugt z. B. eine einzige Long-Trade-Sequenz:
+                      - ENTER_LONG auf erster Bar, EXIT auf letzter Bar.
+                  - Erwartung:
+                      - Summe der Returns == `(last_close - first_close) / first_close` (bei deinem gewählten Modell).
+                      - BacktestResult.trades enthält genau einen Trade mit den korrekten Preisen und PnL.
+              - Ein Test für Legacy-Modus (nur on_bar implementiert, on_bar_trade nicht überschrieben):
+                  - Verhalten wie bisher, keine Trades im Result.
+
+  - API & Persistenz:
+      - BacktestResult (inkl. neuen trades-Feld) wird wie bisher via BacktestPersistence als JSON gespeichert.
+      - In research_lab/backend/app/api/backtests.py:
+          - Keine zusätzliche Änderung am Endpoint-Schema nötig, solange BacktestResult das neue Feld enthält.
+          - Tests in test_backtests_api_python_bars.py erweitern:
+              - Prüfen, dass `trades` im JSON für Trading-Strategien entweder:
+                  - eine Liste mit erwarteter Länge und Struktur ist,
+                  - oder None/fehlend im Legacy-Fall.
+
+  - Tests (pytest) neu/erweitert:
+      - tests/research_lab/backend/test_python_strategy_trading_mode.py
+          - Definiert im tmpdir eine Test-Strategie:
+
+            ```python
+            class MyTradingStrategy(BasePythonStrategy):
+                strategy_key = "test.trading_strategy"
+                strategy_name = "Trading Strategy"
+                strategy_version = "1.0.0"
+
+                def on_bar_trade(self, bar: BacktestBar, state: BacktestPositionState) -> TradingAction:
+                    # Einfache Regel:
+                    # - Erster Bar: ENTER_LONG
+                    # - Letzter Bar: EXIT
+                    # - Dazwischen: HOLD
+            ```
+
+          - Verwendet PythonStrategyExecutorAdapter direkt:
+              - run_bar_loop(bars) → returns-Liste.
+              - Prüft:
+                  - on_bar_trade wurde pro Bar aufgerufen.
+                  - returns enthält nur am EXIT-Bar einen nicht-Null-Wert (z. B. > 0).
+                  - executor.trades enthält genau einen Trade mit sinnvollen Feldern.
+
+      - tests/research_lab/backend/test_backtest_engine_python_trading_state.py
+          - Nutzt RollingKpiBacktestEngine mit obiger Strategy (via module_path/class_name).
+          - Erwartet:
+              - BacktestResult.kpi_summary.total_return == erwartete Strategie-Return (mit Toleranz).
+              - BacktestResult.trades ist nicht leer.
+
+      - tests/research_lab/backend/test_backtests_api_python_trading_state.py
+          - Nutzt FastAPI TestClient.
+          - Setup:
+              - tmpdir-Strategie wie oben.
+          - `POST /api/backtests/run-sync`:
+              - Request: mode="python", bars, python_strategyRef.
+              - Response:
+                  - Status 200.
+                  - JSON enthält `trades`-Array mit erwarteter Länge.
+                  - kpi_summary.total_return > 0 (für das gewählte Bar-Setup).
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Trading-Domain:
+     - PositionSide, TradingAction, BacktestPositionState und BacktestTrade sind definiert und werden im Code verwendet.
+     - BacktestResult trägt optional eine trades-Liste.
+
+  2. Strategy-Interface:
+     - PythonStrategyInterface hat eine optionale on_bar_trade-Methode mit Default-Implementation (HOLD).
+     - BasePythonStrategy implementiert on_bar_trade entsprechend.
+     - Bestehende Strategien/Tests laufen weiter (Legacy-Modus via on_bar).
+
+  3. Executor:
+     - PythonStrategyExecutorAdapter erkennt, ob eine Strategie on_bar_trade überschreibt.
+     - Im Trading-Modus:
+         - run_bar_loop(bars) nutzt ausschließlich on_bar_trade und simuliert PositionState.
+         - Erzeugt eine Returns-Serie und optional eine Trades-Liste.
+     - Im Legacy-Modus:
+         - run_bar_loop(bars) funktioniert wie zuvor über on_bar und erzeugt keine Trades.
+
+  4. BacktestEngine & API:
+     - Bei mode="python" + bars und Trading-Strategien:
+         - Engine nutzt Trading-Modus, KPIs basieren auf den simulierten Returns.
+         - BacktestResult.trades enthält eine sinnvolle Liste von Trades (mindestens im Test-Szenario).
+     - Bei Legacy-Strategien oder returns-only:
+         - Verhalten bleibt unverändert.
+     - API-Responses (run-sync, submit/jobs, runs/runs/{id}) enthalten trades-Feld in BacktestResult
+       (nicht leer im Trading-Testfall, leer/None im Legacy-Fall).
+
+  5. Tests:
+     - Neue Tests:
+         - test_python_strategy_trading_mode.py
+         - test_backtest_engine_python_trading_state.py
+         - test_backtests_api_python_trading_state.py
+       sind implementiert.
+     - Alle bestehenden Tests sind ggf. minimal angepasst, aber bleiben grün.
+     - Gesamt-`pytest`-Lauf im Projekt-Root ist ohne Errors/Failures.
+
+  6. Qualität:
+     - Vollständige Typisierung, klare Docstrings für:
+         - on_bar_trade,
+         - TradingAction/PositionState,
+         - Trading-Simulator-Logik im Executor.
+     - Design ist so, dass in einem späteren Schritt:
+         - Short-Positionen,
+         - variable Positionsgrößen,
+         - Fees/Slippage,
+         - und komplexere Order-Modelle
+       ohne Breaking Changes auf dieses v1-Modell aufsetzen können.
+
+coding_standards: |
+  - Python >= 3.11.
+  - Typisierung:
+      - Nutzung von Enums für Action/Side.
+      - Saubere Nutzung von list[BacktestBar], list[float], list[BacktestTrade].
+  - Router bleiben dünn, keine Trading-Logik im API-Layer.
+  - Tests deterministisch; wo nötig float-Toleranzen mit pytest.approx.
+
+notes: |
+  - Dieser Task bringt dich vom "Bar-Return-basierten" Backtest-Modell hin zu einem
+    ersten echten Trading-Simulator:
+      - Strategie → Actions → PositionState → PnL → Returns → KPIs.
+  - Das ist die perfekte Basis, um später:
+      - dein Money-Management-Modell,
+      - Fees/Slippage,
+      - mehrfache Entries/Exits,
+      - und FTMO-konformes Risk-Modelling
+    direkt im Core zu simulieren.

@@ -1,0 +1,305 @@
+title: AFTS_M1_Task_006_Strategy_Execution_Bridge_v1_For_Backtests
+
+summary: |
+  Definiere und integriere eine erste "Strategy Execution Bridge" zwischen dem Research Backtest-Engine
+  und Strategierepräsentationen (Graph-Strategien & Python-Strategien).
+
+  Ziel:
+    - Ein klares, engine-agnostisches StrategyExecution-Interface, das später von der
+      echten AFTS-Core-Backtest-Engine implementiert werden kann.
+    - Zwei Adapter:
+        - GraphStrategyExecutorAdapter (für StrategyGraph/Engine-Config-basierte Strategien)
+        - PythonStrategyExecutorAdapter (für PythonStrategyInterface-basierte Strategien)
+    - Erweiterung des Backtest-Engines, sodass er:
+        - je nach BacktestRequest.mode ("graph" / "python") den passenden Executor nutzt,
+        - die Strategie mindestens "initialisiert" und Metadaten anreichert,
+        - für diesen Task noch immer mit vorgegebenen Returns arbeitet
+          (keine vollständige Bar-by-Bar-Ausführung, das kommt in M1.4b).
+    - Vollständige pytest-Abdeckung für:
+        - Executors (Graph/Python),
+        - Integration in BacktestEngine und BacktestService,
+        - API-Endpunkte, die Strategy-Refs durchreichen und korrekt auflösen.
+
+inputs:
+  - Aktueller Stand Research Backend:
+      - Backtests:
+          - research_lab/backend/core/backtests/models.py
+          - research_lab/backend/core/backtests/engine.py
+          - research_lab/backend/core/backtests/service.py
+          - research_lab/backend/core/backtests/persistence.py
+          - research_lab/backend/app/api/backtests.py
+          - tests/research_lab/backend/test_backtest_engine_stub.py
+          - tests/research_lab/backend/test_backtest_service_and_jobs.py
+          - tests/research_lab/backend/test_backtests_api*.py
+      - Strategy Builder:
+          - research_lab/backend/core/strategy_builder/* (DSL, Engine-Config, NodeCatalog)
+          - strategies_dir in ResearchSettings (YAML-Strategien)
+      - Python-Strategien:
+          - research_lab/backend/core/python_strategies/interface.py
+          - research_lab/backend/core/python_strategies/loader.py
+          - research_lab/backend/core/python_strategies/registry.py
+          - /api/python-strategies Router
+      - Settings:
+          - research_lab/backend/settings.py (strategies_dir, python_strategies_dir, backtests_dir)
+
+outputs:
+  - Neues Core-Modul für Strategy Execution:
+      - research_lab/backend/core/strategy_execution/__init__.py
+      - research_lab/backend/core/strategy_execution/interface.py
+          - Definiere ein generisches Execution-Interface, das mit beiden Strategietypen umgehen kann:
+
+            ```python
+            from abc import ABC, abstractmethod
+            from typing import Any, Dict, Optional, Protocol
+
+            class StrategyExecutionContext(Protocol):
+                """
+                Lightweight context placeholder for M1.4a.
+                Später kann dieser Kontext Marktdaten, Orders, Positionszustand etc. enthalten.
+                """
+                config: Dict[str, Any]
+                params: Dict[str, Any]
+
+            class StrategyExecutor(ABC):
+                """
+                Abstract base for strategy executors used by the Backtest Engine.
+                """
+
+                @abstractmethod
+                def initialize(self, ctx: StrategyExecutionContext) -> None:
+                    """
+                    Initializes the underlying strategy implementation with the given context.
+                    """
+                    raise NotImplementedError
+
+                @abstractmethod
+                def get_metadata(self) -> Dict[str, Any]:
+                    """
+                    Returns metadata about the executed strategy, such as name, version, tags, etc.
+                    """
+                    raise NotImplementedError
+            ```
+
+          - Wichtig: In M1.4a gibt es **noch keine** `on_bar`/`on_tick`-Methoden – wir definieren bewusst nur Init + Metadata.
+
+      - research_lab/backend/core/strategy_execution/graph_executor.py
+          - Implementiere einen Adapter für Graph-Strategien:
+
+            ```python
+            from typing import Any, Dict, Optional
+            from .interface import StrategyExecutor, StrategyExecutionContext
+
+            class GraphStrategyExecutorAdapter(StrategyExecutor):
+                """
+                StrategyExecutor adapter for graph-based strategies (StrategyGraph / engine_config).
+                For M1.4a it focuses on wiring metadata and config; actual signal execution will be added later.
+                """
+
+                def __init__(self, engine_config: Dict[str, Any], dsl: Optional[Dict[str, Any]] = None):
+                    self.engine_config = engine_config
+                    self.dsl = dsl or {}
+                    self._metadata: Dict[str, Any] = {}
+            ```
+
+          - `initialize(ctx)`:
+              - Speichert ctx-Informationen.
+              - Füllt `_metadata` mit u. a.:
+                  - `"type": "graph"`
+                  - `"engine_mode": engine_config.get("execution", {}).get("mode", "strategy_graph_v1")`
+                  - `"graph_id"` / `"graph_name"` aus engine_config/DSL falls vorhanden.
+                  - `"params"`/`"metadata"` aus ctx.config/ctx.params, falls vorhanden.
+          - `get_metadata()`:
+              - Gibt `_metadata` zurück.
+
+      - research_lab/backend/core/strategy_execution/python_executor.py
+          - Implementiere einen Adapter für Python-Strategien:
+
+            ```python
+            from typing import Any, Dict, Optional, Type
+            from .interface import StrategyExecutor, StrategyExecutionContext
+            from research_lab.backend.core.python_strategies.interface import PythonStrategyInterface
+            from research_lab.backend.core.python_strategies.loader import import_strategy_class, extract_metadata
+
+            class PythonStrategyExecutorAdapter(StrategyExecutor):
+                def __init__(self, strategy_cls: Type[PythonStrategyInterface]):
+                    self.strategy_cls = strategy_cls
+                    self.strategy_instance: Optional[PythonStrategyInterface] = None
+                    self._metadata: Dict[str, Any] = {}
+            ```
+
+          - `initialize(ctx)`:
+              - Instanziiert `strategy_cls`.
+              - Ruft `strategy_instance.initialize(ctx.params)` auf.
+              - Holt Metadaten via `extract_metadata(strategy_cls)` und schreibt ggf. zusätzliche Infos
+                aus ctx.config/ctx.params hinein.
+          - `get_metadata()`:
+              - Gibt `_metadata` zurück.
+
+  - Strategy Execution Context Implementierung:
+      - In research_lab/backend/core/strategy_execution/context.py
+          - Einfaches dataclass oder Pydantic-Modell, das StrategyExecutionContext-Protocol erfüllt:
+
+            ```python
+            from dataclasses import dataclass
+            from typing import Dict, Any
+
+            @dataclass
+            class SimpleExecutionContext:
+                config: Dict[str, Any]
+                params: Dict[str, Any]
+            ```
+
+          - Wird von BacktestEngine/BacktestService verwendet, um Executor zu initialisieren.
+
+  - Erweiterung der Backtest-Models:
+      - In research_lab/backend/core/backtests/models.py:
+          - Ergänze in `BacktestResult` ein Feld:
+              - `strategy_metadata: dict[str, Any] | None = None`
+          - Optional ein Feld im BacktestRequest:
+              - `strategy_params: dict[str, Any] = {}`
+              - Wird später an ExecutionContext.params durchgereicht.
+
+  - Integration in BacktestEngine:
+      - In research_lab/backend/core/backtests/engine.py:
+          - Erweitere RollingKpiBacktestEngine (oder erstelle eine neue Engine-Klasse, wenn du die alte als "pure KPIs" behalten willst) um Strategy Execution:
+              - Neue private Hilfsmethode:
+
+                ```python
+                def _build_executor(self, request: BacktestRequest) -> StrategyExecutor:
+                    ...
+                ```
+
+              - Für `mode == "graph"`:
+                  - Nutzt request.graph.engine_config / dsl.
+                  - Wenn `engine_config` nicht gesetzt:
+                      - Evtl. placeholder-config aus dsl/graph_id generieren.
+                  - Erstellt `GraphStrategyExecutorAdapter(engine_config, dsl=request.graph.dsl)`.
+              - Für `mode == "python"`:
+                  - Nutzt PythonStrategyRef:
+                      - Wenn `key` gesetzt:
+                          - Holt Metadaten aus PythonStrategyRegistry, lädt Klasse per module_path/class_name.
+                      - Wenn `module_path`/`class_name` direkt gesetzt:
+                          - Nutzt `import_strategy_class`.
+                  - Erstellt `PythonStrategyExecutorAdapter(strategy_cls)`.
+
+              - In `run_backtest()`:
+                  - Vor KPI-Berechnung:
+                      - Erzeuge `SimpleExecutionContext(config=request.metadata, params=request.strategy_params)`.
+                      - Erzeuge Executor via `_build_executor`.
+                      - `executor.initialize(ctx)`.
+                  - Nach KPI-Berechnung:
+                      - `strategy_metadata = executor.get_metadata()`
+                      - In BacktestResult.strategy_metadata speichern.
+
+              - WICHTIG: In M1.4a beeinflusst der Executor nicht die Returns (keine Signals/Trades), sondern
+                wird nur *initialisiert* und liefert Metadaten → damit ist der Pfad „StrategyRef → Executor → BacktestResult“
+                voll getestet und bereit für M1.4b (Bar-by-Bar-Execution).
+
+  - Integration in BacktestService & API:
+      - BacktestService:
+          - Keine großen Signaturänderungen notwendig.
+          - Sicherstellen, dass:
+              - BacktestRequest.strategy_params (falls hinzugefügt) durchgereicht wird.
+              - BacktestResult.strategy_metadata mitpersistiert wird (Persistence arbeitet ja auf dem Result-Objekt).
+      - /api/backtests:
+          - Request-Model `BacktestRequest` ggf. um strategy_params erweitern und durchreichen.
+          - Response-Model `BacktestResult` enthält nun strategy_metadata.
+          - Tests aktualisieren, um sicherzustellen, dass strategy_metadata in der API-Antwort auftaucht, wenn
+            StrategyRefs gesetzt sind.
+
+  - Tests (pytest) unter tests/research_lab/backend/:
+      - tests/research_lab/backend/test_strategy_execution_adapters.py
+          - Erzeugt:
+              - Dummy engine_config/dsl für GraphStrategyExecutorAdapter.
+              - Dummy PythonStrategy-Klasse im tmpdir (wie in 003c).
+          - Testfälle:
+              - GraphExecutor:
+                  - initialize(SimpleExecutionContext(...)).
+                  - get_metadata() enthält mindestens:
+                      - type="graph"
+                      - engine_mode=...
+                      - graph_id/graph_name wenn vorhanden.
+              - PythonExecutor:
+                  - initialize(ctx) ruft initialize() der Strategie-Klasse auf (kann via Flag auf der Instanz geprüft werden).
+                  - get_metadata() enthält name, version etc. aus Klassenattributen.
+
+      - tests/research_lab/backend/test_backtest_engine_with_strategy_execution.py
+          - Nutzt RollingKpiBacktestEngine (mit Strategy Execution integriert).
+          - Erzeugt Requests:
+              - mode="graph" mit minimalem StrategyGraphRef (engine_config + dsl).
+              - mode="python" mit PythonStrategyRef (module_path/class_name).
+          - run_backtest():
+              - Liefert BacktestResult mit:
+                  - strategy_metadata nicht None.
+                  - strategy_metadata["type"] == "graph" bzw. "python".
+
+      - tests/research_lab/backend/test_backtests_api_with_strategy_execution.py
+          - FastAPI TestClient.
+          - Setup:
+              - tmpdir für Python-Strategie-Modul (wie in 003c).
+              - BacktestRequest mit:
+                  - mode="python",
+                  - python_strategy = { module_path, class_name }.
+          - Test:
+              - `POST /api/backtests/run-sync`:
+                  - Response Status 200.
+                  - JSON enthält `strategy_metadata` mit z. B. `name == "My Test Strategy"`.
+              - Optional: analoger Test für mode="graph", wenn du im Test eine minimale engine_config/dsl mitlieferst.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Strategy Execution Layer:
+     - Das Paket research_lab/backend/core/strategy_execution/ existiert mit:
+       - __init__.py, interface.py, context.py, graph_executor.py, python_executor.py.
+     - StrategyExecutor definiert initialize() und get_metadata() wie beschrieben.
+     - GraphStrategyExecutorAdapter und PythonStrategyExecutorAdapter implementieren dieses Interface
+       und können mit Dummy-Configs/-Strategien initialisiert werden.
+
+  2. Backtest-Integration:
+     - RollingKpiBacktestEngine (oder eine neue Engine-Variante) ruft für jeden Backtest:
+         - den passenden Executor basierend auf BacktestRequest.mode,
+         - initialize(ctx) vor der KPI-Berechnung,
+         - und übernimmt executor.get_metadata() in BacktestResult.strategy_metadata.
+     - BacktestResult enthält strategy_metadata und wird inkl. dieses Feldes persistiert.
+
+  3. API:
+     - /api/backtests-Endpoints akzeptieren weiterhin BacktestRequest (ggf. erweitert um strategy_params).
+     - /api/backtests/run-sync liefert BacktestResult mit strategy_metadata, wenn StrategyRefs vorhanden sind.
+     - Alle bestehenden Backtest-API-Tests bleiben grün (mit minimalen Anpassungen für das neue Feld).
+
+  4. Tests:
+     - Die neuen Tests:
+         - test_strategy_execution_adapters.py
+         - test_backtest_engine_with_strategy_execution.py
+         - test_backtests_api_with_strategy_execution.py
+       sind implementiert und prüfen:
+         - Adapter-Funktionalität,
+         - Engine-Integration,
+         - API-Integration.
+     - Codex führt im Projekt-Root (afts_pro) `pytest` (oder `pytest -q`) aus.
+     - Ergebnis: Alle Tests (bestehende + neue) PASSED, keine Errors/Failures.
+
+  5. Qualität & Erweiterbarkeit:
+     - Vollständige Type Hints und sinnvolle Docstrings für StrategyExecutor, Adapter, Context und Engine-Erweiterung.
+     - Design ist so gewählt, dass M1.4b später:
+         - echte Bar-by-Bar-Execution,
+         - Signal-/Order-Handling,
+         - echte Integration mit dem AFTS-Core-Backtester
+       über genau diese Execution Bridge implementieren kann, ohne die API/Models zu brechen.
+
+coding_standards: |
+  - Python >= 3.11, wie im Projekt.
+  - Typhints überall, Nutzung von Protocol/ABC für Interfaces.
+  - Router bleiben dünn; Strategy Execution lebt vollständig im Core (strategy_execution/ + backtests/engine.py).
+  - Tests deterministisch, tmpdir/monkeypatch für temporäre Strategy-Module und Settings.
+
+notes: |
+  - Dieser Task sorgt dafür, dass dein Backtest-System nicht mehr nur "Returns-KPI-Rechner" ist,
+    sondern Strategien als echte Entitäten kennt:
+      - graph-compiled Strategien,
+      - Python-Strategien.
+  - In M1.4b können wir dann:
+      - ein simples Bar-by-Bar-Execution-Modell hinzufügen,
+      - z. B. mit einem Dummy-Price-Series-Input und einem Basic-Order-Model,
+      - und Schritt für Schritt Richtung vollständiger AFTS-Core-Integration gehen.

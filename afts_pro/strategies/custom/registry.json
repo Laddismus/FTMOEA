@@ -1,0 +1,12 @@
+{
+  "strat1": {
+    "key": "strat1",
+    "name": "Strat One",
+    "version": "1.0.0",
+    "description": null,
+    "module_path": "math",
+    "class_name": "sqrt",
+    "tags": [],
+    "params_schema": {}
+  }
+}

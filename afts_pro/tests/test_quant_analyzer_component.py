@@ -16,7 +16,7 @@ def _config(tmp_path):
 
 
 def _equity(n=200):
-    ts = pd.date_range("2024-01-01", periods=n, freq="T")
+    ts = pd.date_range("2024-01-01", periods=n, freq="min")
     eq = np.linspace(100, 150, n) + np.random.normal(0, 1, size=n)
     return pd.DataFrame({"timestamp": ts, "equity": eq})
 

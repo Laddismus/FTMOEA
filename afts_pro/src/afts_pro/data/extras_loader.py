@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict
 
 import pandas as pd
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from afts_pro.config.extras_config import ExtraDatasetConfig, ExtrasConfig
 
@@ -17,8 +17,7 @@ class ExtrasSeries(BaseModel):
     dataset: str
     df: pd.DataFrame
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 def _build_final_path(config: ExtrasConfig, symbol: str, dataset_cfg: ExtraDatasetConfig) -> Path:

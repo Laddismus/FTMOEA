@@ -1,0 +1,286 @@
+title: AFTS_M1_Task_007_Backtest_BarLoop_With_PythonStrategy_v1
+
+summary: |
+  Erweitere das Backtest-System so, dass Python-Strategien nicht mehr nur Metadaten liefern,
+  sondern tatsächlich bar-by-bar ausgeführt werden können. Aus den Strategy-Outputs werden
+  Returns generiert, über die dann wie bisher KPIs berechnet werden.
+
+  Ziel:
+    - Einführung eines simplen Bar-Modells (OHLCV) im Backtest-Domain-Layer.
+    - Erweiterung des PythonStrategyInterface um einen optionalen on_bar-Hook.
+    - Erweiterung des PythonStrategyExecutorAdapter, um on_bar auf einer Bar-Serie aufzurufen.
+    - Anpassung der BacktestEngine:
+        - Wenn mode="python" und Bars im Request vorhanden sind:
+            - Bar-Loop über die Serie.
+            - pro Bar die Strategie ausführen.
+            - aus den Strategy-Outputs eine Returns-Serie erzeugen.
+        - KPIs weiterhin via RollingKpiEngine.
+    - Graph-Strategien bleiben vorerst metadata-only (weiterer Ausbau in M1.4x).
+    - Vollständige pytest-Abdeckung für Bar-Loop, Python-Strategie-Ausführung und API-Flow.
+
+inputs:
+  - Aktueller Stand:
+      - Backtests:
+          - research_lab/backend/core/backtests/models.py
+          - research_lab/backend/core/backtests/engine.py
+          - research_lab/backend/core/backtests/service.py
+          - research_lab/backend/core/backtests/persistence.py
+          - research_lab/backend/app/api/backtests.py
+          - Tests: test_backtest_engine_stub.py, test_backtest_engine_with_strategy_execution.py,
+            test_backtests_api*.py, test_backtest_service* etc.
+      - Strategy Execution:
+          - research_lab/backend/core/strategy_execution/interface.py
+          - research_lab/backend/core/strategy_execution/context.py
+          - research_lab/backend/core/strategy_execution/python_executor.py
+          - research_lab/backend/core/strategy_execution/graph_executor.py
+      - Python Strategies:
+          - research_lab/backend/core/python_strategies/interface.py
+          - research_lab/backend/core/python_strategies/loader.py
+          - tests/test_python_strategy_interface_and_loader.py
+
+outputs:
+  - Backtest-Bar-Modell:
+      - In research_lab/backend/core/backtests/models.py:
+          - Neues Pydantic-Modell:
+
+            ```python
+            class BacktestBar(BaseModel):
+                ts: datetime
+                open: float
+                high: float
+                low: float
+                close: float
+                volume: float | None = None
+            ```
+
+          - Erweiterung von BacktestRequest:
+              - `bars: list[BacktestBar] | None = None`
+              - `returns: list[float] | None = None` (falls noch nicht Optional):
+                  - Für Abwärtskompatibilität:
+                      - Wenn bars vorhanden → Engine erzeugt returns aus der Strategie.
+                      - Wenn keine bars, aber returns vorhanden → Engine nutzt returns wie bisher.
+              - `strategy_params: dict[str, Any] = {}` (falls noch nicht vorhanden; wird an Strategie weitergegeben).
+
+  - Erweiterung PythonStrategyInterface:
+      - In research_lab/backend/core/python_strategies/interface.py:
+          - Interface um einen optionalen on_bar-Hook ergänzen:
+
+            ```python
+            from typing import Optional
+            from research_lab.backend.core.backtests.models import BacktestBar
+
+            class PythonStrategyInterface(ABC):
+                ...
+                def on_bar(self, bar: BacktestBar) -> float:
+                    """
+                    Called for each bar in a backtest.
+                    Should return a realized per-bar return (e.g., in percentage or R),
+                    or 0.0 if no position change / no PnL impact for this bar.
+                    Default implementation may raise NotImplementedError if the strategy
+                    is not designed for bar-by-bar execution.
+                    """
+                    raise NotImplementedError
+            ```
+
+          - BasePythonStrategy:
+              - Implementiert eine Default-Version von on_bar:
+
+                ```python
+                def on_bar(self, bar: BacktestBar) -> float:
+                    return 0.0
+                ```
+
+                (Damit bleiben alte Strategien kompatibel; die Engine kann optional prüfen,
+                ob on_bar überschrieben wurde.)
+
+          - Tests für interface/loader entsprechend anpassen (z. B. Test-Strategie mit eigenem on_bar).
+
+  - Erweiterung PythonStrategyExecutorAdapter:
+      - In research_lab/backend/core/strategy_execution/python_executor.py:
+          - Ergänze eine Methode:
+
+            ```python
+            def run_bar_loop(self, bars: Sequence[BacktestBar]) -> list[float]:
+                """
+                Executes the underlying Python strategy over a series of bars and returns
+                a list of per-bar returns as produced by strategy_instance.on_bar().
+                """
+            ```
+
+          - Implementierung:
+              - Sicherstellen, dass `strategy_instance` existiert (initialize wurde aufgerufen).
+              - Für jede Bar in bars:
+                  - `ret = self.strategy_instance.on_bar(bar)`
+                  - Falls ret None oder nicht-float → TypeError oder 0.0, je nach Design;
+                    für M1.4b: klare Validation, Tests erwarten float.
+              - liste der Returns zurückgeben.
+
+          - Tests ergänzen, um sicherzustellen, dass:
+              - run_bar_loop() on_bar der Strategie-Klasse tatsächlich aufruft.
+              - die zurückgegebenen Werte der erwarteten Liste entsprechen.
+
+  - Integration in BacktestEngine:
+      - In research_lab/backend/core/backtests/engine.py:
+          - RollingKpiBacktestEngine.run_backtest():
+
+            - Bisher:
+                - Nutzt request.returns direkt.
+            - Neu-Logik (Pseudo-Code):
+
+              ```python
+              def run_backtest(self, request: BacktestRequest) -> BacktestResult:
+                  executor = self._build_executor(request)
+                  ctx = SimpleExecutionContext(config=request.metadata, params=request.strategy_params)
+                  executor.initialize(ctx)
+
+                  if request.mode == "python" and request.bars:
+                      # bar-by-bar execution path
+                      returns = executor.run_bar_loop(request.bars)
+                  else:
+                      # fallback to provided returns (graph mode oder python ohne bars)
+                      if not request.returns:
+                          raise ValueError("No returns provided and no bars for python mode.")
+                      returns = request.returns
+
+                  # Der Rest wie bisher: RollingKpiEngine.compute_rolling_kpis(returns, request.window) etc.
+              ```
+
+          - Sicherstellen, dass:
+              - das Ergebnis `returns` weiterhin in KPI-Berechnung und BacktestResult (z. B. metadata) mitgeführt werden kann,
+                falls du das möchtest (optional in diesem Task, Hauptsache KPIs stimmen).
+              - strategy_metadata bleibt wie in Task 006.
+
+  - API-Anpassung:
+      - In research_lab/backend/app/api/backtests.py:
+          - Request-Schema für POST /api/backtests/run-sync und /submit so anpassen, dass:
+              - bars-Feld (Liste von Bar-Objekten) akzeptiert wird.
+              - returns optional geworden ist.
+          - Response bleibt BacktestResult (inkl. strategy_metadata).
+          - Bestehende API-Tests aktualisieren:
+              - Bisher: nur returns → fallback-Pfad weiterhin testen.
+              - Neu: ein Test für Python + Bars (siehe unten).
+
+  - Tests (pytest) unter tests/research_lab/backend/:
+      - tests/research_lab/backend/test_python_strategy_bar_loop.py
+          - Legt ein temporäres Modul mit einer Python-Strategie an, z. B.:
+
+            ```python
+            class MyBarStrategy(BasePythonStrategy):
+                strategy_key = "test.bar_strategy"
+                strategy_name = "Bar Strategy"
+                strategy_version = "1.0.0"
+
+                def __init__(self):
+                    super().__init__()
+                    self.last_close = None
+
+                def on_bar(self, bar: BacktestBar) -> float:
+                    if self.last_close is None:
+                        self.last_close = bar.close
+                        return 0.0
+                    ret = (bar.close - self.last_close) / self.last_close
+                    self.last_close = bar.close
+                    return ret
+            ```
+
+          - Test:
+              - import_strategy_class / executor-Setup wie in 003c.
+              - Erzeuge 3–4 Bars mit einfachen close-Werten.
+              - run_bar_loop(bars) → erwartete Returns (0.0 für erste Bar, danach Close-to-Close-Returns).
+
+      - tests/research_lab/backend/test_backtest_engine_python_bars.py
+          - Nutzt RollingKpiBacktestEngine mit PythonStrategyExecutorAdapter.
+          - Setup:
+              - Request:
+                  - mode="python"
+                  - python_strategyRef (module_path/class_name)
+                  - bars: definierte BacktestBar-Serie
+                  - window: kleiner Wert (z. B. 2)
+              - Erwartung:
+                  - BacktestResult.kpi_summary.total_return ≈ sum(StrategyReturns) (mit Toleranz bei float).
+                  - trade_count == len(returns) (oder len(bars) - 1, je nach ret-Logik im Test).
+                  - strategy_metadata["type"] == "python".
+
+      - tests/research_lab/backend/test_backtests_api_python_bars.py
+          - FastAPI TestClient.
+          - Setup:
+              - tmpdir mit Test-Python-Strategie wie oben.
+              - BacktestRequest JSON:
+                  - mode="python",
+                  - python_strategy: {module_path, class_name},
+                  - bars: seriell serialisierte OHLC-Bars.
+              - `POST /api/backtests/run-sync`:
+                  - Status 200.
+                  - Response enthält:
+                      - kpi_summary.total_return mit erwartbarem Wert.
+                      - strategy_metadata nicht None, name == "Bar Strategy".
+              - Optional: auch /submit + /jobs/{id} mit Bars testen.
+
+      - Bestehende Tests:
+          - test_backtest_engine_stub.py:
+              - Sicherstellen, dass returns-only Pfad (z. B. mode="graph" oder python ohne bars) weiterhin funktioniert.
+          - test_backtests_api.py:
+              - Der bisherige returns-Only-Flow bleibt grün.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. BacktestRequest:
+     - Unterstützt sowohl returns (optional) als auch bars (optional).
+     - Für mode="python" + vorhandene bars wird die Rückgabe der Strategie (on_bar) als Returns-Serie verwendet.
+
+  2. PythonStrategyInterface:
+     - Hat einen on_bar(bar: BacktestBar) -> float Hook.
+     - BasePythonStrategy implementiert eine Default-Version, die 0.0 zurückgibt.
+     - Test-Strategien im Projekt (z. B. in test_python_strategy_interface_and_loader) sind angepasst.
+
+  3. PythonStrategyExecutorAdapter:
+     - Besitzt run_bar_loop(bars), das on_bar auf der Instanz für jede Bar aufruft.
+     - Tests verifizieren, dass on_bar wirklich aufgerufen und der Rückgabewert als Returns-Serie genutzt wird.
+
+  4. BacktestEngine:
+     - Für mode="python" + bars:
+         - Bar-Loop-Pfad wird genutzt.
+         - Returns werden aus der Strategie abgeleitet.
+         - KPIs basieren auf diesen Returns.
+     - Für alle anderen Fälle (graph oder python ohne bars):
+         - Fallback auf request.returns (wie bisher).
+     - Alle existierenden Tests bleiben grün oder sind minimal angepasst.
+
+  5. API:
+     - /api/backtests/run-sync akzeptiert bars im Request und verarbeitet sie korrekt.
+     - Ein neuer API-Test beweist, dass Python-Strategien bar-by-bar ausgeführt werden
+       und KPIs aus den StrategyReturns berechnet werden.
+
+  6. Tests:
+     - Neue Tests:
+         - test_python_strategy_bar_loop.py
+         - test_backtest_engine_python_bars.py
+         - test_backtests_api_python_bars.py
+       sind implementiert und bestehen.
+     - Ein Gesamtlauf `pytest` im Projekt-Root (afts_pro) läuft komplett grün (keine Errors/Failures).
+
+  7. Qualität:
+     - Alle neuen Klassen/Funktionen sind mit Type Hints versehen.
+     - Docstrings erklären kurz:
+         - Wie on_bar gedacht ist (per-bar return),
+         - Wie der Bar-Loop im BacktestEngine funktioniert.
+     - Design ist so gewählt, dass spätere Erweiterungen
+         - Positionsmodell,
+         - Order-Handling,
+         - komplexere Signal-/Trade-Logik
+       auf diesem Bar-Loop aufbauen können, ohne die API zu brechen.
+
+coding_standards: |
+  - Python >= 3.11 wie im Projekt.
+  - Vollständige Typisierung, keine „magischen“ dicts ohne Typ.
+  - Router bleiben dünn, Business-Logik in Core.
+  - Tests deterministisch, tmpdir/monkeypatch für Strategy-Module und Settings.
+
+notes: |
+  - Mit diesem Task wird dein Backtest-System vom reinen "Returns-KPI-Rechner"
+    zu einer echten Python-Strategy-Execution-Pipeline:
+      - Bars → Strategy.on_bar → Returns → KPIs → Persistenz.
+  - Graph-Strategien bleiben vorerst im Metadaten-Modus – M1.4c kann dann
+    einen ersten Graph-Runtime-Interpreter hinzufügen, der NodeConfigs ausführt
+    und ebenfalls Signals/Returns generiert.

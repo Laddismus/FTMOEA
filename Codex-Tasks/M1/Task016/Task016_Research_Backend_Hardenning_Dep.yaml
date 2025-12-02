@@ -1,0 +1,232 @@
+title: AFTS_M1_Task_016_Research_Backend_Hardening_Dependencies_Logging_Docs_v1
+
+summary: |
+  Härte den Research-Backend-Stack ab und bring ihn auf „Produktions-Reife“ für M1:
+    - Sauberes Dependency-Pinning für alle Research-spezifischen Libraries (FastAPI, scikit-learn, etc.).
+    - Einheitliches Error-Handling & Response-Envelope für API-Fehler (inkl. simple Request-Correlation-ID).
+    - Basis-Logging für Requests & Fehler im Research-Backend (stdout, strukturiert genug für spätere Integration).
+    - Minimierung der Test-Warnungen durch gezielte Pydantic-/Pandas-Cleanup-Maßnahmen.
+    - Kurze Developer-Doku für das Research-Backend (API-Überblick & Dev-Flow).
+
+  Ziel:
+    - Ein stabiler, reproduzierbarer Research-Backend-Stack ohne wilde Deprecation-Warnungen,
+      mit klaren Fehlerantworten und einer Einstieg-Doku für dich, deinen Kollegen und Codex.
+
+inputs:
+  - Aktueller Stand Research Backend:
+      - API:
+          - research_lab/backend/app/main.py
+          - research_lab/backend/app/api/*.py (health, analytics, strategy_builder, python_strategies,
+            backtests, experiments, rl, rl_experiments, governance, etc.)
+      - Core:
+          - research_lab/backend/core/* (analytics, strategy_builder, backtests, strategy_execution,
+            experiments, rl, rl_experiments, risk_guard, governance, utils/datetime, etc.)
+      - Tests:
+          - tests/research_lab/backend/* (bereits 240+ Tests rund um alle Module)
+      - Warnings:
+          - Pydantic-Config & Pandas-Frequenz (laut letzter Messages: „only existing external warnings remain“)
+          - src/afts_pro/data/extras_loader.py (Pydantic/Pandas-Warnungen)
+      - Dependencies:
+          - Aktuelle Installation via `pip install fastapi`, `scikit-learn` etc. (nicht gepinnt).
+          - Evtl. vorhandene requirements/pyproject-Dateien im Repo (Codex sieht diese direkt).
+
+outputs:
+  - Dependency-Pinning für Research-Stack:
+      - Lege eine dedizierte Requirements-Datei für den Research-Backend an (oder erweitere bestehende Struktur),
+        z. B.:
+
+        - Neue Datei: `requirements/research.txt` (oder in vorhandenes Schema integrieren):
+
+          - Enthält mindestens gepinnte Versionen für:
+              - fastapi
+              - uvicorn (falls für local dev genutzt)
+              - pydantic (falls explizit genutzt; sonst über fastapi)
+              - scikit-learn
+              - numpy / pandas (falls nicht schon zentral gepinnt)
+          - Beispiel (Codex entscheidet konkrete kompatible Versionen, aber semantisch):
+
+            ```text
+            fastapi~=0.115.0
+            uvicorn[standard]~=0.30.0
+            pydantic~=2.8.0
+            scikit-learn~=1.5.0
+            numpy~=2.0.0
+            pandas~=2.2.0
+            ```
+
+      - Ergänze kurze Doku dazu in README / Dev-Doku (siehe unten), wie der Research-Stack installiert wird:
+          - `pip install -r requirements/research.txt` oder analog zum bestehenden Tooling (pip-tools/poetry).
+
+  - Einheitliches Error-Handling & Response-Envelope:
+      - Neue Datei: `research_lab/backend/app/errors.py`
+
+        - Definiere:
+            - Ein Pydantic-Modell für Error-Responses:
+
+              ```python
+              class ErrorResponse(BaseModel):
+                  detail: str
+                  error_code: str
+                  request_id: str | None = None
+              ```
+
+            - Utility zum Erzeugen eines standardisierten ErrorResponse-Objekts.
+
+        - Registriere in `main.py` globale Exception-Handler:
+            - `HTTPException` → ErrorResponse mit `error_code` basierend auf Status (z. B. "not_found", "bad_request").
+            - generische `Exception` → ErrorResponse mit `error_code="internal_error"`, Status 500.
+
+      - Ergänzung Request-Correlation-ID:
+          - In main.py:
+              - Ein FastAPI-Middleware, die pro Request einen `request_id` generiert (UUID4) und:
+                  - Im `request.state.request_id` speichert.
+                  - Im ErrorResponse.request_id zurückgibt.
+                  - In Logs verwendet (siehe Logging-Teil).
+
+      - Tests:
+          - Neue Datei: `tests/research_lab/backend/test_error_handling.py`:
+              - Test, dass ein gezielt geworfener HTTPException in einem API-Endpoint
+                (z. B. Dummy-Test-Endpoint) als ErrorResponse mit `detail`, `error_code`, `request_id` zurückkommt.
+              - Test, dass eine allgemeine Exception in ErrorResponse mit Status 500 gewandelt wird.
+
+  - Basis-Logging für Research-Backend:
+      - Neue Datei: `research_lab/backend/app/logging_config.py`
+
+        - Konfiguriere `logging` (Stdlib) mit:
+            - Logger-Namen: z. B. "research_lab".
+            - StreamHandler auf stdout.
+            - Logformat inkl. Timestamp, Level, Logger, optional `request_id` (falls in LogRecord extra vorhanden).
+
+        - In main.py:
+            - `from .logging_config import configure_logging`
+            - `configure_logging()` beim Startup aufrufen.
+
+      - Request-Logging-Middleware:
+          - In main.py (oder eigener Datei `middlewares.py`):
+              - Middleware, die:
+                  - Request-Methode, Pfad, Status-Code, Dauer und request_id loggt.
+                  - Nur minimale Infos, damit es später leicht in ELK/Datadog o. Ä. geht.
+
+      - Tests:
+          - Du musst kein riesiges Logging-Testing machen, aber:
+              - In `test_error_handling.py` oder eigener Log-Testdatei kurz verifizieren,
+                dass Middleware / Handler ohne Exceptions laufen (z. B. via caplog).
+
+  - Warnungs-Cleanup (Pydantic/Pandas):
+      - In `src/afts_pro/data/extras_loader.py` (und ggf. verwandten Files):
+
+        - Passe veraltete Pydantic-Config oder Pandas-Funktionen an:
+            - z. B. `Config`-Namen / Settings updaten, `freq`-Aliases durch aktuelle ersetzen.
+
+        - Ziel: die bekannten Pydantic- und Pandas-Deprecation-Warnungen in den Tests zu reduzieren,
+          OHNE wildes `filterwarnings` in pytest.
+
+      - Optional: zentraler pytest-Warning-Filter:
+          - In `pytest.ini` oder `tests/conftest.py` (nur sehr gezielt!), z. B.:
+            - Unterdrücke bekannte Drittanbieter-Noise, aber nur, wenn du die Ursache nicht gefahrlos beheben kannst.
+
+      - Tests:
+          - `pytest`-Run soll zeigen, dass:
+              - Keine neuen Warnungen hinzugekommen sind.
+              - Ideal: Pydantic/Pandas-Warnungen reduziert oder entfernt.
+              - Falls einzelne externe Warnungen nicht vermeidbar: in Notes dokumentieren.
+
+  - Developer-Doku (Research Backend Overview):
+      - Neue Datei: `docs/research_backend_overview.md` (oder unter `research_lab/docs/` je nach Struktur):
+
+        - Inhalt v1 (stichwortartig, aber klar):
+
+          - **Scope**:
+              - Research-Lab Backend für:
+                  - Backtests (+FTMO RiskGuard),
+                  - Strategy Builder (Graph + Python),
+                  - Experiments & Leaderboards,
+                  - RL Core & RL Experiments,
+                  - Governance Model Hub.
+
+          - **Starten (Dev)**:
+              - Wie venv/Poetry/uv gesetzt werden.
+              - Wie Dependencies installiert werden (`requirements/research.txt` o. ä.).
+              - Wie der Server gestartet wird (z. B. `uvicorn research_lab.backend.app.main:app --reload`).
+
+          - **API-Übersicht**:
+              - Liste der wichtigsten Routen:
+                  - `/api/health`
+                  - `/api/analytics/*`
+                  - `/api/strategy-builder/*`
+                  - `/api/python-strategies/*`
+                  - `/api/backtests/*`
+                  - `/api/experiments/*`
+                  - `/api/rl/*`
+                  - `/api/rl-experiments/*`
+                  - `/api/governance/*`
+              - Hinweis auf automatisch generiertes OpenAPI (z. B. `/docs` / `/redoc`).
+
+          - **Error/Logging-Konzept**:
+              - Kurze Beschreibung des ErrorResponse-Formats.
+              - Hinweis auf request_id / Logging.
+
+          - **Weiterentwicklung**:
+              - Hinweis, dass M2+ UI direkt auf diesen API-Layer aufsetzen wird.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Dependencies:
+     - Es existiert eine klare, versionierte Dependency-Definition für den Research-Backend
+       (z. B. requirements/research.txt oder in bestehendem Tooling integriert),
+       in der FastAPI, scikit-learn und relevante Libraries explizit gepinnt sind.
+     - Die Developer-Doku beschreibt, wie diese Dependencies installiert werden.
+
+  2. Error-Handling:
+     - Globale Exception-Handler liefern ein einheitliches JSON-Format:
+         - `{"detail": "...", "error_code": "...", "request_id": "..."}`.
+     - HTTPExceptions und generische Exceptions werden korrekt gemappt.
+     - Ein neuer Test (test_error_handling.py o. ä.) belegt dieses Verhalten.
+
+  3. Logging:
+     - Es gibt eine zentrale Logging-Konfiguration (logging_config.py o. ä.),
+       die beim Start des Research-Backends aktiviert wird.
+     - Eine Request-Middleware schreibt für jede Anfrage einen Log-Eintrag mit Methode, Pfad,
+       Status-Code und Dauer (ggf. request_id).
+     - Mindestens ein Test prüft, dass diese Middleware ohne Fehler arbeitet
+       (z. B. via caplog oder einfach durch Request-Aufruf).
+
+  4. Warnungs-Cleanup:
+     - Pydantic-/Pandas-bezogene Warnungen aus den vorherigen Läufen wurden
+       entweder durch Code-Anpassungen beseitigt oder durch sauber dokumentiertes,
+       gezieltes Warning-Filtering minimiert.
+     - Ein `pytest`-Lauf im Projekt-Root (`cd afts_pro && pytest`) läuft grün
+       und produziert keine neuen (unerwarteten) Warnungen.
+
+  5. Doku:
+     - `docs/research_backend_overview.md` (oder ein äquivalenter Pfad) existiert
+       und enthält:
+         - Scope-Beschreibung,
+         - Schritte für Setup/Start,
+         - API-Überblick,
+         - Hinweis auf Error/Logging-Konzept.
+     - Inhalt ist grob konsistent mit der aktuellen Implementierung (kein offensichtlicher Drift).
+
+  6. Gesamtqualität:
+     - Alle neuen Module/Funktionen sind typisiert und haben kurze, erklärende Docstrings.
+     - FastAPI-Router bleiben schlank; Error-Handling/Logging ist in dedizierten Modulen gekapselt.
+     - Gesamt-`pytest` (inkl. neuer Tests) läuft fehlerfrei.
+
+coding_standards: |
+  - Python >= 3.11, Pydantic/FastAPI wie im restlichen Projekt.
+  - Strikte Typisierung aller neuen Funktionen/Klassen.
+  - Kein schwergewichtiges Logging-Framework; nur Stdlib-logging mit sauberer Konfiguration.
+  - Tests deterministisch, keine Abhängigkeit von externen Services.
+  - Keine „magic“ Warning-Filter, außer minimal und klar begründet.
+
+notes: |
+  - Mit diesem Task machst du aus dem M1-Research-Backend ein wirklich „deploybares“ Stück Software:
+      - reproduzierbare Dependencies,
+      - sauberes Error-Handling,
+      - brauchbares Logging,
+      - und eine Einstieg-Doku für dich & alle zukünftigen Teammitglieder.
+  - Danach ist M1-Backend im Prinzip „feature complete + hardened“ und wir können
+    entweder:
+      - die ersten minimalen Research-UI-Views bauen (M1.x / M2),
+      - oder die Brücke zum AFTS-Core schlagen (Integration in deine Gesamt-Architektur).

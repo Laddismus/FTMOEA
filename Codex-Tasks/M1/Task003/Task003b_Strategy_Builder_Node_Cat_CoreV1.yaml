@@ -1,0 +1,348 @@
+title: AFTS_M1_Task_003b_Strategy_Builder_NodeCatalog_CoreV1
+
+summary: |
+  Erweitere den Strategy Builder so, dass er ein sauberes, kuratiertes Core v1 Node-Set
+  bereitstellt, mit dem bereits echte Strategien (Trendfolge, Mean-Reversion, ORB-Style, Filter)
+  über das No-Code-Graphsystem gebaut werden können.
+
+  Ziel:
+    - NodeSpec/NodeParamDefinition um zusätzliche Meta-Informationen ergänzen (stage, tags, version),
+      um die spätere GUI besser zu unterstützen.
+    - Einen klar definierten, gut dokumentierten Core v1 Node-Katalog implementieren
+      (Sources, Indicators, Conditions, Logic, Signals, Risk, Filter).
+    - Tests, die sicherstellen, dass der NodeCatalog konsistent ist und mindestens eine
+      Beispiel-Strategie aus diesen Nodes baubar und validierbar ist.
+    - Bestehende StrategyBuilder-Tests bleiben grün; neue Tests validieren explizit den Core v1 Node-Katalog.
+
+inputs:
+  - Bestehende Strategy Builder Implementierung:
+      - research_lab/backend/core/strategy_builder/models.py
+      - research_lab/backend/core/strategy_builder/node_catalog.py
+      - research_lab/backend/core/strategy_builder/graph_engine.py
+      - research_lab/backend/app/api/strategy_builder.py
+      - Tests:
+          - tests/research_lab/backend/test_strategy_builder_models.py
+          - tests/research_lab/backend/test_strategy_builder_graph_engine.py
+          - tests/research_lab/backend/test_strategy_builder_dsl_and_config.py
+          - tests/research_lab/backend/test_strategy_builder_api.py
+  - M1-Zielbild:
+      - Graph-basierter Strategy Builder mit Node-Palette (Sources, Indicatoren, Conditions, Logic, Signals, Risk, Filter),
+        der über GUI ohne Coding nutzbar ist.
+  - Annahme:
+      - NodeCatalog ist aktuell vorhanden mit Dummy/Minimal-Nodes.
+      - Wir dürfen den Inhalt des NodeCatalogs anpassen, solange Tests auf den neuen, definierten Satz aktualisiert werden.
+
+outputs:
+  - Erweiterung der Strategy-Modelle (models.py):
+      - In research_lab/backend/core/strategy_builder/models.py:
+        - `NodeSpec` erweitern um:
+            - `stage: str`              # z. B. "entry", "filter", "risk", "exit", "meta"
+            - `tags: list[str] = []`    # z. B. ["trend", "momentum", "volatility"]
+            - `version: str = "1.0.0"`  # Versionierung für spätere Upgrades
+        - Optional (wenn noch nicht vorhanden): Enums/Literals für:
+            - Node-Kategorien: "source", "indicator", "condition", "logic", "signal", "risk", "filter", "meta"
+            - Stages: "entry", "filter", "risk", "exit", "meta"
+        - Sicherstellen, dass NodeParamDefinition/NodeSpec weiter voll Pydantic-kompatibel bleiben.
+
+  - Core v1 Node-Katalog (node_catalog.py):
+      - In research_lab/backend/core/strategy_builder/node_catalog.py:
+        - Implementiere einen `NodeCatalog` mit einem definierten Core v1 Set von NodeSpecs.
+        - Der Katalog soll mindestens folgende Nodes bereitstellen (Naming exakt wie unten, damit Tests
+          stabil darauf aufbauen können):
+
+        - Source Nodes:
+            1. "price_source":
+               - category: "source"
+               - stage: "entry"
+               - description: "Base OHLCV price source for a given symbol and timeframe."
+               - inputs: []  # keine Inputs, Startpunkt
+               - outputs: ["open", "high", "low", "close", "volume"]
+               - params:
+                   - symbol: dtype="string", required=True
+                   - timeframe: dtype="string", required=True  # z. B. "M1", "M5", "H1"
+            2. "htf_price_source":
+               - category: "source"
+               - stage: "entry"
+               - description: "Higher timeframe aggregated OHLCV source."
+               - inputs: []
+               - outputs: ["open", "high", "low", "close", "volume"]
+               - params:
+                   - symbol: dtype="string", required=True
+                   - timeframe: dtype="string", required=True
+                   - aggregation: dtype="string", required=False, default="ohlc"
+
+        - Indicator Nodes:
+            3. "indicator_sma":
+               - category: "indicator"
+               - stage: "entry"
+               - description: "Simple moving average over a numeric input series."
+               - inputs: ["source"]            # erwartet z. B. close-Serie
+               - outputs: ["sma"]
+               - params:
+                   - length: dtype="int", required=True
+                   - field: dtype="string", required=True, default="close"
+            4. "indicator_ema":
+               - category: "indicator"
+               - stage: "entry"
+               - description: "Exponential moving average over a numeric input series."
+               - inputs: ["source"]
+               - outputs: ["ema"]
+               - params:
+                   - length: dtype="int", required=True
+                   - field: dtype="string", required=True, default="close"
+            5. "indicator_rsi":
+               - category: "indicator"
+               - stage: "entry"
+               - description: "Relative Strength Index over a price/returns input."
+               - inputs: ["source"]
+               - outputs: ["rsi"]
+               - params:
+                   - length: dtype="int", required=True
+                   - field: dtype="string", required=True, default="close"
+            6. "indicator_atr":
+               - category: "indicator"
+               - stage: "entry"
+               - description: "Average True Range volatility indicator."
+               - inputs: ["source"]             # OHLC benötigt – semantische Prüfung kommt später
+               - outputs: ["atr"]
+               - params:
+                   - length: dtype="int", required=True
+
+        - Condition Nodes:
+            7. "condition_greater_than":
+               - category: "condition"
+               - stage: "entry"
+               - description: "Checks if left input is greater than right input."
+               - inputs: ["left", "right"]
+               - outputs: ["condition"]
+               - params:
+                   - strict: dtype="bool", required=False, default=True  # > vs >=
+            8. "condition_less_than":
+               - category: "condition"
+               - stage: "entry"
+               - description: "Checks if left input is less than right input."
+               - inputs: ["left", "right"]
+               - outputs: ["condition"]
+               - params:
+                   - strict: dtype="bool", required=False, default=True
+            9. "condition_cross_over":
+               - category: "condition"
+               - stage: "entry"
+               - description: "Detects cross-over event from below to above."
+               - inputs: ["fast", "slow"]
+               - outputs: ["condition"]
+               - params: []
+           10. "condition_cross_under":
+               - category: "condition"
+               - stage: "entry"
+               - description: "Detects cross-under event from above to below."
+               - inputs: ["fast", "slow"]
+               - outputs: ["condition"]
+               - params: []
+
+        - Logic Nodes:
+           11. "logic_and":
+               - category: "logic"
+               - stage: "entry"
+               - description: "Logical AND over two boolean conditions."
+               - inputs: ["a", "b"]
+               - outputs: ["condition"]
+               - params: []
+           12. "logic_or":
+               - category: "logic"
+               - stage: "entry"
+               - description: "Logical OR over two boolean conditions."
+               - inputs: ["a", "b"]
+               - outputs: ["condition"]
+               - params: []
+           13. "logic_not":
+               - category: "logic"
+               - stage: "entry"
+               - description: "Logical NOT of a boolean condition."
+               - inputs: ["value"]
+               - outputs: ["condition"]
+               - params: []
+
+        - Signal Nodes:
+           14. "signal_long":
+               - category: "signal"
+               - stage: "entry"
+               - description: "Produces a long entry signal when its input condition is true."
+               - inputs: ["condition"]
+               - outputs: ["signal_long"]
+               - params: []
+           15. "signal_short":
+               - category: "signal"
+               - stage: "entry"
+               - description: "Produces a short entry signal when its input condition is true."
+               - inputs: ["condition"]
+               - outputs: ["signal_short"]
+               - params: []
+           16. "signal_flat":
+               - category: "signal"
+               - stage: "exit"
+               - description: "Produces a flat/exit signal when its input condition is true."
+               - inputs: ["condition"]
+               - outputs: ["signal_flat"]
+               - params: []
+
+        - Risk Nodes:
+           17. "risk_fixed_sl_tp":
+               - category: "risk"
+               - stage: "risk"
+               - description: "Defines fixed SL/TP in percentage terms."
+               - inputs: ["signal"]        # erwartet long/short signal
+               - outputs: ["risk_profile"]
+               - params:
+                   - sl_pct: dtype="float", required=True
+                   - tp_pct: dtype="float", required=True
+           18. "risk_atr_sl_tp":
+               - category: "risk"
+               - stage: "risk"
+               - description: "Defines SL/TP based on ATR multiples."
+               - inputs: ["signal", "atr"]
+               - outputs: ["risk_profile"]
+               - params:
+                   - sl_atr_mult: dtype="float", required=True
+                   - tp_atr_mult: dtype="float", required=True
+
+        - Filter Nodes:
+           19. "filter_session":
+               - category: "filter"
+               - stage: "filter"
+               - description: "Filters signals by trading session/time-of-day."
+               - inputs: ["signal"]
+               - outputs: ["signal"]
+               - params:
+                   - session: dtype="string", required=True  # z. B. "london", "new_york", "asia"
+           20. "filter_volatility":
+               - category: "filter"
+               - stage: "filter"
+               - description: "Allows signals only if volatility (e.g. ATR) is above/below threshold."
+               - inputs: ["signal", "atr"]
+               - outputs: ["signal"]
+               - params:
+                   - mode: dtype="string", required=True, default="min"  # "min" oder "max"
+                   - threshold: dtype="float", required=True
+
+        - Für alle NodeSpecs:
+            - `tags` sinnvoll befüllen, z. B.:
+                - indicator_sma: ["trend", "moving_average"]
+                - indicator_rsi: ["momentum", "oscillator"]
+                - filter_session: ["session", "time_filter"]
+            - `version` vorerst "1.0.0".
+        - NodeCatalog-API wie bisher:
+            - `list_nodes() -> list[NodeSpec]`
+            - `get_node(type: str) -> NodeSpec | None`
+
+  - Tests für NodeCatalog und Core v1 Set:
+      - Neue Testdatei: tests/research_lab/backend/test_strategy_builder_node_catalog.py
+        - Test 1: `test_node_catalog_contains_core_v1_nodes`
+            - Instanziert NodeCatalog.
+            - Ruft list_nodes() auf.
+            - Prüft, dass mindestens die oben genannten typ-Namen enthalten sind.
+        - Test 2: `test_node_specs_have_valid_structure`
+            - Für jeden NodeSpec:
+                - category nicht leer und in der erlaubten Menge.
+                - stage nicht leer und in der erlaubten Menge.
+                - inputs/outputs keine Dubletten.
+                - param-Namen eindeutig.
+                - dtype-Werte in einem kleinen Set erlaubter Strings: {"float", "int", "bool", "string"}.
+        - Test 3: `test_example_trend_follow_strategy_graph_is_valid`
+            - Baut einen einfachen StrategyGraph, der eine klassische Trendfolge-Strategie abbildet, z. B.:
+                - Nodes:
+                    - price_source
+                    - indicator_ema (fast)
+                    - indicator_ema (slow)
+                    - condition_cross_over
+                    - signal_long
+                - Edges:
+                    - price_source.close → ema_fast.source
+                    - price_source.close → ema_slow.source
+                    - ema_fast.ema → condition_cross_over.fast
+                    - ema_slow.ema → condition_cross_over.slow
+                    - condition_cross_over.condition → signal_long.condition
+            - Validiert den Graph mit GraphEngine.validate_graph().
+            - Erwartung:
+                - Issues-Liste leer.
+                - topological_sort() wirft keine Exception.
+        - Optional Test 4: `test_example_risk_and_filter_extension_is_valid`
+            - Erweiterung des obigen Graphen um risk_fixed_sl_tp und filter_session Nodes und passende Edges.
+            - Validation muss weiterhin erfolgreich sein.
+
+      - Update vorhandener Tests (falls nötig):
+          - tests/research_lab/backend/test_strategy_builder_graph_engine.py
+              - Falls dort bisher Dummy-NodeSpecs genutzt wurden, auf den echten NodeCatalog-Core v1 umstellen
+                oder einen isolierten Katalog nur für diese Tests konstruieren, der kompatibel ist.
+          - tests/research_lab/backend/test_strategy_builder_api.py
+              - Sicherstellen, dass `GET /api/strategy-builder/nodes` zumindest eine Teilmenge der Core v1 Nodes liefert
+                und z. B. "price_source" und "indicator_sma" enthalten sind.
+
+acceptance: |
+  Dieser Task ist DONE, wenn:
+
+  1. Modelle & Typen:
+     - NodeSpec ist um stage, tags, version erweitert.
+     - Alle neuen Felder sind Pydantic-validierbar, haben Defaults und werden im NodeCatalog gesetzt.
+     - Die erlaubten Kategorien/Stages sind konsistent genutzt (kein Wildwuchs).
+
+  2. NodeCatalog Core v1:
+     - NodeCatalog.list_nodes() enthält mindestens die 20 definierten Node-Typen.
+     - get_node("<type>") liefert für jeden Typ einen validen NodeSpec mit sinnvollen Param-Definitionen.
+     - Jede NodeSpec hat:
+         - eine nicht-leere category aus der erlaubten Menge,
+         - eine nicht-leere stage aus der erlaubten Menge,
+         - eine nicht-leere description,
+         - konsistente Inputs/Outputs (keine Dubletten, Strings),
+         - param-Namen eindeutig, dtype-Werte aus der Whitelist.
+
+  3. Beispielstrategien:
+     - Die im Test definierte Trendfolge-Strategie (price_source → ema_fast/ema_slow → cross_over → signal_long)
+       ist mit GraphEngine.validate_graph() voll valid und topologisch sortierbar.
+     - (Optional, aber empfohlen) Die erweiterte Version mit Risk-/Filter-Nodes ist ebenfalls valid.
+
+  4. API & Integration:
+     - `GET /api/strategy-builder/nodes` liefert eine Liste, die die neuen Core v1 Nodes enthält
+       (mindestens price_source, indicator_sma, signal_long).
+     - Bestehende StrategyBuilder-API-Endpoints funktionieren unverändert (validate, compile, compile-and-save).
+
+  5. Tests & pytest:
+     - Neue Tests in tests/research_lab/backend/test_strategy_builder_node_catalog.py sind implementiert.
+     - Gegebenenfalls angepasste bestehende Tests laufen grün.
+     - Codex führt im Projekt-Root (afts_pro) `pytest` (oder `pytest -q`) aus.
+     - Ergebnis: Alle Tests (bestehende + neue) PASSED, keine Errors/Failures.
+
+  6. Qualität:
+     - Alle neuen/angepassten Klassen/Funktionen sind getypt.
+     - NodeCatalog und ggf. erweiterte Modelle haben Docstrings, die Zweck, Struktur und Verwendung
+       für die GUI/Engine erklären.
+     - Core v1 NodeSet ist konsistent, nicht überladen, aber mächtig genug, um:
+         - einfache Trendfolge-Strategien,
+         - einfache Filter-Logiken (Session, Volatilität),
+         - einfache Risk-Setups (fix sl/tp, atr-basiert)
+       grafisch (No-Code) abbilden zu können.
+
+coding_standards: |
+  - Python-Version wie im Projekt (>= 3.11).
+  - Typisierung:
+      - Vollständige Type Hints für neue/angepasste öffentliche Funktionen und Klassen.
+      - Nutzung von Literal/Enum für Kategorien/Stages ist erwünscht, wo sinnvoll, um Typsicherheit zu erhöhen.
+  - Stil:
+      - Einhaltung der bestehenden Konventionen (Pydantic-Modelle, saubere Modulstruktur).
+      - Docstrings bei NodeSpec, NodeCatalog und den Tests beschreibend, aber nicht ausufernd.
+  - Tests:
+      - pytest, schnell und deterministisch.
+      - Keine Abhängigkeit von externer Infrastruktur; NodeCatalog & GraphEngine bleiben reine In-Memory-Logik.
+
+notes: |
+  - Dieses Core v1 NodeSet ist der erste „offizielle“ Baukasten für No-Code-Strategien:
+      - GUI kann direkt NodePalette aus /api/strategy-builder/nodes ableiten.
+      - Strategien können als Graph gebaut, validiert und später direkt in M1.4 Backtests
+        eingebunden werden.
+  - Erweiterungsideen (später, nicht in diesem Task):
+      - ICT-spezifische Nodes (FVG, Orderblocks, Liquidity Sweeps),
+      - Pattern-/Structure-Nodes (HH/HL/LH/LL, Candle Patterns),
+      - Scoring-/Meta-Nodes, Subgraph-Nodes, ML-Connectoren.
+  - Fokus dieses Tasks:
+      - Stabile, kuratierte Basis, auf der wir nach und nach das Node-Universum
+        Richtung „AustrianQuantHighPerformanceAIFund“ ausbauen können. 😎
